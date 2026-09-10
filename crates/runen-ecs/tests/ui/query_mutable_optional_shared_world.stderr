@@ -1,0 +1,22 @@
+error[E0277]: the trait bound `Option<&mut Position>: query::traits_and_state::QueryReadOnly` is not satisfied
+ --> tests/ui/query_mutable_optional_shared_world.rs:7:30
+  |
+7 |     let _items = state.iter(&world);
+  |                        ----  ^^^^^ the trait `query::traits_and_state::QueryReadOnly` is not implemented for `Option<&mut Position>`
+  |                        |
+  |                        required by a bound introduced by this call
+  |
+help: the trait `query::traits_and_state::QueryReadOnly` is implemented for `Option<&T>`
+ --> src/query/traits_and_state.rs
+  |
+  | impl<T: Component> QueryReadOnly for Option<&T> {}
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  = note: required for `&runen_ecs::World` to implement `runen_ecs::query::QueryWorldSource<'_, Option<&mut Position>>`
+note: required by a bound in `QueryState::<Q, F>::iter`
+ --> src/query/traits_and_state.rs
+  |
+  |     pub fn iter<'w, W>(&self, world: W) -> impl Iterator<Item = Q::Item<'w>> + 'w
+  |            ---- required by a bound in this associated function
+...
+  |         W: QueryWorldSource<'w, Q>,
+  |            ^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `QueryState::<Q, F>::iter`

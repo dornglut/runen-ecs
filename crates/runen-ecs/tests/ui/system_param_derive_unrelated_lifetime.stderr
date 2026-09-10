@@ -1,0 +1,5 @@
+error: SystemParam derive only supports the lifetime roles 'w (world) and 's (cached state)
+ --> tests/ui/system_param_derive_unrelated_lifetime.rs:5:18
+  |
+5 | struct Unrelated<'a> {
+  |                  ^^

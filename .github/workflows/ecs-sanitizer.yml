@@ -1,0 +1,84 @@
+name: RunenECS address sanitizer
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'crates/runen-ecs/**'
+      - 'crates/runen-ecs-macros/**'
+      - 'conformance/**'
+      - 'tools/miri/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.github/workflows/ecs-sanitizer.yml'
+  push:
+    branches:
+      - main
+    paths:
+      - 'crates/runen-ecs/**'
+      - 'crates/runen-ecs-macros/**'
+      - 'conformance/**'
+      - 'tools/miri/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.github/workflows/ecs-sanitizer.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ecs-sanitizer-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  address-sanitizer:
+    name: RunenECS AddressSanitizer proof
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Resolve expected revision
+        id: revision
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_SHA: ${{ github.sha }}
+          PULL_REQUEST_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          case "$EVENT_NAME" in
+            pull_request) expected_revision="$PULL_REQUEST_HEAD_SHA" ;;
+            push|workflow_dispatch) expected_revision="$EVENT_SHA" ;;
+            *) echo "Unsupported event: $EVENT_NAME" >&2; exit 1 ;;
+          esac
+          test -n "$expected_revision"
+          echo "expected_revision=$expected_revision" >> "$GITHUB_OUTPUT"
+
+      - name: Check out exact revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ steps.revision.outputs.expected_revision }}
+          clean: true
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Prove checked-out revision
+        env:
+          EXPECTED_REVISION: ${{ steps.revision.outputs.expected_revision }}
+        run: |
+          set -euo pipefail
+          actual_revision="$(git rev-parse HEAD)"
+          test "$actual_revision" = "$EXPECTED_REVISION"
+
+      - name: Install pinned nightly Rust with source
+        run: rustup toolchain install nightly-2026-08-25 --profile minimal --component rust-src
+
+      - name: Run RunenECS AddressSanitizer proof
+        env:
+          RUSTFLAGS: -Zsanitizer=address
+          ASAN_OPTIONS: detect_leaks=1:halt_on_error=1
+        run: |
+          cargo +nightly-2026-08-25 test \
+            -Zbuild-std \
+            --target x86_64-unknown-linux-gnu \
+            -p runen-ecs --test miri_c3 --locked -- --nocapture

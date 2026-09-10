@@ -1,6 +1,7 @@
 # Repository bootstrap
 
-This file records the standalone repository-profile bootstrap performed before RunenECS implementation transfer.
+This file records the standalone repository-profile bootstrap that preceded the
+RunenECS implementation transfer.
 
 ## Purpose
 
@@ -16,7 +17,9 @@ The bootstrap owns:
 - repository architecture/agent/testing/licensing documentation;
 - stable toolchain declaration and bootstrap lockfile.
 
-It intentionally owns no RunenECS runtime or proc-macro implementation source.
+The bootstrap was intentionally source-free. The transferred implementation is
+now owned by the standalone package paths described in the current README and
+architecture map.
 
 ## Transfer sequence
 
@@ -27,4 +30,5 @@ It intentionally owns no RunenECS runtime or proc-macro implementation source.
 5. Run exact-head repository, all-features, conformance, Miri, AddressSanitizer, example, benchmark, and residue checks required by issue #2.
 6. Accept the successor candidate only when those gates pass. That merge is the ADR-0008 semantic authority switch.
 
-This bootstrap is provenance for repository setup, not a second semantic source authority.
+This bootstrap remains provenance for repository setup, not a second semantic
+source authority.

@@ -1,0 +1,25 @@
+[package]
+name = "runen-ecs"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.93"
+publish = false
+license.workspace = true
+description = "A standalone entity-component-system framework with deterministic scheduling."
+readme = "README.md"
+
+[features]
+default = []
+
+[dependencies]
+runen_ecs_macros = { package = "runen-ecs-macros", path = "../runen-ecs-macros" }
+thiserror = "2.0.18"
+
+[dev-dependencies]
+criterion = "0.5.1"
+glam = "0.31.0"
+trybuild = "1.0.114"
+
+[[bench]]
+name = "semantic_baseline"
+harness = false

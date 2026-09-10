@@ -22,8 +22,10 @@ The CI workflow is a thin read-only caller of the accepted organization reusable
 
 ## Transfer-specific gates
 
-The bootstrap workspace contains only `xtask`, so the canonical baseline does not pretend to prove RunenECS behavior before source exists here.
-
-Issue #2 owns the additional successor-acceptance gates once implementation is staged, including all-features package validation, public/conformance tests, deterministic scheduling/deferred-command behavior, focused Miri and AddressSanitizer evidence, examples/benchmarks, package-identity checks, and no-mirror/no-forwarder/no-moving-dependency residue checks.
+Issue #2 owns the additional successor-acceptance gates, including all-features
+package validation, public/conformance tests, deterministic
+scheduling/deferred-command behavior, focused Miri and AddressSanitizer
+evidence, examples/benchmarks, package-identity checks, and
+no-mirror/no-forwarder/no-moving-dependency residue checks.
 
 Focused gates supplement the canonical baseline; they do not replace it.
