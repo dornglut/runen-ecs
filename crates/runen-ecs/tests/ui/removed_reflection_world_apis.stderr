@@ -1,0 +1,35 @@
+error[E0599]: no method named `register_component_type` found for struct `runen_ecs::World` in the current scope
+  --> tests/ui/removed_reflection_world_apis.rs:13:11
+   |
+13 |     world.register_component_type::<Component>();
+   |           ^^^^^^^^^^^^^^^^^^^^^^^
+   |
+help: there is a method `reflected_component_types` with a similar name
+   |
+13 -     world.register_component_type::<Component>();
+13 +     world.reflected_component_types::<Component>();
+   |
+
+error[E0599]: no method named `register_resource_type` found for struct `runen_ecs::World` in the current scope
+  --> tests/ui/removed_reflection_world_apis.rs:14:11
+   |
+14 |     world.register_resource_type::<Resource>();
+   |           ^^^^^^^^^^^^^^^^^^^^^^
+   |
+help: there is a method `reflected_resource_types` with a similar name
+   |
+14 -     world.register_resource_type::<Resource>();
+14 +     world.reflected_resource_types::<Resource>();
+   |
+
+error[E0599]: no method named `insert_registered_resource` found for struct `runen_ecs::World` in the current scope
+  --> tests/ui/removed_reflection_world_apis.rs:15:11
+   |
+15 |     world.insert_registered_resource(Resource { value: 1 });
+   |           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+help: there is a method `insert_resource` with a similar name
+   |
+15 -     world.insert_registered_resource(Resource { value: 1 });
+15 +     world.insert_resource(Resource { value: 1 });
+   |

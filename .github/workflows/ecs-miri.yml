@@ -1,0 +1,81 @@
+name: RunenECS Miri safety
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'crates/runen-ecs/**'
+      - 'crates/runen-ecs-macros/**'
+      - 'conformance/**'
+      - 'tools/miri/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'tools/miri/run_ecs_c3.sh'
+      - '.github/workflows/ecs-miri.yml'
+  push:
+    branches:
+      - main
+    paths:
+      - 'crates/runen-ecs/**'
+      - 'crates/runen-ecs-macros/**'
+      - 'conformance/**'
+      - 'tools/miri/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'tools/miri/run_ecs_c3.sh'
+      - '.github/workflows/ecs-miri.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ecs-miri-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  miri:
+    name: Focused C3 Miri proof
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Resolve expected revision
+        id: revision
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_SHA: ${{ github.sha }}
+          PULL_REQUEST_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          case "$EVENT_NAME" in
+            pull_request) expected_revision="$PULL_REQUEST_HEAD_SHA" ;;
+            push|workflow_dispatch) expected_revision="$EVENT_SHA" ;;
+            *) echo "Unsupported event: $EVENT_NAME" >&2; exit 1 ;;
+          esac
+          test -n "$expected_revision"
+          echo "expected_revision=$expected_revision" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout exact revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ steps.revision.outputs.expected_revision }}
+          clean: true
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Prove checked-out revision
+        env:
+          EXPECTED_REVISION: ${{ steps.revision.outputs.expected_revision }}
+        run: |
+          set -euo pipefail
+          actual_revision="$(git rev-parse HEAD)"
+          echo "Expected revision: $EXPECTED_REVISION"
+          echo "Actual checked-out revision: $actual_revision"
+          test "$actual_revision" = "$EXPECTED_REVISION"
+
+      - name: Install pinned nightly Rust with Miri
+        run: rustup toolchain install nightly-2026-08-25 --profile minimal --component miri
+
+      - name: Run authoritative focused C3 Miri proof
+        run: bash tools/miri/run_ecs_c3.sh

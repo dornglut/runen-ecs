@@ -1,0 +1,7 @@
+error[E0432]: unresolved import `runen_ecs::ReflectResource`
+ --> tests/ui/removed_reflection_resource_role.rs:1:5
+  |
+1 | use runen_ecs::ReflectResource;
+  |     ^^^^^^^^^^^---------------
+  |                |
+  |                no `ReflectResource` in the root

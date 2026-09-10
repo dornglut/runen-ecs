@@ -1,0 +1,7 @@
+error: Reflect derive does not support borrowed lifetime parameters; reflected values must be 'static
+ --> tests/ui/reflect_borrowed.rs:3:10
+  |
+3 | #[derive(Reflect)]
+  |          ^^^^^^^
+  |
+  = note: this error originates in the derive macro `Reflect` (in Nightly builds, run with -Z macro-backtrace for more info)

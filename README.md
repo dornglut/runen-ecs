@@ -1,23 +1,24 @@
 # RunenECS
 
-RunenECS is the standalone repository reserved for Dornglut's reusable entity-component-system framework.
+RunenECS is Dornglut's standalone reusable entity-component-system framework.
 
 ## Current state
 
-This repository is in **pre-transfer bootstrap**. Runenwerk remains the sole semantic RunenECS source authority until the successor implementation owned by [issue #2](https://github.com/dornglut/runen-ecs/issues/2) is validated and accepted on `runen-ecs/main` under Engineering ADR 0008.
+The source transfer from the accepted Runenwerk C9 boundary is governed by
+[issue #2](https://github.com/dornglut/runen-ecs/issues/2) and Engineering ADR
+0008. An unmerged candidate branch is staging only; the accepted revision on
+`runen-ecs/main` is the standalone semantic authority.
 
-The accepted bootstrap contains repository policy, validation, licensing, and tooling only. It does not contain RunenECS runtime or proc-macro implementation source and does not switch semantic authority.
+## Package topology
 
-## Target package topology
-
-The accepted standalone physical layout for the source-transfer candidate is:
+The standalone physical layout is:
 
 ```text
 crates/runen-ecs
 crates/runen-ecs-macros
 ```
 
-These paths are repository organization only. They do not redefine the accepted C9 semantic boundary or public package identities.
+The runtime and proc-macro packages retain the accepted C9 public identities.
 
 ## Boundary
 
@@ -34,3 +35,9 @@ cargo validate
 ```
 
 See `TESTING.md` for the validation contract and transfer-specific additional gates.
+
+## Provenance
+
+The accepted transfer input is Runenwerk revision
+`b7e3d55c76be0acebf3ce260e7ee282ea1787e29`. The source was physically
+transferred; Git history remains in the predecessor repository.

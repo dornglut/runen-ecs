@@ -2,7 +2,10 @@
 
 ## Current authority state
 
-This repository is currently a pre-transfer standalone shell. Its accepted bootstrap may own repository policy/tooling, but it does **not** yet own RunenECS implementation semantics. Until the successor source-transfer candidate is accepted on `runen-ecs/main`, corrected accepted Runenwerk C9 remains the sole semantic source authority.
+An unmerged source-transfer candidate is staging only. Acceptance on
+`runen-ecs/main` switches semantic authority from the corrected accepted
+Runenwerk C9 boundary to the accepted standalone revision under Engineering
+ADR 0008.
 
 ## Standalone package topology
 

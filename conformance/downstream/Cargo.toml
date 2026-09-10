@@ -1,0 +1,14 @@
+[package]
+name = "runen-ecs-conformance"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.93"
+publish = false
+license.workspace = true
+description = "Downstream public-API conformance fixture for RunenECS."
+
+[dependencies]
+ecs_under_test = { package = "runen-ecs", path = "../../crates/runen-ecs" }
+
+[dev-dependencies]
+trybuild = "1.0.114"

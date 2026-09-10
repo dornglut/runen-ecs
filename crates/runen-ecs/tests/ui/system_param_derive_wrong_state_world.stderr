@@ -1,0 +1,27 @@
+error: lifetime may not live long enough
+ --> tests/ui/system_param_derive_wrong_state_world.rs:1:10
+  |
+1 | #[derive(runen_ecs::SystemParam)]
+  |          ^^^^^^^^^^^^^^^^^^^^^^
+  |          |
+  |          lifetime `'world` defined here
+  |          lifetime `'state` defined here
+  |          this usage requires that `'world` must outlive `'state`
+  |
+  = help: consider adding the following bound: `'world: 'state`
+  = note: this error originates in the derive macro `runen_ecs::SystemParam` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: lifetime may not live long enough
+ --> tests/ui/system_param_derive_wrong_state_world.rs:1:10
+  |
+1 | #[derive(runen_ecs::SystemParam)]
+  |          ^^^^^^^^^^^^^^^^^^^^^^
+  |          |
+  |          lifetime `'state` defined here
+  |          lifetime `'world` defined here
+  |          this usage requires that `'state` must outlive `'world`
+  |
+  = help: consider adding the following bound: `'state: 'world`
+  = note: this error originates in the derive macro `runen_ecs::SystemParam` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+help: `'world` and `'state` must be the same: replace one with the other

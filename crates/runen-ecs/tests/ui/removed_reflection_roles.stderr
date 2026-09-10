@@ -1,0 +1,7 @@
+error[E0432]: unresolved import `runen_ecs::ReflectComponent`
+ --> tests/ui/removed_reflection_roles.rs:1:5
+  |
+1 | use runen_ecs::ReflectComponent;
+  |     ^^^^^^^^^^^----------------
+  |                |
+  |                no `ReflectComponent` in the root
