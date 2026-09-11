@@ -166,13 +166,13 @@ fn entity_mut_bundle_insert_and_remove_work() {
 #[test]
 fn resources_and_change_ticks_work() {
     let mut world = World::new();
-    let start = world.current_change_tick();
+    let start = world.current_change_cursor();
     assert!(world.resource_mut::<Velocity>().is_err());
-    assert_eq!(world.current_change_tick(), start);
-    assert!(!world.resource_changed_since::<Velocity>(start));
+    assert_eq!(world.current_change_cursor(), start);
+    assert_eq!(world.resource_changed_since::<Velocity>(start), Ok(false));
 
     world.insert_resource(Frame(1));
-    assert!(world.resource_changed_since::<Frame>(start));
+    assert_eq!(world.resource_changed_since::<Frame>(start), Ok(true));
 
     {
         let frame = world.resource_mut::<Frame>().unwrap();
@@ -187,7 +187,7 @@ fn resource_lifecycle_and_change_ticks_work() {
     let mut world = World::new();
     assert!(!world.has_resource::<Frame>());
 
-    let start = world.current_change_tick();
+    let start = world.current_change_cursor();
     world.insert_resource(Frame(10));
     {
         let frame = world.resource_mut::<Frame>().unwrap();
@@ -198,8 +198,8 @@ fn resource_lifecycle_and_change_ticks_work() {
     assert_eq!(removed, Some(Frame(15)));
     assert!(!world.has_resource::<Frame>());
 
-    assert!(world.current_change_tick() > start);
-    assert!(world.resource_changed_since::<Frame>(start));
+    assert!(world.current_change_cursor() > start);
+    assert_eq!(world.resource_changed_since::<Frame>(start), Ok(true));
 }
 
 #[test]
@@ -310,12 +310,12 @@ fn secondary_index_helpers_and_component_change_ticks_work() {
         Some(&Name("villain".to_string()))
     );
 
-    let start = world.current_change_tick();
+    let start = world.current_change_cursor();
     world.require_mut::<Name>(hero).unwrap().0 = "hunter".to_string();
     world.despawn(villain).unwrap();
 
-    assert!(world.component_changed_since::<Name>(start));
-    assert!(world.component_changed_since::<Health>(start));
+    assert_eq!(world.component_changed_since::<Name>(start), Ok(true));
+    assert_eq!(world.component_changed_since::<Health>(start), Ok(true));
 }
 
 #[test]
@@ -715,7 +715,7 @@ fn failed_mutable_component_lookup_does_not_create_mutation_facts() {
     let mut world = World::new();
     let entity = world.spawn(Player).expect("spawn should succeed");
     let changed = world.query_state::<(Entity, &Health), Changed<Health>>();
-    let before = world.current_change_tick();
+    let before = world.current_change_cursor();
 
     assert!(world.get_mut::<Health>(entity).is_none());
     assert!(matches!(
@@ -723,15 +723,15 @@ fn failed_mutable_component_lookup_does_not_create_mutation_facts() {
         Err(EntityError::MissingComponent { .. })
     ));
 
-    assert_eq!(world.current_change_tick(), before);
-    assert!(!world.component_changed_since::<Health>(before));
+    assert_eq!(world.current_change_cursor(), before);
+    assert_eq!(world.component_changed_since::<Health>(before), Ok(false));
     assert!(changed.iter(&world).next().is_none());
 }
 
 #[test]
 fn insert_remove_and_despawn_keep_change_ticks_in_sync() {
     let mut world = World::new();
-    let start = world.current_change_tick();
+    let start = world.current_change_cursor();
     let entity = world.spawn(Player).expect("spawn should succeed");
 
     world.insert(entity, Health(10)).unwrap();
@@ -739,7 +739,7 @@ fn insert_remove_and_despawn_keep_change_ticks_in_sync() {
     world.insert(entity, Health(20)).unwrap();
     world.despawn(entity).unwrap();
 
-    assert!(world.component_changed_since::<Health>(start));
+    assert_eq!(world.component_changed_since::<Health>(start), Ok(true));
 }
 
 #[test]

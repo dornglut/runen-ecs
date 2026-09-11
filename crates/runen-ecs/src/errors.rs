@@ -4,6 +4,12 @@ use crate::system::SystemParamError;
 use std::error::Error;
 use thiserror::Error;
 
+#[derive(Debug, Error, Copy, Clone, PartialEq, Eq)]
+pub enum ChangeCursorError {
+    #[error("change cursor belongs to a different world")]
+    ForeignWorld,
+}
+
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
 pub enum EntityAllocationError {
     #[error("entity index space exhausted")]

@@ -1,6 +1,6 @@
 // Owner: RunenECS World Resource - Resource Access APIs
 use crate::component::Resource;
-use crate::errors::ResourceError;
+use crate::errors::{ChangeCursorError, ResourceError};
 use crate::world::{ChangeCursor, World};
 use std::any::{Any, TypeId, type_name};
 
@@ -68,10 +68,15 @@ impl World {
         removed
     }
 
-    pub fn resource_changed_since<R: Resource>(&self, tick: ChangeCursor) -> bool {
-        self.resource_change_ticks
+    pub fn resource_changed_since<R: Resource>(
+        &self,
+        cursor: ChangeCursor,
+    ) -> Result<bool, ChangeCursorError> {
+        self.validate_change_cursor(cursor)?;
+        Ok(self
+            .resource_change_ticks
             .get(&TypeId::of::<R>())
-            .is_some_and(|changed| *changed > tick)
+            .is_some_and(|changed| *changed > cursor))
     }
 
     pub(crate) fn record_resource_change(&mut self, resource_type: TypeId) {

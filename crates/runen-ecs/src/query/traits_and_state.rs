@@ -428,7 +428,7 @@ impl<Q: QuerySpec, F: QueryFilter> QueryState<Q, F> {
             required_present,
             excluded,
             access,
-            last_run_tick: Cell::new(ChangeCursor::default()),
+            last_run_tick: Cell::new(ChangeCursor::origin(world_scope)),
             scratch_pool: Rc::new(RefCell::new(Vec::new())),
             archetype_row_scratch_pool: Rc::new(RefCell::new(Vec::new())),
             fast_fetch_enabled: Q::supports_fast_path(),
@@ -444,7 +444,7 @@ impl<Q: QuerySpec, F: QueryFilter> QueryState<Q, F> {
         }
 
         self.world_scope.set(actual);
-        self.last_run_tick.set(ChangeCursor::default());
+        self.last_run_tick.set(ChangeCursor::origin(actual));
         *self.fast_cache.borrow_mut() = QueryFastCache::default();
     }
 

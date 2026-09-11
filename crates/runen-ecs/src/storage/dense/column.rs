@@ -198,29 +198,31 @@ impl<T> DenseColumn<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::entity::EntityAllocator;
 
     #[test]
     fn dense_column_swap_remove_reports_moved_row_and_preserves_alignment() {
+        let scope = EntityAllocator::new().scope_id();
         let mut column = DenseColumn::default();
         column.push(
             10_i32,
             DenseRowMetadata::new(
-                ChangeCursor::from_parts(0, 1),
-                ChangeCursor::from_parts(0, 1),
+                ChangeCursor::from_parts(scope, 0, 1),
+                ChangeCursor::from_parts(scope, 0, 1),
             ),
         );
         column.push(
             20_i32,
             DenseRowMetadata::new(
-                ChangeCursor::from_parts(0, 2),
-                ChangeCursor::from_parts(0, 2),
+                ChangeCursor::from_parts(scope, 0, 2),
+                ChangeCursor::from_parts(scope, 0, 2),
             ),
         );
         column.push(
             30_i32,
             DenseRowMetadata::new(
-                ChangeCursor::from_parts(0, 3),
-                ChangeCursor::from_parts(0, 3),
+                ChangeCursor::from_parts(scope, 0, 3),
+                ChangeCursor::from_parts(scope, 0, 3),
             ),
         );
 
@@ -229,8 +231,8 @@ mod tests {
         assert_eq!(
             removed.removed_metadata,
             DenseRowMetadata::new(
-                ChangeCursor::from_parts(0, 2),
-                ChangeCursor::from_parts(0, 2)
+                ChangeCursor::from_parts(scope, 0, 2),
+                ChangeCursor::from_parts(scope, 0, 2)
             )
         );
         assert_eq!(
@@ -245,8 +247,8 @@ mod tests {
         assert_eq!(
             column.metadata(1),
             Some(DenseRowMetadata::new(
-                ChangeCursor::from_parts(0, 3),
-                ChangeCursor::from_parts(0, 3)
+                ChangeCursor::from_parts(scope, 0, 3),
+                ChangeCursor::from_parts(scope, 0, 3)
             ))
         );
     }

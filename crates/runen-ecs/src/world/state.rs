@@ -36,8 +36,11 @@ pub struct World {
 
 impl World {
     pub fn new() -> Self {
+        let allocator = EntityAllocator::new();
+        let change_tick = super::change_tracking::ChangeCursor::origin(allocator.scope_id());
+
         Self {
-            allocator: EntityAllocator::new(),
+            allocator,
             alive_entities: BTreeSet::new(),
 
             component_type_registry: HashMap::new(),
@@ -54,7 +57,7 @@ impl World {
             archetype_registry: ArchetypeRegistry::new(),
             entity_locations: Default::default(),
 
-            change_tick: super::change_tracking::ChangeCursor::default(),
+            change_tick,
             component_change_ticks: HashMap::new(),
             resource_change_ticks: HashMap::new(),
             removed_component_records: HashMap::new(),
