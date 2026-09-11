@@ -4,10 +4,7 @@ RunenECS is Dornglut's standalone reusable entity-component-system framework.
 
 ## Current state
 
-The source transfer from the accepted Runenwerk C9 boundary is governed by
-[issue #2](https://github.com/dornglut/runen-ecs/issues/2) and Engineering ADR
-0008. An unmerged candidate branch is staging only; the accepted revision on
-`runen-ecs/main` is the standalone semantic authority.
+Accepted `runen-ecs/main` is the standalone RunenECS semantic implementation authority. Runenwerk consumes an exact accepted RunenECS revision and no longer owns a duplicate predecessor implementation. Cross-repository source-authority transfers follow Dornglut Engineering ADR 0008; the Runenwerk-to-RunenECS transfer is complete.
 
 ## Package topology
 
@@ -26,6 +23,8 @@ RunenECS owns reusable ECS entity/component/resource/world lifecycle, storage/qu
 
 Runenwerk retains application/frame/fixed/render/startup/shutdown policy and product integration. RunenNet and RunenSpatial retain their own reusable networking and spatial semantics.
 
+See `ARCHITECTURE.md` for the repository boundary and dependency direction.
+
 ## Validation
 
 Run the repository-owned canonical baseline with:
@@ -34,7 +33,7 @@ Run the repository-owned canonical baseline with:
 cargo validate
 ```
 
-See `TESTING.md` for the validation contract and transfer-specific additional gates.
+See `TESTING.md` for the canonical baseline, CI relationship, and maintained supplemental safety proofs.
 
 ## Provenance
 

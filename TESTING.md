@@ -18,14 +18,12 @@ The command is repository-owned through `.cargo/config.toml` and `xtask`. It val
 - `git diff --check` and `git diff --cached --check`;
 - a final worktree-state equality check.
 
-The CI workflow is a thin read-only caller of the accepted organization reusable workflow and validates the exact feature head or accepted-main revision.
+The `RunenECS Validation` workflow is a thin read-only caller of the accepted organization reusable workflow and validates the exact pull-request feature head or accepted-main revision.
 
-## Transfer-specific gates
+## Supplemental safety proofs
 
-Issue #2 owns the additional successor-acceptance gates, including all-features
-package validation, public/conformance tests, deterministic
-scheduling/deferred-command behavior, focused Miri and AddressSanitizer
-evidence, examples/benchmarks, package-identity checks, and
-no-mirror/no-forwarder/no-moving-dependency residue checks.
+The repository also maintains focused exact-head Miri and AddressSanitizer workflows. They are path-scoped to changes affecting RunenECS packages, conformance/safety tooling, relevant manifests/lockfile, or their own workflow definitions. Root-documentation-only changes do not automatically trigger these supplemental proofs.
 
-Focused gates supplement the canonical baseline; they do not replace it.
+These safety workflows supplement `cargo validate`; they do not replace the canonical baseline. Their focused scope remains owned by the corresponding checked-in workflow and safety harness.
+
+The additional successor-acceptance gates recorded by completed issue #2 are transfer provenance. They do not remain a second ongoing merge-readiness baseline after the accepted source-authority handoff.
