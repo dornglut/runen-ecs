@@ -16,6 +16,24 @@ type Result<T> = std::result::Result<T, RuntimeError>;
 
 type DeferredCommands = Rc<RefCell<Vec<Commands<'static>>>>;
 
+struct DeferredCommandsUnwindGuard {
+    deferred_commands: DeferredCommands,
+}
+
+impl DeferredCommandsUnwindGuard {
+    fn new(deferred_commands: DeferredCommands) -> Self {
+        Self { deferred_commands }
+    }
+}
+
+impl Drop for DeferredCommandsUnwindGuard {
+    fn drop(&mut self) {
+        if std::thread::panicking() {
+            self.deferred_commands.borrow_mut().clear();
+        }
+    }
+}
+
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct DeferredApplyBoundary {
     schedule: ScheduleKey,
@@ -766,6 +784,8 @@ impl Runtime {
         F: FnMut(DeferredApplyBoundary, &mut World) -> std::result::Result<(), E>,
         E: Into<Box<dyn Error + Send + Sync>> + 'static,
     {
+        let _unwind_guard = DeferredCommandsUnwindGuard::new(self.deferred_commands.clone());
+
         if let Err(err) = self.ensure_build_ready() {
             self.discard_deferred_commands();
             return Err(err);
