@@ -1,5 +1,5 @@
 use runen_ecs::prelude::*;
-use std::panic::{catch_unwind, AssertUnwindSafe};
+use std::panic::{AssertUnwindSafe, catch_unwind};
 
 #[derive(Copy, Clone)]
 struct Update;
@@ -93,16 +93,11 @@ fn panicked_later_stage_preserves_committed_boundary_and_discards_only_unpublish
     world.insert_resource(PanicGate(false));
 
     let mut runtime = Runtime::new();
-    runtime.add_systems::<Update, _, _>(
-        &mut world,
-        enqueue_committed.in_set(CommittedStage),
-    );
+    runtime.add_systems::<Update, _, _>(&mut world, enqueue_committed.in_set(CommittedStage));
     runtime.add_systems::<Update, _, _>(
         &mut world,
         (
-            enqueue_aborted
-                .in_set(AbortedStage)
-                .after(CommittedStage),
+            enqueue_aborted.in_set(AbortedStage).after(CommittedStage),
             panic_once.in_set(AbortedStage).after(CommittedStage),
         ),
     );
