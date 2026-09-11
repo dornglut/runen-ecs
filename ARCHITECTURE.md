@@ -2,14 +2,13 @@
 
 ## Current authority state
 
-An unmerged source-transfer candidate is staging only. Acceptance on
-`runen-ecs/main` switches semantic authority from the corrected accepted
-Runenwerk C9 boundary to the accepted standalone revision under Engineering
-ADR 0008.
+Accepted `runen-ecs/main` is the sole reusable RunenECS semantic implementation authority. Runenwerk consumes an exact accepted standalone revision and no longer contains a writable predecessor implementation.
+
+Cross-repository source-authority transfers follow Engineering ADR 0008. The completed Runenwerk-to-RunenECS handoff is historical provenance; the current architecture has one standalone implementation authority and no transfer overlap.
 
 ## Standalone package topology
 
-The intended standalone workspace topology is:
+The standalone workspace topology is:
 
 ```text
 crates/runen-ecs
@@ -17,7 +16,7 @@ crates/runen-ecs-macros
 xtask
 ```
 
-The runtime and proc-macro packages keep the already accepted public identities. The standalone topology replaces predecessor filesystem placement; it is not a compatibility layer.
+The runtime and proc-macro packages keep the accepted public identities. The standalone topology replaces predecessor filesystem placement; it is not a compatibility layer.
 
 ## Semantic ownership
 
@@ -35,8 +34,8 @@ RunenECS does not own application/frame/render lifecycle, product publication po
 
 ## Dependency direction
 
-The standalone framework must not depend on Runenwerk. Runenwerk may consume an exact immutable accepted RunenECS revision after the ADR-0008 authority switch. Reusable networking and spatial semantics remain owned by RunenNet and RunenSpatial rather than being duplicated here.
+RunenECS does not depend on Runenwerk. Runenwerk may consume an exact immutable accepted RunenECS revision. Reusable networking and spatial semantics remain owned by RunenNet and RunenSpatial rather than being duplicated here.
 
-## Handoff invariant
+## Source-authority invariant
 
-Exactly one writable semantic RunenECS implementation authority exists at a time. An unmerged successor candidate is staging only. Acceptance onto `runen-ecs/main` switches authority; the Runenwerk predecessor then freezes until downstream exact-pin migration deletes it.
+Exactly one writable semantic RunenECS implementation authority exists at a time. The current authority is this standalone repository. Any future transfer must follow Engineering ADR 0008, establish a separately accepted successor, migrate real consumers, and retire the predecessor without leaving a mirror, forwarding path, moving dependency, or second runtime implementation.
