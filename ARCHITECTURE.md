@@ -44,6 +44,12 @@ RunenECS keeps execution mobility separate from semantic scheduling. Components 
 
 The normalized capability and proof boundary are owned by [ADR 0002: Model System Execution Mobility as a Proven Capability](docs/adr/0002-model-system-execution-mobility-as-a-proven-capability.md).
 
+## Deterministic parallel execution
+
+RunenECS treats parallel system execution as a physical realization of the deterministic serial reference semantics. Access conflicts may prevent overlap but never become semantic precedence; worker completion order never determines change positions or deferred publication; invoker-thread-only systems remain explicit physical fences in the baseline executor.
+
+The executor, mutation-journal, deferred-publication, and fail-stop rules are owned by [ADR 0003: Realize Deterministic Parallel System Execution from Serial Semantics](docs/adr/0003-realize-deterministic-parallel-system-execution-from-serial-semantics.md).
+
 ## Dependency direction
 
 RunenECS does not depend on Runenwerk. Runenwerk may consume an exact immutable accepted RunenECS revision. Reusable networking and spatial semantics remain owned by RunenNet and RunenSpatial rather than being duplicated here.
