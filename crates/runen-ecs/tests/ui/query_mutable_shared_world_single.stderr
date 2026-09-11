@@ -16,7 +16,7 @@ error[E0277]: the trait bound `&mut Position: query::traits_and_state::QueryRead
             Option<&T>
             runen_ecs::Entity
   = note: `query::traits_and_state::QueryReadOnly` is implemented for `&Position`, but not for `&mut Position`
-  = note: required for `&runen_ecs::World` to implement `runen_ecs::query::QueryWorldSource<'_, &mut Position>`
+  = note: required for `&World` to implement `runen_ecs::query::QueryWorldSource<'_, &mut Position>`
 note: required by a bound in `QueryState::<Q, F>::single`
  --> src/query/traits_and_state.rs
   |

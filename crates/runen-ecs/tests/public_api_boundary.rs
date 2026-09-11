@@ -3,6 +3,7 @@ const PRELUDE_RS: &str = include_str!("../src/prelude.rs");
 const QUERY_MOD_RS: &str = include_str!("../src/query/mod.rs");
 const QUERY_TRAITS_RS: &str = include_str!("../src/query/traits_and_state.rs");
 const QUERY_ACCESS_RS: &str = include_str!("../src/query/access_and_filters.rs");
+const SYSTEM_MOD_RS: &str = include_str!("../src/system/mod.rs");
 const SYSTEM_EXTRACT_RS: &str = include_str!("../src/system/extract.rs");
 const SYSTEM_PARAMS_RS: &str = include_str!("../src/system/params.rs");
 const WORLD_MOD_RS: &str = include_str!("../src/world/mod.rs");
@@ -29,6 +30,50 @@ fn prelude_remains_gameplay_focused() {
     assert!(!PRELUDE_RS.contains("QuerySpec"));
     assert!(!PRELUDE_RS.contains("SystemParam"));
     assert!(!PRELUDE_RS.contains("SystemParamError"));
+}
+
+#[test]
+fn implementation_only_runtime_identity_and_scheduler_types_are_not_publicly_reexported() {
+    const INTERNAL_ONLY: &[&str] = &[
+        "EntityAllocator",
+        "AccessConflict",
+        "AccessDomain",
+        "AccessKey",
+        "ConflictKind",
+        "SystemAccess",
+        "SystemId",
+    ];
+
+    for internal in INTERNAL_ONLY {
+        assert!(
+            !LIB_RS.contains(internal),
+            "implementation-only type leaked through the crate root: {internal}"
+        );
+        assert!(
+            !SYSTEM_MOD_RS.contains(internal),
+            "implementation-only type leaked through the public system module: {internal}"
+        );
+    }
+}
+
+#[test]
+fn downstream_macro_support_contracts_remain_root_reachable() {
+    const REQUIRED: &[&str] = &[
+        "BundleComponentDescriptor",
+        "BundleComponents",
+        "ParamSlotDescriptor",
+        "QueryAccess",
+        "SystemParam",
+        "SystemParamContext",
+        "SystemParamError",
+    ];
+
+    for required in REQUIRED {
+        assert!(
+            LIB_RS.contains(required),
+            "downstream macro support contract disappeared from the crate root: {required}"
+        );
+    }
 }
 
 #[test]
