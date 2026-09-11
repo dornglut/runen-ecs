@@ -38,6 +38,12 @@ RunenECS keeps semantic precedence, access incompatibility, deferred visibility,
 
 Ordering-reference presence and the normalized diagnostic model are owned by [ADR 0001: Normalize Schedule Diagnostics and Ordering References](docs/adr/0001-normalize-schedule-diagnostics-and-ordering-references.md).
 
+## System execution mobility
+
+RunenECS keeps execution mobility separate from semantic scheduling. Components and resources remain `'static` rather than globally `Send + Sync`; transfer safety is proven from the exact callable and parameter access facts. Normal system registration is the proven-transferable path, while thread-bound behavior is represented explicitly as invoker-thread-only without introducing an application-level "main thread" concept.
+
+The normalized capability and proof boundary are owned by [ADR 0002: Model System Execution Mobility as a Proven Capability](docs/adr/0002-model-system-execution-mobility-as-a-proven-capability.md).
+
 ## Dependency direction
 
 RunenECS does not depend on Runenwerk. Runenwerk may consume an exact immutable accepted RunenECS revision. Reusable networking and spatial semantics remain owned by RunenNet and RunenSpatial rather than being duplicated here.
