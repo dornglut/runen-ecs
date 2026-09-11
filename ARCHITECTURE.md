@@ -32,6 +32,12 @@ RunenECS owns reusable ECS semantics:
 
 RunenECS does not own application/frame/render lifecycle, product publication policy, networking protocols, spatial indexing semantics, editor behavior, or Runenwerk integration adapters.
 
+## Schedule semantic layers
+
+RunenECS keeps semantic precedence, access incompatibility, deferred visibility, and physical executor grouping distinct. Explicit ordering creates precedence; access conflicts never invent order; deferred visibility is an observable consequence that must not be represented by exposing physical stages or waves.
+
+Ordering-reference presence and the normalized diagnostic model are owned by [ADR 0001: Normalize Schedule Diagnostics and Ordering References](docs/adr/0001-normalize-schedule-diagnostics-and-ordering-references.md).
+
 ## Dependency direction
 
 RunenECS does not depend on Runenwerk. Runenwerk may consume an exact immutable accepted RunenECS revision. Reusable networking and spatial semantics remain owned by RunenNet and RunenSpatial rather than being duplicated here.
