@@ -1,7 +1,7 @@
 // Owner: RunenECS World Component - Access, Mutation, Change Tracking, and Matching APIs
 use crate::component::Component;
 use crate::entity::Entity;
-use crate::errors::EntityError;
+use crate::errors::{ChangeCursorError, EntityError};
 use crate::world::entity_handles::Mut;
 use crate::world::{ChangeCursor, World};
 use std::any::{TypeId, type_name};
@@ -95,10 +95,15 @@ impl World {
         value
     }
 
-    pub fn component_changed_since<T: Component>(&self, tick: ChangeCursor) -> bool {
-        self.component_change_ticks
+    pub fn component_changed_since<T: Component>(
+        &self,
+        cursor: ChangeCursor,
+    ) -> Result<bool, ChangeCursorError> {
+        self.validate_change_cursor(cursor)?;
+        Ok(self
+            .component_change_ticks
             .get(&TypeId::of::<T>())
-            .is_some_and(|changed| *changed > tick)
+            .is_some_and(|changed| *changed > cursor))
     }
 
     pub(crate) fn has_component_by_type_id(&self, entity: Entity, type_id: TypeId) -> bool {

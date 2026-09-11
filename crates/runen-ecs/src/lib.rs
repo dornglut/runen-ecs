@@ -17,7 +17,8 @@ pub use commands::{BatchCommands, Commands};
 pub use component::{Component, Resource};
 pub use entity::{Entity, EntityAllocator};
 pub use errors::{
-    CommandError, EntityAllocationError, EntityError, QueryError, ResourceError, RuntimeError,
+    ChangeCursorError, CommandError, EntityAllocationError, EntityError, QueryError, ResourceError,
+    RuntimeError,
 };
 pub use query::{
     Added, Changed, Query, QueryAccess, QueryState, QueryTypeAccess, Removed, RemovedQuery,
