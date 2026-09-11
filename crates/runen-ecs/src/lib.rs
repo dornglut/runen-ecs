@@ -15,7 +15,7 @@ pub use bundle::Bundle;
 pub use bundle::{BundleComponentDescriptor, BundleComponents};
 pub use commands::{BatchCommands, Commands};
 pub use component::{Component, Resource};
-pub use entity::{Entity, EntityAllocator};
+pub use entity::Entity;
 pub use errors::{
     ChangeCursorError, CommandError, EntityAllocationError, EntityError, QueryError, ResourceError,
     RuntimeError,
@@ -30,9 +30,9 @@ pub use reflect::{
 };
 pub use runen_ecs_macros::{Bundle, Component, Reflect, Resource, SystemParam};
 pub use system::{
-    AccessConflict, AccessDomain, AccessKey, ConfiguredSystem, ConflictKind, DeferredApplyBoundary,
-    IntoSystem, IntoSystemConfigs, IntoSystemSetKey, ParamSlotDescriptor, Res, ResMut, Runtime,
-    ScheduleKey, ScheduleLabel, ScheduleValidationError, SystemAccess, SystemConfigExt, SystemId,
-    SystemParam, SystemParamContext, SystemParamError, SystemSet, SystemSetKey, WorldMut,
+    ConfiguredSystem, DeferredApplyBoundary, IntoSystem, IntoSystemConfigs, IntoSystemSetKey,
+    ParamSlotDescriptor, Res, ResMut, Runtime, ScheduleKey, ScheduleLabel, ScheduleValidationError,
+    SystemConfigExt, SystemParam, SystemParamContext, SystemParamError, SystemSet, SystemSetKey,
+    WorldMut,
 };
 pub use world::{ChangeCursor, EntityMut, EntityRef, Mut, World};
