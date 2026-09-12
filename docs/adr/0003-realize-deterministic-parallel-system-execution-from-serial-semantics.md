@@ -206,13 +206,13 @@ The baseline executor drains the active worker cohort before invoking such a sys
 
 Invoker-thread affinity does not itself create semantic ordering. A future executor may overlap compatible worker work around a thread-bound system only under a separately accepted proof that all public semantics in this ADR remain unchanged.
 
-### 13. System errors and panics use deterministic cohort fail-stop handling
+### 13. User system errors and panics use deterministic cohort fail-stop handling
 
 Parallel execution cannot promise generic transactional rollback of direct component/resource writes. Components/resources are not required to be `Clone`, user code may mutate them arbitrarily, and whole-World transactions are outside this design.
 
 Therefore successful-run serial equivalence and failed-run guarantees are distinct.
 
-If any launched cohort member returns `Err` or panics:
+When launched cohort members produce ordinary system `Err` results or user panics while framework invariants remain intact:
 
 1. launch no later cohort;
 2. do not attempt asynchronous cancellation of already-running user code;
@@ -221,20 +221,37 @@ If any launched cohort member returns `Err` or panics:
 5. commit those mutation journals in reference-rank/local-event order so public change bookkeeping reflects every recorded event canonically;
 6. discard every still-unpublished deferred-command buffer in the failed semantic publication interval, including buffers from otherwise successful peers, preserving #15 fail-stop command isolation;
 7. keep effects already published at an earlier completed semantic frontier committed;
-8. choose the primary failure by the lowest reference rank among failed cohort members;
-9. if that primary failure is a panic, resume unwinding with its original panic payload on the invoker thread rather than converting it to `RuntimeError`; otherwise return that system error.
+8. choose the primary **user/system failure** by the lowest reference rank among cohort members that returned an ordinary system `Err` or produced a user panic;
+9. if that selected user/system failure is a panic, resume unwinding with its original panic payload on the invoker thread rather than converting it to `RuntimeError`; otherwise return that system error.
+
+This reference-rank rule selects among ordinary user/system failures only. A framework/invariant failure detected in any launched task or canonical executor phase is governed by section 14 and cannot be hidden by a lower-reference-rank ordinary system error or user panic.
 
 Direct writes from higher-rank cohort peers may therefore remain visible even when a lower-rank peer fails, because those peers had already run concurrently. That partial failure state is explicitly not required to equal the serial executor's partial failure state.
 
-What remains guaranteed on failure is memory safety, no later launches, deterministic primary-failure selection, truthful canonical change bookkeeping for every accepted mutation-observation event already recorded before failure, no abandoned unpublished commands leaking into later invocations, and preservation of earlier completed publication frontiers. Direct payload writes remain non-transactional, but RunenECS does not claim to detect or enumerate the exact subset of byte writes independently of those accepted observation events.
+What remains guaranteed on ordinary user/system failure is memory safety, no later launches, deterministic primary-user-failure selection, truthful canonical change bookkeeping for every accepted mutation-observation event already recorded before failure, no abandoned unpublished commands leaking into later invocations, and preservation of earlier completed publication frontiers. Direct payload writes remain non-transactional, but RunenECS does not claim to detect or enumerate the exact subset of byte writes independently of those accepted observation events.
 
 Arbitrary external side effects remain outside RunenECS rollback guarantees.
 
-### 14. Framework/invariant failures do not become user recovery semantics
+### 14. Framework/invariant failures dominate user recovery semantics
 
-Internal capability violations, impossible plan references, change-cursor exhaustion, or executor bookkeeping corruption remain framework invariant failures/panics as appropriate. The parallel executor must not translate them into ordinary recoverable system errors merely to fit a task API.
+Internal capability violations, impossible plan references, change-cursor exhaustion, executor bookkeeping corruption, and equivalent framework invariant failures remain framework panics. They are not ordinary system outcomes and are not participants in section 13's user/system primary-failure ranking.
 
-In particular, no cursor wrap/reuse is permitted. If an implementation uses concurrent capacity reservation for mutation journals, reservation order is not public semantics; it exists solely to preserve the no-alias safety invariant at the absolute exhaustion boundary.
+If any launched task or canonical executor phase detects a framework invariant failure:
+
+- launch no later work;
+- satisfy every join/drain or ownership step still required for memory safety when the executor state remains trustworthy enough to do so;
+- do not attempt semantic recovery/commit work whose safety proof depends on the violated invariant itself;
+- propagate a framework invariant panic after required safe cleanup rather than returning an ordinary `RuntimeError` or resuming a user panic in its place.
+
+A framework invariant failure therefore dominates any simultaneously captured ordinary system `Err` or user panic. This preserves the distinction between caller/user failure and a framework state that must not be presented as recoverable merely because a lower-ranked user system also failed.
+
+When multiple **rank-associated framework invariant panics** are safely captured from launched systems, the deterministic tie-break among those invariant failures is the lowest serial reference rank. The selected invariant panic's original payload/diagnostic is resumed where available. User/system failures are not compared against invariant failures for this tie-break.
+
+An invoker-side invariant encountered at a canonical plan, reconciliation, or publication step has no fictional system rank and propagates at that canonical step after any memory-safety-required drain. The implementation must not manufacture a system identity merely to fit the rank-selection rule.
+
+Cursor-capacity exhaustion is a reachable invariant with an additional journal guarantee: capacity must be secured before a mutation-observation event is admitted, so every already-admitted event remains safely reconcilable before the exhaustion panic propagates. The event that cannot reserve capacity is not admitted and must not expose the corresponding mutable access. Physical reservation order remains non-semantic; final public `ChangeCursor` order is still assigned by canonical reference-rank/local-event commit.
+
+No cursor wrap/reuse is permitted. Runtime-reuse guarantees that apply to ordinary caught system errors or user panics do not make a framework invariant failure a supported recoverable state.
 
 ### 15. Executor backend is RunenECS-local and replaceable
 
@@ -291,11 +308,14 @@ At minimum conformance covers:
 - explicit predecessor/successor visibility;
 - deterministic merge of multiple `TransferableCommands` buffers;
 - ordinary `Commands` / `WorldMut` systems executing on the invoking thread;
-- panic/error cohort draining and command abandonment;
+- ordinary user panic/error cohort draining, deterministic lowest-reference-rank user-failure selection, and command abandonment;
+- a higher-reference-rank framework invariant occurring alongside a lower-reference-rank ordinary `Err` or user panic still propagating as the framework invariant rather than being hidden by user-failure ranking;
+- deterministic lowest-reference-rank selection among multiple safely captured rank-associated framework invariant panics;
 - deferred-command application error/panic fail-stop behavior;
 - semantic boundary callback error/panic behavior;
-- earlier completed publication frontiers surviving later failure;
+- earlier completed publication frontiers surviving later ordinary user/system failure;
 - task-local mutation journals producing deterministic change cursors/metadata under the accepted conservative mutable-access observation semantics;
+- cursor-capacity exhaustion preserving the already-admitted journal prefix without wrap/reuse or conversion to a recoverable error;
 - `Added`/`Changed` behavior across parallel cohorts;
 - structural freeze and exclusive `WorldMut` behavior;
 - randomized completion order not changing successful ECS results.
@@ -325,7 +345,7 @@ Successful worker execution remains reproducible because the serial reference se
 
 The design deliberately requires more than a thread pool. Safe implementation needs normalized schedule/publication reasoning (#26), proof-preserving system mobility (#30), narrow concurrent World projections, task-local mutation journals, a distinct `TransferableCommands` capability, and deterministic deferred buffers.
 
-Failure semantics are fail-stop rather than transactional. Already-running peers can leave direct writes, but unpublished commands cannot leak and change bookkeeping must truthfully reproduce the accepted mutation-observation events that were recorded. RunenECS does not claim exact byte-write detection. This is the minimum honest contract without imposing generic World transactions.
+Failure semantics are fail-stop rather than transactional. Already-running peers can leave direct writes, but unpublished commands cannot leak and change bookkeeping must truthfully reproduce the accepted mutation-observation events that were recorded. RunenECS does not claim exact byte-write detection. Ordinary user/system failures use deterministic reference-rank selection; framework invariant failures remain a distinct higher-priority panic class and cannot be masked as recoverable system outcomes. This is the minimum honest contract without imposing generic World transactions.
 
 This ADR does not authorize parallel query iteration, generic task scheduling, order-only deferred semantics, application lifecycle barriers, or arbitrary external-side-effect determinism.
 
