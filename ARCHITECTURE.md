@@ -32,6 +32,12 @@ RunenECS owns reusable ECS semantics:
 
 RunenECS does not own application/frame/render lifecycle, product publication policy, networking protocols, spatial indexing semantics, editor behavior, or Runenwerk integration adapters.
 
+## Dense storage and contiguous query capability
+
+RunenECS distinguishes logical archetype membership and row alignment from physical contiguous storage segments, ordinary query order, vectorized processing, and future parallel partitioning. Dense component payloads may relocate between structural epochs; safe references and expert contiguous spans are valid only for the active World borrow or runtime structural-freeze scope.
+
+The normalized dense-storage direction, row-migration invariants, reflection boundary, and sealed fallible contiguous-segment query capability are owned by [ADR 0004: Normalize Dense Storage Contiguity and Expert Query Segments](docs/adr/0004-normalize-dense-storage-contiguity-and-expert-query-segments.md).
+
 ## Schedule semantic layers
 
 RunenECS keeps semantic precedence, access incompatibility, deferred visibility, and physical executor grouping distinct. Explicit ordering creates precedence; access conflicts never invent order; deferred visibility is an observable consequence that must not be represented by exposing physical stages or waves.
