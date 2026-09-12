@@ -23,9 +23,10 @@ The caller cannot distinguish an intentionally optional cross-plugin relationshi
 a misspelled, stale, or otherwise ineffective ordering requirement.
 
 Second, the runtime has enough internal information to explain precedence, access
-incompatibility, and cycles, but the public API has no normalized semantic diagnostic
-surface. Exposing the existing scheduler implementation types or physical stages would
-recreate accidental public authority that RunenECS deliberately removed.
+incompatibility, cycles, and deferred visibility, but the public API has no normalized
+semantic diagnostic surface. Exposing the existing scheduler implementation types or
+physical stages would recreate accidental public authority that RunenECS deliberately
+removed.
 
 Current Runenwerk consumers use system sets and cross-plugin `before` / `after`
 relationships extensively. The design therefore has to make optionality explicit
@@ -109,17 +110,96 @@ semantic reason.
 Transitive precedence is derived from this graph. It is semantic precedence, not a
 physical execution batch.
 
-### 4. Preserve deferred visibility as a separate consequence
+### 4. Derive deferred visibility through canonical semantic publication frontiers
 
-The existing ordinary ordering contract retains deferred-command visibility across
-semantic precedence: deferred ECS work produced by a predecessor must be published at
-an accepted boundary before a semantic successor whose ordering requires that
-visibility executes.
+Ordinary ordering retains deferred-command visibility: deferred ECS work produced by a
+semantic predecessor must be published before a semantic successor that requires that
+visibility executes. The publication points that realize this are **semantic
+publication frontiers**, not physical execution stages.
 
-Diagnostics represent this as a deferred-visibility property of the ordering relation,
-not by exposing the internal stage that happens to realize it. Unrelated systems may be
-physically grouped around the same publication point, but that grouping does not become
-portable ordering or public schedule meaning.
+A system is **deferred-producing** when its normalized parameter semantics permit it to
+stage deferred ECS effects for runtime publication. This fact is separate from semantic
+precedence, access incompatibility, physical executor grouping, and whether a concrete
+runtime queue happens to be empty. Current or future local/transferable deferred
+recorders map to the same deferred-publication meaning when they stage equivalent ECS
+effects.
+
+For one valid built schedule, start from its deterministic serial reference sequence:
+
+```text
+S0, S1, ... S(n-1)
+```
+
+A schedule-local **cut** `c` lies after every system with reference rank `< c` and
+before the system with rank `c`; `c = n` is successful schedule completion. Reference
+ranks and cuts define the serial correctness model for this snapshot. They do not expose
+physical stage, wave, cohort, worker, or registration-vector identity as portable API.
+
+Every direct reason-carrying semantic edge
+
+```text
+producer -> successor
+```
+
+whose producer is deferred-producing creates a publication obligation. At least one
+frontier cut must satisfy:
+
+```text
+rank(producer) < cut <= rank(successor)
+```
+
+so the producer has completed and its deferred effects are committed before the
+successor executes.
+
+Every deferred-producing system also creates a successful-completion obligation with
+deadline `n`. Any already-selected frontier after that producer satisfies the completion
+obligation; schedule completion does not require a redundant terminal frontier when an
+earlier publication has already covered the producer.
+
+The canonical frontier sequence is the deterministic minimum-cardinality set of cuts
+covering these interval obligations. Derive it with the earliest-deadline greedy rule:
+
+1. order obligations by increasing deadline cut, using normalized semantic reason
+   ordering only as a deterministic tie-break for diagnostics;
+2. process each obligation `(producer_rank, deadline)` in that order;
+3. if no selected frontier lies strictly after `producer_rank` and at or before the
+   obligation deadline, select a frontier exactly at the deadline;
+4. otherwise the existing frontier already satisfies the obligation.
+
+Because all obligations are intervals on one deterministic serial sequence, this greedy
+construction is canonical and minimum-cardinality for that sequence. An implementation
+may use a different internal algorithm only when it is proven to produce the same
+normalized frontier sequence.
+
+Frontiers are structural schedule facts, not queue-data events. If execution
+successfully reaches a selected frontier, the runtime performs the publication and
+invokes the corresponding frontier callback even when all buffers pending at that
+frontier are empty. Callback cardinality and identity therefore remain independent of
+per-run command production.
+
+At a reached frontier, all successfully executed systems before the cut have completed,
+pending deferred buffers for the publication interval are applied in accepted canonical
+serial-reference and per-buffer order, publication is committed, and only then may the
+frontier callback observe the World or execution continue beyond the cut. Future worker
+execution must drain the relevant active cohort before this invoker-thread publication
+and callback boundary.
+
+A schedule with no deferred-producing systems has no deferred-publication frontier
+merely to supply an application lifecycle tick. Conversely, a deferred-producing system
+with no earlier covering frontier is guaranteed a completion frontier before successful
+schedule return.
+
+A frontier may incidentally publish deferred work from an otherwise unrelated system
+that appears before the cut in the reference sequence. That does not create a new
+precedence edge, ordering declaration, or portable pairwise visibility relation. It is a
+consequence of this built schedule's canonical reference sequence and frontier cut.
+
+Failure remains fail-stop. A system failure before an unreached frontier prevents that
+frontier and callback; deferred-application failure or panic stops before its callback;
+a callback error or panic occurs only after that frontier's publication is committed and
+stops later execution. Earlier completed frontiers remain committed, later unpublished
+deferred work is abandoned, and already-performed direct World mutations are not
+implicitly rolled back.
 
 This ADR does not introduce an order-only or ignore-deferred ordering form. Such an API
 would require a separate accepted decision because it changes observable command
@@ -135,6 +215,7 @@ must contain these normalized facts:
 - diagnostic system descriptors;
 - normalized ordering declarations and their resolutions;
 - reason-carrying resolved precedence edges;
+- canonical semantic publication frontiers and their covered publication obligations;
 - unordered access incompatibilities;
 - pairwise concurrency assessment from schedule facts;
 - absent optional ordering references.
@@ -145,6 +226,11 @@ number. It is not a runtime `SystemId`, is not accepted back by normal runtime m
 or execution APIs, has no persistence/network meaning, and carries no execution-order
 semantics. Equality across independently built inspection snapshots is not a stable
 identity contract.
+
+A publication-frontier key or ordinal is likewise schedule-build-local. It correlates
+the canonical frontier facts inside one inspection/execution snapshot; it is not a
+physical stage index, worker/cohort identity, portable persistence identity, or public
+promise about executor grouping.
 
 The inspection API must not publicly expose the internal `SystemId`, `SystemAccess`,
 `AccessKey`, `AccessConflict`, raw graph node indices, stage indices, or physical
@@ -180,9 +266,9 @@ A pair is prevented by one or both of:
 
 If neither applies, the result is `unconstrained by ordering/access facts`, not
 `guaranteed parallel` or `will run concurrently`. Transferability, invoking-thread
-requirements, worker availability, and physical executor policy belong to later
-threading/executor decisions. Future capability facts may extend the assessment without
-changing precedence semantics.
+requirements, worker availability, semantic publication frontiers, and physical
+executor policy belong to later threading/executor decisions. Future capability facts
+may extend the assessment without changing precedence semantics.
 
 ### 8. Make cycle and unresolved-reference errors semantic and deterministic
 
@@ -206,11 +292,13 @@ it does not create new execution semantics.
 ### 9. Inspection is observational
 
 Building or reading schedule diagnostics must not alter schedule order, insert
-constraints, change deferred-command visibility, run systems, or mutate the World.
+constraints, change deferred-command visibility, select different publication frontiers,
+run systems, or mutate the World.
 
 The deterministic serial executor remains the correctness oracle. Valid schedules that
-do not depend on formerly silent unresolved required references retain their existing
-observable execution and deferred-visibility semantics.
+do not depend on formerly silent unresolved required references retain their accepted
+semantic ordering behavior. Predecessor behavior that exposed physical stage callback
+cardinality is intentionally not promoted to semantic compatibility.
 
 ## Consequences
 
@@ -220,14 +308,23 @@ while intentionally optional cross-plugin relations are visible and explicit. Ac
 ambiguities become inspectable without inventing order. Cycle errors become actionable
 and deterministic.
 
+Deferred publication now has one normalized schedule-derived meaning. The callback
+sequence is derived from semantic visibility obligations and the deterministic serial
+reference sequence, not from stage/cohort shape or runtime queue contents. Redundant
+visibility obligations share the same canonical frontier, while every still-unpublished
+deferred producer is guaranteed publication before successful schedule completion.
+
 The cutover can require downstream source edits where existing `before` / `after`
-relationships were intentionally optional. That migration is desirable: optionality is
-a caller decision and must not be inferred from an absent target.
+relationships were intentionally optional or where consumers used physical deferred
+callbacks as an application lifecycle clock. Those migrations are desirable: ordering
+optionality belongs to the caller, while application/product publication policy belongs
+to the downstream owner rather than RunenECS.
 
 The public diagnostic surface is deliberately descriptive rather than executable.
-Internal runtime identities and access representations remain implementation details.
+Internal runtime identities, access representations, and physical execution groups
+remain implementation details.
 
 This decision is a prerequisite for future transferable/thread-bound system capability
 and parallel-executor work, but it does not authorize either capability. It also does
 not authorize a raw stage/wave report, a generic scheduler framework, application/frame
-barriers, or an order-only deferred-visibility variant.
+or product-publication barriers, or an order-only deferred-visibility variant.
