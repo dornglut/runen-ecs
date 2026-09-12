@@ -110,12 +110,46 @@ semantic reason.
 Transitive precedence is derived from this graph. It is semantic precedence, not a
 physical execution batch.
 
-### 4. Derive deferred visibility through canonical semantic publication frontiers
+### 4. Derive deferred visibility through a canonical serial reference and semantic publication frontiers
 
 Ordinary ordering retains deferred-command visibility: deferred ECS work produced by a
 semantic predecessor must be published before a semantic successor that requires that
 visibility executes. The publication points that realize this are **semantic
 publication frontiers**, not physical execution stages.
+
+The deterministic serial reference sequence is itself derived from semantic schedule
+facts rather than by flattening whatever physical grouping an executor happens to use.
+For one valid semantic-precedence DAG, derive a private schedule-local precedence depth:
+
+```text
+depth(system with no semantic predecessors) = 0
+depth(system) = 1 + max(depth(each semantic predecessor))
+```
+
+Then linearize systems by:
+
+```text
+(precedence depth, stable schedule-local registration/source ordinal)
+```
+
+The source ordinal is the stable internal order in which the built schedule received
+its systems. It is a deterministic tie-break for otherwise same-depth systems; it does
+not create a semantic precedence edge and is not portable identity. This linearization
+preserves the accepted predecessor serial reference ordering while allowing future
+physical stages/cohorts to split or combine work without redefining reference rank.
+
+Precedence depth, source ordinal, and reference rank are private schedule-build
+derivation facts. They must not be exposed as public stage identity, portable system
+identity, or a promise that same-depth systems execute together.
+
+Let the resulting deterministic serial reference sequence be:
+
+```text
+S0, S1, ... S(n-1)
+```
+
+A schedule-local **cut** `c` lies after every system with reference rank `< c` and
+before the system with rank `c`; `c = n` is successful schedule completion.
 
 A system is **deferred-producing** when its normalized parameter semantics permit it to
 stage deferred ECS effects for runtime publication. This fact is separate from semantic
@@ -123,17 +157,6 @@ precedence, access incompatibility, physical executor grouping, and whether a co
 runtime queue happens to be empty. Current or future local/transferable deferred
 recorders map to the same deferred-publication meaning when they stage equivalent ECS
 effects.
-
-For one valid built schedule, start from its deterministic serial reference sequence:
-
-```text
-S0, S1, ... S(n-1)
-```
-
-A schedule-local **cut** `c` lies after every system with reference rank `< c` and
-before the system with rank `c`; `c = n` is successful schedule completion. Reference
-ranks and cuts define the serial correctness model for this snapshot. They do not expose
-physical stage, wave, cohort, worker, or registration-vector identity as portable API.
 
 Every direct reason-carrying semantic edge
 
@@ -166,10 +189,10 @@ covering these interval obligations. Derive it with the earliest-deadline greedy
    obligation deadline, select a frontier exactly at the deadline;
 4. otherwise the existing frontier already satisfies the obligation.
 
-Because all obligations are intervals on one deterministic serial sequence, this greedy
-construction is canonical and minimum-cardinality for that sequence. An implementation
-may use a different internal algorithm only when it is proven to produce the same
-normalized frontier sequence.
+Because all obligations are intervals on one deterministic serial reference sequence,
+this greedy construction is canonical and minimum-cardinality for that sequence. An
+implementation may use a different internal algorithm only when it is proven to produce
+the same normalized reference and frontier sequences.
 
 Frontiers are structural schedule facts, not queue-data events. If execution
 successfully reaches a selected frontier, the runtime performs the publication and
@@ -229,12 +252,12 @@ identity contract.
 
 A publication-frontier key or ordinal is likewise schedule-build-local. It correlates
 the canonical frontier facts inside one inspection/execution snapshot; it is not a
-physical stage index, worker/cohort identity, portable persistence identity, or public
-promise about executor grouping.
+reference-rank leak, physical stage index, worker/cohort identity, portable persistence
+identity, or public promise about executor grouping.
 
-The inspection API must not publicly expose the internal `SystemId`, `SystemAccess`,
-`AccessKey`, `AccessConflict`, raw graph node indices, stage indices, or physical
-executor groups.
+The inspection API must not publicly expose precedence depth, source/registration
+ordinal, reference rank, internal `SystemId`, `SystemAccess`, `AccessKey`,
+`AccessConflict`, raw graph node indices, stage indices, or physical executor groups.
 
 ### 6. Report access ambiguities without resolving them
 
@@ -292,8 +315,8 @@ it does not create new execution semantics.
 ### 9. Inspection is observational
 
 Building or reading schedule diagnostics must not alter schedule order, insert
-constraints, change deferred-command visibility, select different publication frontiers,
-run systems, or mutate the World.
+constraints, change deferred-command visibility, select different reference/frontier
+sequences, run systems, or mutate the World.
 
 The deterministic serial executor remains the correctness oracle. Valid schedules that
 do not depend on formerly silent unresolved required references retain their accepted
@@ -308,11 +331,13 @@ while intentionally optional cross-plugin relations are visible and explicit. Ac
 ambiguities become inspectable without inventing order. Cycle errors become actionable
 and deterministic.
 
-Deferred publication now has one normalized schedule-derived meaning. The callback
-sequence is derived from semantic visibility obligations and the deterministic serial
-reference sequence, not from stage/cohort shape or runtime queue contents. Redundant
-visibility obligations share the same canonical frontier, while every still-unpublished
-deferred producer is guaranteed publication before successful schedule completion.
+Deferred publication now has one normalized schedule-derived meaning. The serial
+reference sequence is derived from semantic precedence plus a private stable source
+ordinal rather than future executor grouping. The callback sequence is then derived from
+semantic visibility obligations over that reference sequence, not from stage/cohort
+shape or runtime queue contents. Redundant visibility obligations share the same
+canonical frontier, while every still-unpublished deferred producer is guaranteed
+publication before successful schedule completion.
 
 The cutover can require downstream source edits where existing `before` / `after`
 relationships were intentionally optional or where consumers used physical deferred
@@ -321,8 +346,8 @@ optionality belongs to the caller, while application/product publication policy 
 to the downstream owner rather than RunenECS.
 
 The public diagnostic surface is deliberately descriptive rather than executable.
-Internal runtime identities, access representations, and physical execution groups
-remain implementation details.
+Internal runtime identities, reference-rank derivation, access representations, and
+physical execution groups remain implementation details.
 
 This decision is a prerequisite for future transferable/thread-bound system capability
 and parallel-executor work, but it does not authorize either capability. It also does
