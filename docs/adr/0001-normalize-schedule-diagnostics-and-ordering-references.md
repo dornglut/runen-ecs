@@ -140,7 +140,9 @@ physical stages/cohorts to split or combine work without redefining reference ra
 
 Precedence depth, source ordinal, and reference rank are private schedule-build
 derivation facts. They must not be exposed as public stage identity, portable system
-identity, or a promise that same-depth systems execute together.
+identity, or a promise that same-depth systems execute together. ADR 0003 consumes this
+reference sequence and rank as its deterministic executor/publication tie-break; it does
+not independently choose a different serial reference ordering.
 
 Let the resulting deterministic serial reference sequence be:
 
@@ -154,9 +156,14 @@ before the system with rank `c`; `c = n` is successful schedule completion.
 A system is **deferred-producing** when its normalized parameter semantics permit it to
 stage deferred ECS effects for runtime publication. This fact is separate from semantic
 precedence, access incompatibility, physical executor grouping, and whether a concrete
-runtime queue happens to be empty. Current or future local/transferable deferred
-recorders map to the same deferred-publication meaning when they stage equivalent ECS
-effects.
+runtime queue happens to be empty.
+
+The parameter layer owns one normalized deferred-recorder classification. ADR 0003 may
+distinguish local and transferable recorder classes for capability/validity purposes;
+ADR 0001 consumes only the projection that any valid non-none recorder class is
+deferred-producing. Local-versus-transferable capability does not itself create a
+precedence edge or publication frontier, and `QueryAccess`, descriptor strings, runner
+variants, and runtime queue existence are not parallel authorities for this fact.
 
 Every direct reason-carrying semantic edge
 
@@ -280,7 +287,7 @@ conflict insert a precedence edge or change serial reference order.
 ### 7. Make concurrency assessment conservative and reason-carrying
 
 Schedule inspection may answer whether two systems are prevented from overlapping by
-**current schedule facts**.
+**current pairwise schedule facts**.
 
 A pair is prevented by one or both of:
 
@@ -288,10 +295,12 @@ A pair is prevented by one or both of:
 - access incompatibility.
 
 If neither applies, the result is `unconstrained by ordering/access facts`, not
-`guaranteed parallel` or `will run concurrently`. Transferability, invoking-thread
-requirements, worker availability, semantic publication frontiers, and physical
-executor policy belong to later threading/executor decisions. Future capability facts
-may extend the assessment without changing precedence semantics.
+`guaranteed parallel` or `will run concurrently`. A semantic publication frontier is a
+schedule-wide cut, not an independent pairwise precedence relation. Transferability,
+invoking-thread requirements, frontier-crossing executor constraints, worker
+availability, and physical executor policy belong to later threading/executor decisions.
+Future capability facts may extend the assessment without changing precedence
+semantics.
 
 ### 8. Make cycle and unresolved-reference errors semantic and deterministic
 
@@ -310,7 +319,9 @@ physical stages.
 When several equivalent cycles or multiple declaration reasons for one edge exist, the
 implementation must choose a stable canonical representation from normalized diagnostic
 keys and declaration facts. The chosen representation is for deterministic diagnostics;
-it does not create new execution semantics.
+it does not create new execution semantics. Cycle diagnostics are defined before a
+valid serial reference/frontier sequence exists and therefore must not depend on
+reference rank to explain an invalid cyclic schedule.
 
 ### 9. Inspection is observational
 
