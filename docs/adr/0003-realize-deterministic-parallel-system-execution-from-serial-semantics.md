@@ -112,11 +112,13 @@ While any worker cohort is active:
 
 The implementation must re-derive unsafe projection/thread-safety proofs for the parallel path. Existing serial raw-pointer capability code is evidence, not automatic permission to mark those capability types `Send`.
 
-### 6. Direct payload writes use task-local change journals
+### 6. Mutable access uses task-local change journals
 
 Parallel systems may directly mutate disjoint component/resource payloads, but they must not race on shared change bookkeeping.
 
-Each worker invocation therefore owns a **mutation journal**. Mutable ECS access records the same logical change events that the serial path would record, in that system's local execution order, while direct payload writes occur against the proven-disjoint payload projection.
+Each worker invocation therefore owns a **mutation journal**. Mutable ECS access records the same logical change-observation events that the serial path would record, in that system's local execution order, while direct payload mutation remains possible against the proven-disjoint payload projection.
+
+A journal event is the serial path's conservative mutation-observation event; it is not proof that user code changed payload bytes or produced a value inequality. For the current built-in semantics, a mutable component-query event is recorded before the mutable item is yielded/fetched, and a mutable resource event is recorded when `ResMut` mutable dereference exposes `&mut T`. Tuple and derived forms preserve the corresponding child-event trigger points and mutable domains. The parallel implementation must reproduce those accepted trigger points rather than invent exact-write detection, equality comparison, drop-time dirty inference, or another mutation semantic.
 
 Shared World bookkeeping is not mutated by workers for those events. In particular, workers do not concurrently update:
 
@@ -215,8 +217,8 @@ If any launched cohort member returns `Err` or panics:
 1. launch no later cohort;
 2. do not attempt asynchronous cancellation of already-running user code;
 3. join/drain every already-launched member of the cohort;
-4. preserve task-local mutation journals even from a panicking task so bookkeeping can be reconciled with direct writes that actually occurred;
-5. commit those mutation journals in reference-rank/local-event order so the World does not contain untracked direct writes;
+4. preserve task-local mutation journals even from a panicking task so accepted mutation-observation events already recorded before failure can be reconciled;
+5. commit those mutation journals in reference-rank/local-event order so public change bookkeeping reflects every recorded event canonically;
 6. discard every still-unpublished deferred-command buffer in the failed semantic publication interval, including buffers from otherwise successful peers, preserving #15 fail-stop command isolation;
 7. keep effects already published at an earlier completed semantic frontier committed;
 8. choose the primary failure by the lowest reference rank among failed cohort members;
@@ -224,7 +226,7 @@ If any launched cohort member returns `Err` or panics:
 
 Direct writes from higher-rank cohort peers may therefore remain visible even when a lower-rank peer fails, because those peers had already run concurrently. That partial failure state is explicitly not required to equal the serial executor's partial failure state.
 
-What remains guaranteed on failure is memory safety, no later launches, deterministic primary-failure selection, truthful change bookkeeping for direct writes that occurred, no abandoned unpublished commands leaking into later invocations, and preservation of earlier completed publication frontiers.
+What remains guaranteed on failure is memory safety, no later launches, deterministic primary-failure selection, truthful canonical change bookkeeping for every accepted mutation-observation event already recorded before failure, no abandoned unpublished commands leaking into later invocations, and preservation of earlier completed publication frontiers. Direct payload writes remain non-transactional, but RunenECS does not claim to detect or enumerate the exact subset of byte writes independently of those accepted observation events.
 
 Arbitrary external side effects remain outside RunenECS rollback guarantees.
 
@@ -293,7 +295,7 @@ At minimum conformance covers:
 - deferred-command application error/panic fail-stop behavior;
 - semantic boundary callback error/panic behavior;
 - earlier completed publication frontiers surviving later failure;
-- direct-write mutation journals producing deterministic change cursors/metadata;
+- task-local mutation journals producing deterministic change cursors/metadata under the accepted conservative mutable-access observation semantics;
 - `Added`/`Changed` behavior across parallel cohorts;
 - structural freeze and exclusive `WorldMut` behavior;
 - randomized completion order not changing successful ECS results.
@@ -319,11 +321,11 @@ The first implementation should prefer a smaller provable executor over a broade
 
 RunenECS gains a deterministic target for parallel system execution without turning physical concurrency into schedule semantics.
 
-Successful worker execution remains reproducible because the serial reference sequence supplies deterministic tie-breaking, direct mutation bookkeeping is committed canonically, and deferred effects publish in reference order at semantic frontiers rather than completion order.
+Successful worker execution remains reproducible because the serial reference sequence supplies deterministic tie-breaking, mutation-observation bookkeeping is committed canonically, and deferred effects publish in reference order at semantic frontiers rather than completion order.
 
 The design deliberately requires more than a thread pool. Safe implementation needs normalized schedule/publication reasoning (#26), proof-preserving system mobility (#30), narrow concurrent World projections, task-local mutation journals, a distinct `TransferableCommands` capability, and deterministic deferred buffers.
 
-Failure semantics are fail-stop rather than transactional. Already-running peers can leave direct writes, but unpublished commands cannot leak and bookkeeping must truthfully describe the writes that occurred. This is the minimum honest contract without imposing generic World transactions.
+Failure semantics are fail-stop rather than transactional. Already-running peers can leave direct writes, but unpublished commands cannot leak and change bookkeeping must truthfully reproduce the accepted mutation-observation events that were recorded. RunenECS does not claim exact byte-write detection. This is the minimum honest contract without imposing generic World transactions.
 
 This ADR does not authorize parallel query iteration, generic task scheduling, order-only deferred semantics, application lifecycle barriers, or arbitrary external-side-effect determinism.
 
@@ -332,7 +334,7 @@ This ADR does not authorize parallel query iteration, generic task scheduling, o
 The executor design is accepted independently of implementation readiness. Parallel-executor implementation must not be accepted until:
 
 - #26 is complete, including #27, #33, and #28;
-- #30 is complete, including #31 and #32;
+- #30 is complete, including #31, #35, and #32;
 - #17 has repaired benchmark fixtures before any performance claim is used;
 - the unsafe concurrent World projection/change-journal design has focused Miri/sanitizer/race evidence;
 - exact-current Runenwerk lifecycle behavior passes against the candidate;
