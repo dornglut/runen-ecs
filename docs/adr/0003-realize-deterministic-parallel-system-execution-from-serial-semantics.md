@@ -96,7 +96,7 @@ If two semantically unordered systems conflict, the parallel executor physically
 
 Diagnostics continue to report such a pair as unordered/access-incompatible unless explicit semantic precedence exists.
 
-Deferred structural recording is treated separately from immediate World access. Multiple task-local transferable deferred recorders may coexist; deterministic publication order resolves their queued effects. Direct structural mutation of the live World remains forbidden while a worker cohort is active.
+Deferred structural recording is treated separately from immediate World access. Multiple task-local transferable deferred buffers from different systems may coexist; deterministic publication order resolves their queued effects. Direct structural mutation of the live World remains forbidden while a worker cohort is active.
 
 ### 5. Freeze World structure while a worker cohort is active
 
@@ -150,15 +150,21 @@ RunenECS introduces a distinct transferable deferred-command system parameter, s
 
 `TransferableCommands` has the same ECS ownership purpose—record structural/deferred World effects for later publication—but its recorded erased effects must themselves be movable back to the invoker/publication executor. At minimum, arbitrary queued closures require `Send + 'static` in addition to the existing callable/result contract. Convenience operations such as deferred spawn/insert derive whatever `Send` bounds their captured payload actually requires.
 
-The recorder itself is invocation-local and transfer-safe. It does not directly mutate World structure from a worker.
+The live recorder façade is invocation-local. It is constructed, used, and finalized on the thread executing that system invocation and does not directly mutate World structure. It therefore does not need a blanket `Send` requirement merely because the completed deferred work is transferable. What must preserve the movement proof is every erased effect stored by the transferable recorder and the finalized transferable buffer representation that may move back to the invoker/publication executor after the invocation. Implementations must not introduce synchronization merely to make an active recorder handle cross-thread when no accepted boundary moves that handle.
 
-`TransferableCommands` is a new capability, not a compatibility alias for `Commands`, and is eligible for the ADR 0002 transferable `SystemParam` proof when its implementation satisfies that proof.
+A system parameter graph uses exactly one deferred recorder capability class. It may contain multiple ordinary `Commands` handles/fields, or multiple `TransferableCommands` handles/fields, provided same-class handles contribute to one logical per-system invocation buffer and preserve actual enqueue order. Ordinary `Commands` and `TransferableCommands` must not coexist in one direct or nested system parameter graph. That mixed capability is invalid and is rejected before execution rather than defining a new cross-buffer ordering protocol.
+
+Deferred-capability exclusivity is a parameter-validity fact. It does not create semantic precedence, access incompatibility, a publication frontier, execution stage, cohort identity, or worker-policy fact.
+
+`TransferableCommands` is a new capability, not a compatibility alias for `Commands`. There is no safe conversion between ordinary and transferable deferred effects/buffers, and it is eligible for the ADR 0002 transferable `SystemParam` proof when its implementation satisfies that proof.
 
 ### 9. Deferred buffers are task-local and publication-ordered
 
-Every system invocation records deferred effects into its own buffer. Successful task buffers remain unpublished until the accepted semantic publication frontier. A failed/panicking task's own deferred buffer is abandoned.
+A system invocation that uses deferred structural recording owns one logical buffer for its selected deferred capability class. Multiple same-class recorder handles within that invocation contribute to that buffer in actual enqueue order; no active recorder handle independently publishes or finalizes it. Systems that do not use deferred recording need no such buffer.
 
-When a frontier is reached, pending successful buffers are merged/applied in serial reference-rank order, preserving each system buffer's internal command order. Completion order, worker ID, queue address, and steal order never determine publication.
+A successful invocation finalizes its logical buffer only after the system result is known. The finalized `TransferableCommands` buffer structurally preserves `Send` after erasure; ordinary `Commands` buffers remain invoker-thread-only. A failed/panicking invocation's own unpublished buffer is abandoned, and unpublished deferred work must not survive as persistent parameter state into a later invocation.
+
+Successful task buffers remain unpublished until the accepted semantic publication frontier. When a frontier is reached, pending successful buffers are merged/applied in serial reference-rank order, preserving each system buffer's internal command order. Completion order, worker ID, queue address, and steal order never determine publication.
 
 Deferred command application itself remains ordered fail-stop work, not a transaction. If applying a command returns an error or panics:
 
@@ -306,7 +312,9 @@ At minimum conformance covers:
 - independent read/read and disjoint write systems overlap-capable;
 - conflicting unordered systems remain physically serialized without gaining semantic precedence;
 - explicit predecessor/successor visibility;
-- deterministic merge of multiple `TransferableCommands` buffers;
+- deterministic merge of multiple systems' `TransferableCommands` buffers;
+- multiple same-class deferred recorder handles within one system preserving one logical per-system enqueue order;
+- direct and nested system parameter graphs mixing ordinary `Commands` with `TransferableCommands` being rejected before execution rather than assigned cross-buffer order;
 - ordinary `Commands` / `WorldMut` systems executing on the invoking thread;
 - ordinary user panic/error cohort draining, deterministic lowest-reference-rank user-failure selection, and command abandonment;
 - a higher-reference-rank framework invariant occurring alongside a lower-reference-rank ordinary `Err` or user panic still propagating as the framework invariant rather than being hidden by user-failure ranking;
@@ -343,7 +351,7 @@ RunenECS gains a deterministic target for parallel system execution without turn
 
 Successful worker execution remains reproducible because the serial reference sequence supplies deterministic tie-breaking, mutation-observation bookkeeping is committed canonically, and deferred effects publish in reference order at semantic frontiers rather than completion order.
 
-The design deliberately requires more than a thread pool. Safe implementation needs normalized schedule/publication reasoning (#26), proof-preserving system mobility (#30), narrow concurrent World projections, task-local mutation journals, a distinct `TransferableCommands` capability, and deterministic deferred buffers.
+The design deliberately requires more than a thread pool. Safe implementation needs normalized schedule/publication reasoning (#26), proof-preserving system mobility (#30), narrow concurrent World projections, task-local mutation journals, a distinct `TransferableCommands` capability, and deterministic deferred buffers. Each system uses one deferred recorder capability class and contributes at most one logical deferred buffer; transferability belongs to the finalized transferable effect/buffer representation rather than requiring an active invocation-local recorder façade to move between threads.
 
 Failure semantics are fail-stop rather than transactional. Already-running peers can leave direct writes, but unpublished commands cannot leak and change bookkeeping must truthfully reproduce the accepted mutation-observation events that were recorded. RunenECS does not claim exact byte-write detection. Ordinary user/system failures use deterministic reference-rank selection; framework invariant failures remain a distinct higher-priority panic class and cannot be masked as recoverable system outcomes. This is the minimum honest contract without imposing generic World transactions.
 
