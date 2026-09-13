@@ -1,6 +1,9 @@
 use crate::scheduler::label::{ScheduleKey, ScheduleLabel, SystemSetKey};
 use crate::scheduler::system::{OrderingDeclaration, OrderingPresence, RegisteredSystem, SystemId};
-use crate::system::{OrderingDirection, SystemDiagnosticDescriptor, SystemSetDiagnosticDescriptor};
+use crate::system::{
+    OrderingDirection, ScheduleDiagnosticDescriptor, SystemDiagnosticDescriptor,
+    SystemSetDiagnosticDescriptor,
+};
 use std::cmp::Ordering as CmpOrdering;
 use std::collections::BTreeSet;
 use thiserror::Error;
@@ -30,6 +33,7 @@ pub(crate) struct OrderingResolution {
     pub(crate) source_system_index: usize,
     pub(crate) source: SystemDiagnosticDescriptor,
     pub(crate) declaration: OrderingDeclaration,
+    pub(crate) target_set: SystemSetDiagnosticDescriptor,
     pub(crate) kind: OrderingResolutionKind,
 }
 
@@ -63,7 +67,7 @@ pub enum ScheduleValidationError {
         "schedule '{schedule}' system '{source_system}' has unresolved required {direction} reference to set '{target_set}'"
     )]
     UnresolvedOrderingReference {
-        schedule: &'static str,
+        schedule: ScheduleDiagnosticDescriptor,
         source_system: SystemDiagnosticDescriptor,
         direction: OrderingDirection,
         target_set: SystemSetDiagnosticDescriptor,
@@ -156,6 +160,7 @@ impl ScheduleRegistry {
             .filter_map(|(index, system)| (system.label() == label).then_some(index))
             .collect::<Vec<_>>();
         let descriptors = self.system_descriptors(&scheduled_indices);
+        let set_descriptors = self.system_set_descriptors(&scheduled_indices);
 
         let mut ordering_resolutions = Vec::new();
         let mut precedence_reasons = Vec::new();
@@ -164,9 +169,12 @@ impl ScheduleRegistry {
         for (source_pos, source_index) in scheduled_indices.iter().copied().enumerate() {
             let source = &self.systems[source_index];
             let mut declarations = source.ordering_declarations().to_vec();
-            declarations.sort_by(compare_declarations);
+            declarations.sort_by(|left, right| {
+                compare_declarations(left, right, &set_descriptors)
+            });
 
             for declaration in declarations {
+                let target_set = system_set_descriptor(&set_descriptors, declaration.target());
                 let targets = scheduled_indices
                     .iter()
                     .copied()
@@ -185,12 +193,14 @@ impl ScheduleRegistry {
                         unresolved.push(UnresolvedOrderingReference {
                             source: descriptors[source_pos].clone(),
                             declaration,
+                            target_set,
                         });
                     } else {
                         ordering_resolutions.push(OrderingResolution {
                             source_system_index: source_index,
                             source: descriptors[source_pos].clone(),
                             declaration,
+                            target_set,
                             kind: OrderingResolutionKind::AbsentOptional,
                         });
                     }
@@ -201,6 +211,7 @@ impl ScheduleRegistry {
                     source_system_index: source_index,
                     source: descriptors[source_pos].clone(),
                     declaration,
+                    target_set,
                     kind: OrderingResolutionKind::Resolved {
                         target_system_indices: targets
                             .iter()
@@ -232,7 +243,7 @@ impl ScheduleRegistry {
                     precedence_reasons.push(PrecedenceReason {
                         source: descriptors[source_pos].clone(),
                         direction: declaration.direction(),
-                        target_set: SystemSetDiagnosticDescriptor::new(declaration.target().name()),
+                        target_set,
                         target_set_key: declaration.target(),
                         presence: declaration.presence(),
                         predecessor_system_index,
@@ -251,10 +262,10 @@ impl ScheduleRegistry {
                 .next()
                 .expect("non-empty unresolved list has a first entry");
             return Err(ScheduleValidationError::UnresolvedOrderingReference {
-                schedule: label.name(),
+                schedule: self.schedule_descriptor(label),
                 source_system: first.source,
                 direction: first.declaration.direction(),
-                target_set: SystemSetDiagnosticDescriptor::new(first.declaration.target().name()),
+                target_set: first.target_set,
             });
         }
 
@@ -338,19 +349,126 @@ impl ScheduleRegistry {
             })
             .collect()
     }
+
+    fn schedule_descriptor(&self, label: ScheduleKey) -> ScheduleDiagnosticDescriptor {
+        let mut labels = Vec::<ScheduleKey>::new();
+        for system in &self.systems {
+            if !labels.iter().any(|existing| *existing == system.label()) {
+                labels.push(system.label());
+            }
+        }
+        labels.sort_by(compare_schedule_keys_for_diagnostics);
+        let position = labels
+            .iter()
+            .position(|candidate| *candidate == label)
+            .expect("built schedule label belongs to registry");
+        let occurrence = labels[..position]
+            .iter()
+            .filter(|prior| same_schedule_diagnostic_text(**prior, label))
+            .count()
+            .saturating_add(1);
+        ScheduleDiagnosticDescriptor::new(
+            label.name(),
+            label.diagnostic_type_name(),
+            occurrence,
+        )
+    }
+
+    fn system_set_descriptors(
+        &self,
+        scheduled_indices: &[usize],
+    ) -> Vec<(SystemSetKey, SystemSetDiagnosticDescriptor)> {
+        let mut keys = Vec::<SystemSetKey>::new();
+        for system_index in scheduled_indices.iter().copied() {
+            let system = &self.systems[system_index];
+            for key in system.sets().iter().copied().chain(
+                system
+                    .ordering_declarations()
+                    .iter()
+                    .map(|declaration| declaration.target()),
+            ) {
+                if !keys.iter().any(|existing| *existing == key) {
+                    keys.push(key);
+                }
+            }
+        }
+        keys.sort_by(compare_system_set_keys_for_diagnostics);
+        keys.iter()
+            .copied()
+            .enumerate()
+            .map(|(position, key)| {
+                let occurrence = keys[..position]
+                    .iter()
+                    .filter(|prior| same_system_set_diagnostic_text(**prior, key))
+                    .count()
+                    .saturating_add(1);
+                (
+                    key,
+                    SystemSetDiagnosticDescriptor::new(
+                        key.name(),
+                        key.diagnostic_type_name(),
+                        occurrence,
+                    ),
+                )
+            })
+            .collect()
+    }
 }
 
 #[derive(Debug, Clone)]
 struct UnresolvedOrderingReference {
     source: SystemDiagnosticDescriptor,
     declaration: OrderingDeclaration,
+    target_set: SystemSetDiagnosticDescriptor,
 }
 
-fn compare_declarations(left: &OrderingDeclaration, right: &OrderingDeclaration) -> CmpOrdering {
-    left.direction()
-        .cmp(&right.direction())
-        .then_with(|| left.target().name().cmp(right.target().name()))
-        .then_with(|| left.target().type_id().cmp(&right.target().type_id()))
+fn compare_schedule_keys_for_diagnostics(
+    left: &ScheduleKey,
+    right: &ScheduleKey,
+) -> CmpOrdering {
+    left.name()
+        .cmp(right.name())
+        .then_with(|| left.diagnostic_type_name().cmp(right.diagnostic_type_name()))
+        .then_with(|| left.type_id().cmp(&right.type_id()))
+}
+
+fn compare_system_set_keys_for_diagnostics(
+    left: &SystemSetKey,
+    right: &SystemSetKey,
+) -> CmpOrdering {
+    left.name()
+        .cmp(right.name())
+        .then_with(|| left.diagnostic_type_name().cmp(right.diagnostic_type_name()))
+        .then_with(|| left.type_id().cmp(&right.type_id()))
+}
+
+fn same_schedule_diagnostic_text(left: ScheduleKey, right: ScheduleKey) -> bool {
+    left.name() == right.name() && left.diagnostic_type_name() == right.diagnostic_type_name()
+}
+
+fn same_system_set_diagnostic_text(left: SystemSetKey, right: SystemSetKey) -> bool {
+    left.name() == right.name() && left.diagnostic_type_name() == right.diagnostic_type_name()
+}
+
+fn system_set_descriptor(
+    descriptors: &[(SystemSetKey, SystemSetDiagnosticDescriptor)],
+    key: SystemSetKey,
+) -> SystemSetDiagnosticDescriptor {
+    descriptors
+        .iter()
+        .find_map(|(candidate, descriptor)| (*candidate == key).then_some(*descriptor))
+        .expect("ordering declaration target belongs to diagnostic catalog")
+}
+
+fn compare_declarations(
+    left: &OrderingDeclaration,
+    right: &OrderingDeclaration,
+    descriptors: &[(SystemSetKey, SystemSetDiagnosticDescriptor)],
+) -> CmpOrdering {
+    left.direction().cmp(&right.direction()).then_with(|| {
+        system_set_descriptor(descriptors, left.target())
+            .cmp(&system_set_descriptor(descriptors, right.target()))
+    })
 }
 
 fn compare_unresolved(
@@ -359,7 +477,8 @@ fn compare_unresolved(
 ) -> CmpOrdering {
     left.source
         .cmp(&right.source)
-        .then_with(|| compare_declarations(&left.declaration, &right.declaration))
+        .then_with(|| left.declaration.direction().cmp(&right.declaration.direction()))
+        .then_with(|| left.target_set.cmp(&right.target_set))
 }
 
 #[cfg(test)]
@@ -403,6 +522,7 @@ mod tests {
             plan.ordering_resolutions[0].kind,
             OrderingResolutionKind::AbsentOptional
         ));
+        assert_eq!(plan.ordering_resolutions[0].target_set.name(), TargetA::key().name());
         assert_eq!(
             plan.ordering_resolutions[0].declaration.presence(),
             OrderingPresence::Optional

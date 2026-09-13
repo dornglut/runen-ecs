@@ -1,5 +1,8 @@
 use runen_ecs::prelude::*;
-use runen_ecs::system::OrderingDirection;
+use runen_ecs::system::{
+    IntoSystemSetKey, OrderingDirection, ScheduleDiagnosticDescriptor, ScheduleKey,
+    SystemSetDiagnosticDescriptor, SystemSetKey,
+};
 use runen_ecs::{RuntimeError, ScheduleValidationError};
 
 #[derive(Copy, Clone)]
@@ -43,6 +46,66 @@ impl SystemSet for CycleB {
     }
 }
 
+#[derive(Copy, Clone)]
+struct CollidingTargetA;
+impl SystemSet for CollidingTargetA {
+    fn name() -> &'static str {
+        "SharedTarget"
+    }
+}
+
+#[derive(Copy, Clone)]
+struct CollidingTargetB;
+impl SystemSet for CollidingTargetB {
+    fn name() -> &'static str {
+        "SharedTarget"
+    }
+}
+
+#[derive(Copy, Clone)]
+struct CollidingScheduleA;
+impl ScheduleLabel for CollidingScheduleA {
+    fn name() -> &'static str {
+        "SharedSchedule"
+    }
+}
+
+#[derive(Copy, Clone)]
+struct CollidingScheduleB;
+impl ScheduleLabel for CollidingScheduleB {
+    fn name() -> &'static str {
+        "SharedSchedule"
+    }
+}
+
+#[derive(Copy, Clone)]
+struct TargetAliasOptional;
+impl IntoSystemSetKey for TargetAliasOptional {
+    fn system_set_key(&self) -> SystemSetKey {
+        CollidingTargetA::key()
+    }
+}
+
+#[derive(Copy, Clone)]
+struct TargetAliasRequired;
+impl IntoSystemSetKey for TargetAliasRequired {
+    fn system_set_key(&self) -> SystemSetKey {
+        CollidingTargetA::key()
+    }
+}
+
+#[derive(Copy, Clone)]
+struct ScheduleAlias;
+impl ScheduleLabel for ScheduleAlias {
+    fn name() -> &'static str {
+        "AliasWrapper"
+    }
+
+    fn key() -> ScheduleKey {
+        CollidingScheduleA::key()
+    }
+}
+
 #[derive(Debug, Default, Resource)]
 struct Order(Vec<&'static str>);
 
@@ -66,6 +129,20 @@ fn schedule_error(error: RuntimeError) -> ScheduleValidationError {
     }
 }
 
+fn unresolved_schedule(error: &ScheduleValidationError) -> ScheduleDiagnosticDescriptor {
+    match error {
+        ScheduleValidationError::UnresolvedOrderingReference { schedule, .. } => *schedule,
+        other => panic!("expected unresolved ordering reference, got {other:?}"),
+    }
+}
+
+fn unresolved_target(error: &ScheduleValidationError) -> SystemSetDiagnosticDescriptor {
+    match error {
+        ScheduleValidationError::UnresolvedOrderingReference { target_set, .. } => *target_set,
+        other => panic!("expected unresolved ordering reference, got {other:?}"),
+    }
+}
+
 #[test]
 fn required_missing_before_target_is_structured_error() {
     let mut world = World::new();
@@ -80,11 +157,15 @@ fn required_missing_before_target_is_structured_error() {
             direction,
             target_set,
         } => {
-            assert_eq!(schedule, "Update");
+            assert_eq!(schedule.name(), "Update");
+            assert!(schedule.type_name().ends_with("::Update"));
+            assert_eq!(schedule.same_name_and_type_occurrence(), 1);
             assert!(source_system.name().ends_with("source"));
             assert_eq!(source_system.same_name_occurrence(), 1);
             assert_eq!(direction, OrderingDirection::Before);
             assert_eq!(target_set.name(), "TargetA");
+            assert!(target_set.type_name().ends_with("::TargetA"));
+            assert_eq!(target_set.same_name_and_type_occurrence(), 1);
         }
         other => panic!("expected unresolved ordering reference, got {other:?}"),
     }
@@ -202,6 +283,109 @@ fn unresolved_selection_is_deterministic_under_builder_permutation() {
             ..
         }
     ));
+}
+
+#[test]
+fn colliding_target_labels_are_distinct_and_builder_order_independent() {
+    let first = {
+        let mut world = World::new();
+        let mut runtime = Runtime::new();
+        runtime.add_systems::<Update, _, _>(
+            &mut world,
+            source.before(CollidingTargetB).before(CollidingTargetA),
+        );
+        schedule_error(runtime.run_schedule::<Update>(&mut world).unwrap_err())
+    };
+    let second = {
+        let mut world = World::new();
+        let mut runtime = Runtime::new();
+        runtime.add_systems::<Update, _, _>(
+            &mut world,
+            source.before(CollidingTargetA).before(CollidingTargetB),
+        );
+        schedule_error(runtime.run_schedule::<Update>(&mut world).unwrap_err())
+    };
+    assert_eq!(first, second);
+
+    let only_a = {
+        let mut world = World::new();
+        let mut runtime = Runtime::new();
+        runtime.add_systems::<Update, _, _>(&mut world, source.before(CollidingTargetA));
+        schedule_error(runtime.run_schedule::<Update>(&mut world).unwrap_err())
+    };
+    let only_b = {
+        let mut world = World::new();
+        let mut runtime = Runtime::new();
+        runtime.add_systems::<Update, _, _>(&mut world, source.before(CollidingTargetB));
+        schedule_error(runtime.run_schedule::<Update>(&mut world).unwrap_err())
+    };
+    let descriptor_a = unresolved_target(&only_a);
+    let descriptor_b = unresolved_target(&only_b);
+    assert_eq!(descriptor_a.name(), "SharedTarget");
+    assert_eq!(descriptor_b.name(), "SharedTarget");
+    assert_ne!(descriptor_a, descriptor_b);
+    assert_ne!(descriptor_a.type_name(), descriptor_b.type_name());
+}
+
+#[test]
+fn colliding_schedule_labels_are_distinct() {
+    let schedule_a_error = {
+        let mut world = World::new();
+        let mut runtime = Runtime::new();
+        runtime.add_systems::<CollidingScheduleA, _, _>(&mut world, source.before(TargetA));
+        runtime.add_systems::<CollidingScheduleB, _, _>(&mut world, other);
+        schedule_error(
+            runtime
+                .run_schedule::<CollidingScheduleA>(&mut world)
+                .unwrap_err(),
+        )
+    };
+    let schedule_b_error = {
+        let mut world = World::new();
+        let mut runtime = Runtime::new();
+        runtime.add_systems::<CollidingScheduleB, _, _>(&mut world, source.before(TargetA));
+        runtime.add_systems::<CollidingScheduleA, _, _>(&mut world, other);
+        schedule_error(
+            runtime
+                .run_schedule::<CollidingScheduleB>(&mut world)
+                .unwrap_err(),
+        )
+    };
+
+    let descriptor_a = unresolved_schedule(&schedule_a_error);
+    let descriptor_b = unresolved_schedule(&schedule_b_error);
+    assert_eq!(descriptor_a.name(), "SharedSchedule");
+    assert_eq!(descriptor_b.name(), "SharedSchedule");
+    assert_ne!(descriptor_a, descriptor_b);
+    assert_ne!(descriptor_a.type_name(), descriptor_b.type_name());
+}
+
+#[test]
+fn diagnostic_identity_follows_returned_semantic_keys_not_wrapper_types() {
+    let set_error = {
+        let mut world = World::new();
+        let mut runtime = Runtime::new();
+        runtime.add_systems::<Update, _, _>(
+            &mut world,
+            source
+                .before_if_present(TargetAliasOptional)
+                .before(TargetAliasRequired),
+        );
+        schedule_error(runtime.run_schedule::<Update>(&mut world).unwrap_err())
+    };
+    let target = unresolved_target(&set_error);
+    assert_eq!(target.name(), "SharedTarget");
+    assert!(target.type_name().ends_with("::CollidingTargetA"));
+
+    let schedule_error_value = {
+        let mut world = World::new();
+        let mut runtime = Runtime::new();
+        runtime.add_systems::<ScheduleAlias, _, _>(&mut world, source.before(TargetA));
+        schedule_error(runtime.run_schedule::<ScheduleAlias>(&mut world).unwrap_err())
+    };
+    let schedule = unresolved_schedule(&schedule_error_value);
+    assert_eq!(schedule.name(), "SharedSchedule");
+    assert!(schedule.type_name().ends_with("::CollidingScheduleA"));
 }
 
 #[test]

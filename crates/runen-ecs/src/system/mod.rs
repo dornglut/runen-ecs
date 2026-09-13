@@ -20,6 +20,54 @@ impl fmt::Display for OrderingDirection {
     }
 }
 
+/// Snapshot-local descriptor used to identify one schedule in diagnostics.
+///
+/// Rust type text and the occurrence discriminator are explanatory only. Neither is
+/// executable schedule identity or portable identity across independently built snapshots.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct ScheduleDiagnosticDescriptor {
+    name: &'static str,
+    type_name: &'static str,
+    same_name_and_type_occurrence: usize,
+}
+
+impl ScheduleDiagnosticDescriptor {
+    pub(crate) const fn new(
+        name: &'static str,
+        type_name: &'static str,
+        same_name_and_type_occurrence: usize,
+    ) -> Self {
+        Self {
+            name,
+            type_name,
+            same_name_and_type_occurrence,
+        }
+    }
+
+    pub const fn name(self) -> &'static str {
+        self.name
+    }
+
+    pub const fn type_name(self) -> &'static str {
+        self.type_name
+    }
+
+    pub const fn same_name_and_type_occurrence(self) -> usize {
+        self.same_name_and_type_occurrence
+    }
+}
+
+impl fmt::Display for ScheduleDiagnosticDescriptor {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt_named_descriptor(
+            formatter,
+            self.name,
+            self.type_name,
+            self.same_name_and_type_occurrence,
+        )
+    }
+}
+
 /// Snapshot-local descriptor used to identify one system in schedule diagnostics.
 ///
 /// The occurrence is descriptive only. It is not a runtime system id, execution rank,
@@ -53,28 +101,65 @@ impl fmt::Display for SystemDiagnosticDescriptor {
     }
 }
 
-/// Human-readable target-set descriptor used by schedule diagnostics.
+/// Snapshot-local target-set descriptor used by schedule diagnostics.
 ///
-/// Matching still uses the internal `SystemSetKey`; this descriptor intentionally does
-/// not promote `TypeId` into portable diagnostic identity.
+/// Matching still uses the internal `SystemSetKey`. Rust type text and the occurrence
+/// discriminator are explanatory only and never become executable or portable set identity.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct SystemSetDiagnosticDescriptor {
     name: &'static str,
+    type_name: &'static str,
+    same_name_and_type_occurrence: usize,
 }
 
 impl SystemSetDiagnosticDescriptor {
-    pub(crate) const fn new(name: &'static str) -> Self {
-        Self { name }
+    pub(crate) const fn new(
+        name: &'static str,
+        type_name: &'static str,
+        same_name_and_type_occurrence: usize,
+    ) -> Self {
+        Self {
+            name,
+            type_name,
+            same_name_and_type_occurrence,
+        }
     }
 
     pub const fn name(self) -> &'static str {
         self.name
     }
+
+    pub const fn type_name(self) -> &'static str {
+        self.type_name
+    }
+
+    pub const fn same_name_and_type_occurrence(self) -> usize {
+        self.same_name_and_type_occurrence
+    }
 }
 
 impl fmt::Display for SystemSetDiagnosticDescriptor {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(self.name)
+        fmt_named_descriptor(
+            formatter,
+            self.name,
+            self.type_name,
+            self.same_name_and_type_occurrence,
+        )
+    }
+}
+
+fn fmt_named_descriptor(
+    formatter: &mut fmt::Formatter<'_>,
+    name: &'static str,
+    type_name: &'static str,
+    occurrence: usize,
+) -> fmt::Result {
+    match (name == type_name, occurrence) {
+        (true, 1) => formatter.write_str(name),
+        (true, occurrence) => write!(formatter, "{name}#{occurrence}"),
+        (false, 1) => write!(formatter, "{name} [{type_name}]"),
+        (false, occurrence) => write!(formatter, "{name} [{type_name}]#{occurrence}"),
     }
 }
 
