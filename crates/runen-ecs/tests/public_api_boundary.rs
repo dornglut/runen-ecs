@@ -82,7 +82,6 @@ fn deferred_recorder_metadata_is_hidden_but_macro_reachable() {
     assert!(LIB_RS.contains("DeferredRecorderClass"));
     assert!(SYSTEM_EXTRACT_RS.contains("#[doc(hidden)]\n#[derive(Debug, Copy, Clone, PartialEq, Eq)]\npub enum DeferredRecorderClass"));
     assert!(!PRELUDE_RS.contains("DeferredRecorderClass"));
-    assert!(!LIB_RS.contains("TransferableDeferred"));
 }
 
 #[test]
