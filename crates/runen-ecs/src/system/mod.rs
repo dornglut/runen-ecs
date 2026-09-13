@@ -163,8 +163,16 @@ fn fmt_named_descriptor(
     }
 }
 
+pub use crate::scheduler::inspection::{
+    ScheduleAccessAmbiguity, ScheduleAccessConflict, ScheduleAccessConflictKind,
+    ScheduleAccessDomain, ScheduleInspection, ScheduleOrderingCycle, ScheduleOrderingResolution,
+    ScheduleOrderingResolutionKind, SchedulePairwiseConcurrencyAssessment, SchedulePrecedenceEdge,
+    SchedulePrecedencePath, SchedulePrecedenceReason, SchedulePublicationFrontier,
+    SchedulePublicationObligation,
+};
 pub use crate::scheduler::label::{ScheduleKey, ScheduleLabel, SystemSet, SystemSetKey};
 pub use crate::scheduler::plan::ScheduleValidationError;
+pub use crate::scheduler::system::OrderingPresence;
 pub use crate::scheduler::system::ParamSlotDescriptor;
 pub use extract::{DeferredRecorderClass, SystemParam, SystemParamContext, SystemParamError};
 pub use params::{Res, ResMut, WorldMut};

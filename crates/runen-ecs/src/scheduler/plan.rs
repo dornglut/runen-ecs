@@ -1,3 +1,4 @@
+use crate::scheduler::inspection::{self, ScheduleOrderingCycle};
 use crate::scheduler::label::{ScheduleKey, ScheduleLabel, SystemSetKey};
 use crate::scheduler::system::{OrderingDeclaration, OrderingPresence, RegisteredSystem, SystemId};
 use crate::system::{
@@ -45,6 +46,9 @@ pub(crate) struct PrecedenceReason {
 #[derive(Debug, Clone)]
 pub(crate) struct ExecutionPlan {
     pub(crate) label: ScheduleKey,
+    pub(crate) schedule_descriptor: ScheduleDiagnosticDescriptor,
+    pub(crate) scheduled_system_indices: Vec<usize>,
+    pub(crate) system_descriptors: Vec<SystemDiagnosticDescriptor>,
     pub(crate) reference_system_indices: Vec<usize>,
     #[allow(dead_code)]
     pub(crate) reference_rank_by_system_index: Vec<Option<usize>>,
@@ -89,7 +93,10 @@ pub enum ScheduleValidationError {
         target_set: SystemSetDiagnosticDescriptor,
     },
     #[error("schedule '{schedule}' has cyclic system ordering constraints")]
-    OrderingCycle { schedule: &'static str },
+    OrderingCycle {
+        schedule: ScheduleDiagnosticDescriptor,
+        cycle: ScheduleOrderingCycle,
+    },
     #[error("schedule system identity space is exhausted")]
     SystemIdentityExhausted,
 }
@@ -141,6 +148,10 @@ impl ScheduleRegistry {
 
     pub fn systems_mut(&mut self) -> &mut [RegisteredSystem] {
         &mut self.systems
+    }
+
+    pub(crate) fn systems(&self) -> &[RegisteredSystem] {
+        &self.systems
     }
 
     pub(crate) fn plan_for<L: ScheduleLabel>(
@@ -329,7 +340,8 @@ impl ScheduleRegistry {
 
         if scheduled_count != scheduled_indices.len() {
             return Err(ScheduleValidationError::OrderingCycle {
-                schedule: label.name(),
+                schedule: self.schedule_descriptor(label),
+                cycle: inspection::canonical_cycle(&descriptors, &precedence_reasons),
             });
         }
 
@@ -435,6 +447,9 @@ impl ScheduleRegistry {
 
         Ok(ExecutionPlan {
             label,
+            schedule_descriptor: self.schedule_descriptor(label),
+            scheduled_system_indices: scheduled_indices,
+            system_descriptors: descriptors,
             reference_system_indices,
             reference_rank_by_system_index,
             ordering_resolutions,

@@ -64,7 +64,7 @@ impl ParamSlotDescriptor {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub(crate) enum OrderingPresence {
+pub enum OrderingPresence {
     Optional,
     Required,
 }

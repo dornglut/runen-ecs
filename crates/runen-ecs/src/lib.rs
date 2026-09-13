@@ -31,8 +31,13 @@ pub use reflect::{
 pub use runen_ecs_macros::{Bundle, Component, Reflect, Resource, SystemParam};
 pub use system::{
     ConfiguredSystem, DeferredPublicationFrontier, DeferredRecorderClass, IntoSystem,
-    IntoSystemConfigs, IntoSystemSetKey, ParamSlotDescriptor, Res, ResMut, Runtime, ScheduleKey,
-    ScheduleLabel, ScheduleValidationError, SystemConfigExt, SystemParam, SystemParamContext,
-    SystemParamError, SystemSet, SystemSetKey, WorldMut,
+    IntoSystemConfigs, IntoSystemSetKey, OrderingPresence, ParamSlotDescriptor, Res, ResMut,
+    Runtime, ScheduleAccessAmbiguity, ScheduleAccessConflict, ScheduleAccessConflictKind,
+    ScheduleAccessDomain, ScheduleInspection, ScheduleKey, ScheduleLabel, ScheduleOrderingCycle,
+    ScheduleOrderingResolution, ScheduleOrderingResolutionKind,
+    SchedulePairwiseConcurrencyAssessment, SchedulePrecedenceEdge, SchedulePrecedencePath,
+    SchedulePrecedenceReason, SchedulePublicationFrontier, SchedulePublicationObligation,
+    ScheduleValidationError, SystemConfigExt, SystemParam, SystemParamContext, SystemParamError,
+    SystemSet, SystemSetKey, WorldMut,
 };
 pub use world::{ChangeCursor, EntityMut, EntityRef, Mut, World};

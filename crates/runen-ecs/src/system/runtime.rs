@@ -2,6 +2,7 @@ use super::OrderingDirection;
 use super::extract::{DeferredRecorderClass, SystemParam, SystemParamContext, SystemParamError};
 use crate::errors::RuntimeError;
 use crate::scheduler::access::{AccessKey, SystemAccess};
+use crate::scheduler::inspection::ScheduleInspection;
 use crate::scheduler::label::{ScheduleKey, ScheduleLabel, SystemSet, SystemSetKey};
 use crate::scheduler::plan::ScheduleRegistry;
 use crate::scheduler::system::{OrderingDeclaration, ParamSlotDescriptor, RegisteredSystem};
@@ -818,6 +819,12 @@ impl Runtime {
         );
         systems.register::<L>(&mut context);
         self
+    }
+
+    pub fn inspect_schedule<L: ScheduleLabel>(&mut self) -> Result<Option<ScheduleInspection>> {
+        self.ensure_build_ready()?;
+        let plan = self.scheduler.plan_for::<L>()?.cloned();
+        Ok(plan.map(|plan| ScheduleInspection::from_plan(&plan, self.scheduler.systems())))
     }
 
     pub fn run_schedule<L: ScheduleLabel>(&mut self, world: &mut World) -> Result<()> {
