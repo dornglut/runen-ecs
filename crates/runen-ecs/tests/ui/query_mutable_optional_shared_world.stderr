@@ -11,7 +11,7 @@ help: the trait `query::traits_and_state::QueryReadOnly` is implemented for `Opt
   |
   | impl<T: Component> QueryReadOnly for Option<&T> {}
   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  = note: required for `&World` to implement `runen_ecs::query::QueryWorldSource<'_, Option<&mut Position>>`
+  = note: required for `&runen_ecs::World` to implement `runen_ecs::query::QueryWorldSource<'_, Option<&mut Position>>`
 note: required by a bound in `QueryState::<Q, F>::iter`
  --> src/query/traits_and_state.rs
   |
