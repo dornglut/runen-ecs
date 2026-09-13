@@ -196,10 +196,7 @@ impl RegisteredSystem {
     }
 
     pub fn after_set_key(&mut self, key: SystemSetKey) -> &mut Self {
-        self.add_ordering_declaration(OrderingDeclaration::required(
-            OrderingDirection::After,
-            key,
-        ));
+        self.add_ordering_declaration(OrderingDeclaration::required(OrderingDirection::After, key));
         self
     }
 

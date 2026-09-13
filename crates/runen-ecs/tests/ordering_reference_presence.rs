@@ -114,10 +114,7 @@ fn required_missing_after_target_is_structured_error() {
 fn self_membership_does_not_satisfy_required_target() {
     let mut world = World::new();
     let mut runtime = Runtime::new();
-    runtime.add_systems::<Update, _, _>(
-        &mut world,
-        source.in_set(TargetA).before(TargetA),
-    );
+    runtime.add_systems::<Update, _, _>(&mut world, source.in_set(TargetA).before(TargetA));
 
     let error = schedule_error(runtime.run_schedule::<Update>(&mut world).unwrap_err());
     assert!(matches!(
@@ -135,9 +132,7 @@ fn optional_missing_target_is_accepted_and_repetition_is_idempotent() {
     let mut runtime = Runtime::new();
     runtime.add_systems::<Update, _, _>(
         &mut world,
-        source
-            .before_if_present(TargetA)
-            .before_if_present(TargetA),
+        source.before_if_present(TargetA).before_if_present(TargetA),
     );
 
     runtime.run_schedule::<Update>(&mut world).unwrap();
@@ -149,13 +144,13 @@ fn optional_present_target_has_normal_precedence() {
     world.insert_resource(Order::default());
     let mut runtime = Runtime::new();
     runtime.add_systems::<Update, _, _>(&mut world, record_target.in_set(TargetA));
-    runtime.add_systems::<Update, _, _>(
-        &mut world,
-        record_source.before_if_present(TargetA),
-    );
+    runtime.add_systems::<Update, _, _>(&mut world, record_source.before_if_present(TargetA));
 
     runtime.run_schedule::<Update>(&mut world).unwrap();
-    assert_eq!(world.resource::<Order>().unwrap().0, vec!["source", "target"]);
+    assert_eq!(
+        world.resource::<Order>().unwrap().0,
+        vec!["source", "target"]
+    );
 }
 
 #[test]
@@ -188,20 +183,14 @@ fn unresolved_selection_is_deterministic_under_builder_permutation() {
     let first = {
         let mut world = World::new();
         let mut runtime = Runtime::new();
-        runtime.add_systems::<Update, _, _>(
-            &mut world,
-            source.after(TargetA).before(TargetB),
-        );
+        runtime.add_systems::<Update, _, _>(&mut world, source.after(TargetA).before(TargetB));
         schedule_error(runtime.run_schedule::<Update>(&mut world).unwrap_err())
     };
 
     let second = {
         let mut world = World::new();
         let mut runtime = Runtime::new();
-        runtime.add_systems::<Update, _, _>(
-            &mut world,
-            source.before(TargetB).after(TargetA),
-        );
+        runtime.add_systems::<Update, _, _>(&mut world, source.before(TargetB).after(TargetA));
         schedule_error(runtime.run_schedule::<Update>(&mut world).unwrap_err())
     };
 
@@ -220,14 +209,8 @@ fn unresolved_reference_is_reported_before_cycle_derivation() {
     let mut world = World::new();
     let mut runtime = Runtime::new();
     runtime.add_systems::<Update, _, _>(&mut world, source.before(TargetA));
-    runtime.add_systems::<Update, _, _>(
-        &mut world,
-        cycle_a.in_set(CycleA).after(CycleB),
-    );
-    runtime.add_systems::<Update, _, _>(
-        &mut world,
-        cycle_b.in_set(CycleB).after(CycleA),
-    );
+    runtime.add_systems::<Update, _, _>(&mut world, cycle_a.in_set(CycleA).after(CycleB));
+    runtime.add_systems::<Update, _, _>(&mut world, cycle_b.in_set(CycleB).after(CycleA));
     runtime.add_systems::<Update, _, _>(&mut world, other);
 
     let error = schedule_error(runtime.run_schedule::<Update>(&mut world).unwrap_err());

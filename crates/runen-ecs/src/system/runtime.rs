@@ -109,7 +109,10 @@ impl SystemConfigMetadata {
     }
 
     fn before_set(&mut self, key: SystemSetKey) {
-        self.ordering(OrderingDeclaration::required(OrderingDirection::Before, key));
+        self.ordering(OrderingDeclaration::required(
+            OrderingDirection::Before,
+            key,
+        ));
     }
 
     fn after_set(&mut self, key: SystemSetKey) {
@@ -117,7 +120,10 @@ impl SystemConfigMetadata {
     }
 
     fn before_if_present_set(&mut self, key: SystemSetKey) {
-        self.ordering(OrderingDeclaration::optional(OrderingDirection::Before, key));
+        self.ordering(OrderingDeclaration::optional(
+            OrderingDirection::Before,
+            key,
+        ));
     }
 
     fn after_if_present_set(&mut self, key: SystemSetKey) {

@@ -1,10 +1,6 @@
 use crate::scheduler::label::{ScheduleKey, ScheduleLabel, SystemSetKey};
-use crate::scheduler::system::{
-    OrderingDeclaration, OrderingPresence, RegisteredSystem, SystemId,
-};
-use crate::system::{
-    OrderingDirection, SystemDiagnosticDescriptor, SystemSetDiagnosticDescriptor,
-};
+use crate::scheduler::system::{OrderingDeclaration, OrderingPresence, RegisteredSystem, SystemId};
+use crate::system::{OrderingDirection, SystemDiagnosticDescriptor, SystemSetDiagnosticDescriptor};
 use std::cmp::Ordering as CmpOrdering;
 use std::collections::BTreeSet;
 use thiserror::Error;
@@ -236,9 +232,7 @@ impl ScheduleRegistry {
                     precedence_reasons.push(PrecedenceReason {
                         source: descriptors[source_pos].clone(),
                         direction: declaration.direction(),
-                        target_set: SystemSetDiagnosticDescriptor::new(
-                            declaration.target().name(),
-                        ),
+                        target_set: SystemSetDiagnosticDescriptor::new(declaration.target().name()),
                         target_set_key: declaration.target(),
                         presence: declaration.presence(),
                         predecessor_system_index,
@@ -272,7 +266,8 @@ impl ScheduleRegistry {
         let mut outgoing = vec![BTreeSet::<usize>::new(); scheduled_indices.len()];
         let mut incoming = vec![0usize; scheduled_indices.len()];
         for reason in &precedence_reasons {
-            let predecessor_pos = scheduled_position_by_system_index[reason.predecessor_system_index]
+            let predecessor_pos = scheduled_position_by_system_index
+                [reason.predecessor_system_index]
                 .expect("precedence predecessor belongs to built schedule");
             let successor_pos = scheduled_position_by_system_index[reason.successor_system_index]
                 .expect("precedence successor belongs to built schedule");
@@ -372,9 +367,7 @@ mod tests {
     use super::{OrderingResolutionKind, ScheduleRegistry};
     use crate::scheduler::access::SystemAccess;
     use crate::scheduler::label::{ScheduleLabel, SystemSet};
-    use crate::scheduler::system::{
-        OrderingDeclaration, OrderingPresence, RegisteredSystem,
-    };
+    use crate::scheduler::system::{OrderingDeclaration, OrderingPresence, RegisteredSystem};
     use crate::system::OrderingDirection;
 
     #[derive(Copy, Clone)]
@@ -441,21 +434,25 @@ mod tests {
         assert!(plan.precedence_reasons.iter().all(|reason| {
             reason.predecessor_system_index == 0 && reason.successor_system_index == 1
         }));
-        assert!(plan
-            .precedence_reasons
-            .iter()
-            .any(|reason| reason.target_set_key == TargetA::key()));
-        assert!(plan
-            .precedence_reasons
-            .iter()
-            .any(|reason| reason.target_set_key == TargetB::key()));
-        assert!(plan
-            .precedence_reasons
-            .iter()
-            .any(|reason| reason.presence == OrderingPresence::Optional));
-        assert!(plan
-            .precedence_reasons
-            .iter()
-            .any(|reason| reason.presence == OrderingPresence::Required));
+        assert!(
+            plan.precedence_reasons
+                .iter()
+                .any(|reason| reason.target_set_key == TargetA::key())
+        );
+        assert!(
+            plan.precedence_reasons
+                .iter()
+                .any(|reason| reason.target_set_key == TargetB::key())
+        );
+        assert!(
+            plan.precedence_reasons
+                .iter()
+                .any(|reason| reason.presence == OrderingPresence::Optional)
+        );
+        assert!(
+            plan.precedence_reasons
+                .iter()
+                .any(|reason| reason.presence == OrderingPresence::Required)
+        );
     }
 }
