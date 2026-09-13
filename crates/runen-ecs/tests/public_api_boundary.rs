@@ -43,18 +43,76 @@ fn implementation_only_runtime_identity_and_scheduler_types_are_not_publicly_ree
         "ConflictKind",
         "SystemAccess",
         "SystemId",
+        "TypeId",
     ];
 
     for internal in INTERNAL_ONLY {
         assert!(
-            !LIB_RS.contains(internal),
+            !has_identifier(LIB_RS, internal),
             "implementation-only type leaked through the crate root: {internal}"
         );
         assert!(
-            !SYSTEM_MOD_RS.contains(internal),
+            !has_identifier(SYSTEM_MOD_RS, internal),
             "implementation-only type leaked through the public system module: {internal}"
         );
     }
+}
+
+#[test]
+fn normalized_schedule_inspection_is_public_but_private_scheduler_vocabulary_stays_hidden() {
+    for public in [
+        "ScheduleInspection",
+        "ScheduleOrderingResolution",
+        "SchedulePrecedenceEdge",
+        "SchedulePrecedencePath",
+        "SchedulePublicationFrontier",
+        "ScheduleAccessAmbiguity",
+        "SchedulePairwiseConcurrencyAssessment",
+        "ScheduleOrderingCycle",
+        "OrderingPresence",
+    ] {
+        assert!(
+            has_identifier(LIB_RS, public),
+            "missing root export: {public}"
+        );
+        assert!(
+            has_identifier(SYSTEM_MOD_RS, public),
+            "missing system export: {public}"
+        );
+        assert!(
+            !has_identifier(PRELUDE_RS, public),
+            "inspection vocabulary leaked into gameplay prelude: {public}"
+        );
+    }
+
+    for private in [
+        "reference_rank",
+        "precedence_depth",
+        "source_ordinal",
+        "frontier_cut",
+        "ExecutionStage",
+        "worker_id",
+        "cohort_id",
+    ] {
+        assert!(
+            !has_identifier(LIB_RS, private),
+            "private vocabulary leaked: {private}"
+        );
+        assert!(
+            !has_identifier(SYSTEM_MOD_RS, private),
+            "private vocabulary leaked: {private}"
+        );
+        assert!(
+            !has_identifier(PRELUDE_RS, private),
+            "private vocabulary leaked: {private}"
+        );
+    }
+}
+
+fn has_identifier(source: &str, identifier: &str) -> bool {
+    source
+        .split(|character: char| !character.is_ascii_alphanumeric() && character != '_')
+        .any(|token| token == identifier)
 }
 
 #[test]
