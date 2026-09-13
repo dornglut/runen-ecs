@@ -55,20 +55,20 @@ impl ScheduleLabel for WorldUpdate {
 }
 
 #[derive(Copy, Clone)]
-struct SpawnStage;
+struct SpawnProducerSet;
 
-impl SystemSet for SpawnStage {
+impl SystemSet for SpawnProducerSet {
     fn name() -> &'static str {
-        "SpawnStage"
+        "SpawnProducerSet"
     }
 }
 
 #[derive(Copy, Clone)]
-struct ObserveStage;
+struct ObservePublicationSet;
 
-impl SystemSet for ObserveStage {
+impl SystemSet for ObservePublicationSet {
     fn name() -> &'static str {
-        "ObserveStage"
+        "ObservePublicationSet"
     }
 }
 
@@ -795,7 +795,7 @@ fn component_index_rebuild_remains_correct_under_churn() {
 }
 
 #[test]
-fn command_queued_spawn_is_visible_next_stage_and_not_readded_next_frame() {
+fn command_queued_spawn_is_visible_after_publication_and_not_readded_next_run() {
     fn queue_spawn_once(mut gate: ResMut<SpawnGate>, mut commands: Commands) {
         if gate.0 {
             return;
@@ -816,10 +816,12 @@ fn command_queued_spawn_is_visible_next_stage_and_not_readded_next_frame() {
     world.insert_resource(AddedHealthCounts(Vec::new()));
 
     let mut runtime = Runtime::new();
-    runtime.add_systems::<WorldUpdate, _, _>(&mut world, queue_spawn_once.in_set(SpawnStage));
+    runtime.add_systems::<WorldUpdate, _, _>(&mut world, queue_spawn_once.in_set(SpawnProducerSet));
     runtime.add_systems::<WorldUpdate, _, _>(
         &mut world,
-        observe_added.in_set(ObserveStage).after(SpawnStage),
+        observe_added
+            .in_set(ObservePublicationSet)
+            .after(SpawnProducerSet),
     );
 
     runtime.run_schedule::<WorldUpdate>(&mut world).unwrap();

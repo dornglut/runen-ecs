@@ -19,14 +19,14 @@ RunenECS already owns the semantic facts needed to decide whether system work ma
 
 These facts are intentionally separate. Access incompatibility is not semantic ordering, execution mobility is not parallel eligibility, and physical execution groups are not public schedule meaning.
 
-The present runtime is nevertheless serial-only. It invokes systems one at a time against `&mut World`, records successful `Commands` into one runtime-local queue, advances World change cursors directly from mutable access, and invokes deferred-boundary callbacks after current physical `ExecutionStage`s.
+The present runtime is nevertheless serial-only. It invokes systems one at a time against `&mut World`, records successful `Commands` into one runtime-local queue, advances World change cursors directly from mutable access, and invokes publication-frontier callbacks after the canonical semantic cuts derived from the schedule plan.
 
 A parallel executor cannot safely be obtained by putting those calls on a thread pool. In particular:
 
 - current direct mutation bookkeeping writes one shared World change cursor and shared change maps;
 - current query capabilities contain pointers to shared bookkeeping domains;
 - current ordinary `Commands` is invoker-thread-only by ADR 0002;
-- current public boundary callbacks are coupled to physical topological stages and must first be normalized by #33;
+- current public boundary callbacks are expressed as semantic publication frontiers derived from the schedule plan;
 - completion order must not become command publication order;
 - panic/error handling cannot leave unpublished command buffers for a later invocation;
 - generic rollback of arbitrary component/resource writes is not available.
@@ -184,7 +184,7 @@ Deferred publication is driven by the normalized semantic publication-frontier m
 - final pending deferred work is published before the schedule run completes;
 - unrelated physical grouping does not create portable visibility semantics.
 
-The executor must not expose current serial `ExecutionStage` or future worker cohorts as the source of this contract.
+The executor must not expose current serial physical grouping or future worker cohorts as the source of this contract.
 
 Cohort construction may conservatively stop at a publication frontier, but changing worker count or cohort width must not change where semantic deferred visibility occurs.
 
@@ -202,7 +202,7 @@ If the callback returns an error or panics:
 - no generic World rollback occurs;
 - a panic resumes unwinding with the original payload rather than being converted to an ordinary error.
 
-Any exposed boundary descriptor/index is the schedule-local semantic publication identity from #33, never a cohort/stage index.
+Any exposed boundary descriptor/index is the schedule-local semantic publication identity, never a cohort index.
 
 ### 12. Invoker-thread-only systems are physical fences in the baseline executor
 

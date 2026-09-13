@@ -52,10 +52,10 @@ struct TargetPair(Entity, Entity);
 struct Gate(bool);
 
 #[derive(Debug, Default, PartialEq, Eq, runen_ecs::Resource)]
-struct StageCounts {
-    same_stage: Vec<usize>,
-    post_stage: Vec<usize>,
-    late_stage: Vec<usize>,
+struct PublicationWindowCounts {
+    before_frontier: Vec<usize>,
+    after_frontier: Vec<usize>,
+    later_frontier: Vec<usize>,
 }
 
 #[derive(Debug, Default, PartialEq, Eq, runen_ecs::Resource)]
@@ -77,7 +77,7 @@ struct WindowSnapshot {
 }
 
 #[test]
-fn explicit_remove_is_not_visible_before_flush_and_visible_after_flush() {
+fn explicit_remove_is_not_visible_before_publication_and_visible_after_publication() {
     fn queue_remove_once(mut gate: ResMut<Gate>, target: Res<Target>, mut commands: Commands) {
         if gate.0 {
             return;
@@ -86,37 +86,43 @@ fn explicit_remove_is_not_visible_before_flush_and_visible_after_flush() {
         gate.0 = true;
     }
 
-    fn observe_same_stage(mut removed: RemovedQuery<A>, mut counts: ResMut<StageCounts>) {
-        counts.same_stage.push(removed.iter().count());
+    fn observe_before_frontier(
+        mut removed: RemovedQuery<A>,
+        mut counts: ResMut<PublicationWindowCounts>,
+    ) {
+        counts.before_frontier.push(removed.iter().count());
     }
 
-    fn observe_post_stage(mut removed: RemovedQuery<A>, mut counts: ResMut<StageCounts>) {
-        counts.post_stage.push(removed.iter().count());
+    fn observe_after_frontier(
+        mut removed: RemovedQuery<A>,
+        mut counts: ResMut<PublicationWindowCounts>,
+    ) {
+        counts.after_frontier.push(removed.iter().count());
     }
 
     let mut world = World::new();
     let entity = world.spawn(A(1)).expect("spawn should succeed");
     world.insert_resource(Target(entity));
     world.insert_resource(Gate(false));
-    world.insert_resource(StageCounts::default());
+    world.insert_resource(PublicationWindowCounts::default());
 
     let mut runtime = Runtime::new();
     runtime.add_systems::<Update, _, _>(&mut world, queue_remove_once.in_set(QueueSet));
-    runtime.add_systems::<Update, _, _>(&mut world, observe_same_stage.in_set(QueueSet));
+    runtime.add_systems::<Update, _, _>(&mut world, observe_before_frontier.in_set(QueueSet));
     runtime.add_systems::<Update, _, _>(
         &mut world,
-        observe_post_stage.in_set(ObserveSet).after(QueueSet),
+        observe_after_frontier.in_set(ObserveSet).after(QueueSet),
     );
 
     runtime.run_schedule::<Update>(&mut world).unwrap();
 
-    let counts = world.resource::<StageCounts>().unwrap();
-    assert_eq!(counts.same_stage, vec![0]);
-    assert_eq!(counts.post_stage, vec![1]);
+    let counts = world.resource::<PublicationWindowCounts>().unwrap();
+    assert_eq!(counts.before_frontier, vec![0]);
+    assert_eq!(counts.after_frontier, vec![1]);
 }
 
 #[test]
-fn despawn_with_component_is_visible_after_flush() {
+fn despawn_with_component_is_visible_after_publication() {
     fn queue_despawn_once(mut gate: ResMut<Gate>, target: Res<Target>, mut commands: Commands) {
         if gate.0 {
             return;
@@ -125,31 +131,34 @@ fn despawn_with_component_is_visible_after_flush() {
         gate.0 = true;
     }
 
-    fn observe_post_stage(mut removed: RemovedQuery<A>, mut counts: ResMut<StageCounts>) {
-        counts.post_stage.push(removed.iter().count());
+    fn observe_after_frontier(
+        mut removed: RemovedQuery<A>,
+        mut counts: ResMut<PublicationWindowCounts>,
+    ) {
+        counts.after_frontier.push(removed.iter().count());
     }
 
     let mut world = World::new();
     let entity = world.spawn((A(2), B(9))).expect("spawn should succeed");
     world.insert_resource(Target(entity));
     world.insert_resource(Gate(false));
-    world.insert_resource(StageCounts::default());
+    world.insert_resource(PublicationWindowCounts::default());
 
     let mut runtime = Runtime::new();
     runtime.add_systems::<Update, _, _>(&mut world, queue_despawn_once.in_set(QueueSet));
     runtime.add_systems::<Update, _, _>(
         &mut world,
-        observe_post_stage.in_set(ObserveSet).after(QueueSet),
+        observe_after_frontier.in_set(ObserveSet).after(QueueSet),
     );
 
     runtime.run_schedule::<Update>(&mut world).unwrap();
 
-    let counts = world.resource::<StageCounts>().unwrap();
-    assert_eq!(counts.post_stage, vec![1]);
+    let counts = world.resource::<PublicationWindowCounts>().unwrap();
+    assert_eq!(counts.after_frontier, vec![1]);
 }
 
 #[test]
-fn removed_records_are_visible_only_for_one_stage_window() {
+fn removed_records_remain_visible_until_the_next_publication_frontier() {
     fn queue_remove_once(mut gate: ResMut<Gate>, target: Res<Target>, mut commands: Commands) {
         if gate.0 {
             return;
@@ -158,40 +167,48 @@ fn removed_records_are_visible_only_for_one_stage_window() {
         gate.0 = true;
     }
 
-    fn observe_post_stage(mut removed: RemovedQuery<A>, mut counts: ResMut<StageCounts>) {
-        counts.post_stage.push(removed.iter().count());
+    fn observe_after_frontier(
+        mut removed: RemovedQuery<A>,
+        mut counts: ResMut<PublicationWindowCounts>,
+    ) {
+        counts.after_frontier.push(removed.iter().count());
     }
 
-    fn observe_late_stage(mut removed: RemovedQuery<A>, mut counts: ResMut<StageCounts>) {
-        counts.late_stage.push(removed.iter().count());
+    fn observe_later_frontier(
+        mut removed: RemovedQuery<A>,
+        mut counts: ResMut<PublicationWindowCounts>,
+    ) {
+        counts.later_frontier.push(removed.iter().count());
     }
 
     let mut world = World::new();
     let entity = world.spawn(A(3)).expect("spawn should succeed");
     world.insert_resource(Target(entity));
     world.insert_resource(Gate(false));
-    world.insert_resource(StageCounts::default());
+    world.insert_resource(PublicationWindowCounts::default());
 
     let mut runtime = Runtime::new();
     runtime.add_systems::<Update, _, _>(&mut world, queue_remove_once.in_set(QueueSet));
     runtime.add_systems::<Update, _, _>(
         &mut world,
-        observe_post_stage.in_set(ObserveSet).after(QueueSet),
+        observe_after_frontier.in_set(ObserveSet).after(QueueSet),
     );
     runtime.add_systems::<Update, _, _>(
         &mut world,
-        observe_late_stage.in_set(LateObserveSet).after(ObserveSet),
+        observe_later_frontier
+            .in_set(LateObserveSet)
+            .after(ObserveSet),
     );
 
     runtime.run_schedule::<Update>(&mut world).unwrap();
 
-    let counts = world.resource::<StageCounts>().unwrap();
-    assert_eq!(counts.post_stage, vec![1]);
-    assert_eq!(counts.late_stage, vec![0]);
+    let counts = world.resource::<PublicationWindowCounts>().unwrap();
+    assert_eq!(counts.after_frontier, vec![1]);
+    assert_eq!(counts.later_frontier, vec![1]);
 }
 
 #[test]
-fn multiple_removals_in_one_stage_are_reported() {
+fn multiple_removals_in_one_publication_window_are_reported() {
     fn queue_remove_pair_once(
         mut gate: ResMut<Gate>,
         targets: Res<TargetPair>,
@@ -293,28 +310,31 @@ fn removed_entries_do_not_repeat_across_later_runs() {
         gate.0 = true;
     }
 
-    fn observe_post_stage(mut removed: RemovedQuery<A>, mut counts: ResMut<StageCounts>) {
-        counts.post_stage.push(removed.iter().count());
+    fn observe_after_frontier(
+        mut removed: RemovedQuery<A>,
+        mut counts: ResMut<PublicationWindowCounts>,
+    ) {
+        counts.after_frontier.push(removed.iter().count());
     }
 
     let mut world = World::new();
     let entity = world.spawn(A(6)).expect("spawn should succeed");
     world.insert_resource(Target(entity));
     world.insert_resource(Gate(false));
-    world.insert_resource(StageCounts::default());
+    world.insert_resource(PublicationWindowCounts::default());
 
     let mut runtime = Runtime::new();
     runtime.add_systems::<Update, _, _>(&mut world, queue_remove_once.in_set(QueueSet));
     runtime.add_systems::<Update, _, _>(
         &mut world,
-        observe_post_stage.in_set(ObserveSet).after(QueueSet),
+        observe_after_frontier.in_set(ObserveSet).after(QueueSet),
     );
 
     runtime.run_schedule::<Update>(&mut world).unwrap();
     runtime.run_schedule::<Update>(&mut world).unwrap();
 
-    let counts = world.resource::<StageCounts>().unwrap();
-    assert_eq!(counts.post_stage, vec![1, 0]);
+    let counts = world.resource::<PublicationWindowCounts>().unwrap();
+    assert_eq!(counts.after_frontier, vec![1, 0]);
 }
 
 #[test]
@@ -351,7 +371,7 @@ fn repeated_iter_calls_return_same_window_snapshot() {
 }
 
 #[test]
-fn remove_then_reinsert_in_one_flush_still_reports_removed_removal() {
+fn remove_then_reinsert_in_one_publication_still_reports_removed_removal() {
     fn queue_remove_then_reinsert_once(
         mut gate: ResMut<Gate>,
         target: Res<Target>,
@@ -397,7 +417,7 @@ fn remove_then_reinsert_in_one_flush_still_reports_removed_removal() {
 }
 
 #[test]
-fn previous_run_removed_window_is_visible_in_next_run_first_stage_only() {
+fn previous_run_removed_window_is_visible_in_next_run_first_frontier_only() {
     fn queue_remove_once(mut gate: ResMut<Gate>, target: Res<Target>, mut commands: Commands) {
         if gate.0 {
             return;
@@ -406,22 +426,25 @@ fn previous_run_removed_window_is_visible_in_next_run_first_stage_only() {
         gate.0 = true;
     }
 
-    fn observe_same_stage(mut removed: RemovedQuery<A>, mut counts: ResMut<StageCounts>) {
-        counts.same_stage.push(removed.iter().count());
+    fn observe_before_frontier(
+        mut removed: RemovedQuery<A>,
+        mut counts: ResMut<PublicationWindowCounts>,
+    ) {
+        counts.before_frontier.push(removed.iter().count());
     }
 
     let mut world = World::new();
     let entity = world.spawn(A(9)).expect("spawn should succeed");
     world.insert_resource(Target(entity));
     world.insert_resource(Gate(false));
-    world.insert_resource(StageCounts::default());
+    world.insert_resource(PublicationWindowCounts::default());
 
     let mut runtime = Runtime::new();
     runtime.add_systems::<Update, _, _>(
         &mut world,
         (
             queue_remove_once.in_set(QueueSet),
-            observe_same_stage.in_set(QueueSet),
+            observe_before_frontier.in_set(QueueSet),
         ),
     );
 
@@ -429,8 +452,8 @@ fn previous_run_removed_window_is_visible_in_next_run_first_stage_only() {
     runtime.run_schedule::<Update>(&mut world).unwrap();
     runtime.run_schedule::<Update>(&mut world).unwrap();
 
-    let counts = world.resource::<StageCounts>().unwrap();
-    assert_eq!(counts.same_stage, vec![0, 1, 0]);
+    let counts = world.resource::<PublicationWindowCounts>().unwrap();
+    assert_eq!(counts.before_frontier, vec![0, 1, 0]);
 }
 
 #[test]
@@ -441,13 +464,13 @@ fn query_removed_does_not_conflict_with_live_mut_query_access() {
         }
     }
 
-    fn observe_removed(mut removed: RemovedQuery<A>, mut counts: ResMut<StageCounts>) {
-        counts.same_stage.push(removed.iter().count());
+    fn observe_removed(mut removed: RemovedQuery<A>, mut counts: ResMut<PublicationWindowCounts>) {
+        counts.before_frontier.push(removed.iter().count());
     }
 
     let mut world = World::new();
     let entity = world.spawn(A(3)).expect("spawn should succeed");
-    world.insert_resource(StageCounts::default());
+    world.insert_resource(PublicationWindowCounts::default());
 
     let mut runtime = Runtime::new();
     runtime.add_systems::<Update, _, _>(&mut world, (mutate_live, observe_removed));
@@ -455,11 +478,17 @@ fn query_removed_does_not_conflict_with_live_mut_query_access() {
     runtime.run_schedule::<Update>(&mut world).unwrap();
 
     assert_eq!(world.require::<A>(entity).unwrap().0, 4);
-    assert_eq!(world.resource::<StageCounts>().unwrap().same_stage, vec![0]);
+    assert_eq!(
+        world
+            .resource::<PublicationWindowCounts>()
+            .unwrap()
+            .before_frontier,
+        vec![0]
+    );
 }
 
 #[test]
-fn batch_remove_and_despawn_preserve_removed_stage_window_semantics() {
+fn batch_remove_and_despawn_preserve_removed_publication_window_semantics() {
     fn queue_batch_once(mut gate: ResMut<Gate>, targets: Res<TargetPair>, mut commands: Commands) {
         if gate.0 {
             return;
@@ -471,12 +500,18 @@ fn batch_remove_and_despawn_preserve_removed_stage_window_semantics() {
         gate.0 = true;
     }
 
-    fn observe_same_stage(mut removed: RemovedQuery<A>, mut counts: ResMut<StageCounts>) {
-        counts.same_stage.push(removed.iter().count());
+    fn observe_before_frontier(
+        mut removed: RemovedQuery<A>,
+        mut counts: ResMut<PublicationWindowCounts>,
+    ) {
+        counts.before_frontier.push(removed.iter().count());
     }
 
-    fn observe_post_stage(mut removed: RemovedQuery<A>, mut counts: ResMut<StageCounts>) {
-        counts.post_stage.push(removed.iter().count());
+    fn observe_after_frontier(
+        mut removed: RemovedQuery<A>,
+        mut counts: ResMut<PublicationWindowCounts>,
+    ) {
+        counts.after_frontier.push(removed.iter().count());
     }
 
     let mut world = World::new();
@@ -484,19 +519,19 @@ fn batch_remove_and_despawn_preserve_removed_stage_window_semantics() {
     let despawn_target = world.spawn((A(21), B(2))).expect("spawn should succeed");
     world.insert_resource(TargetPair(remove_only, despawn_target));
     world.insert_resource(Gate(false));
-    world.insert_resource(StageCounts::default());
+    world.insert_resource(PublicationWindowCounts::default());
 
     let mut runtime = Runtime::new();
     runtime.add_systems::<Update, _, _>(&mut world, queue_batch_once.in_set(QueueSet));
-    runtime.add_systems::<Update, _, _>(&mut world, observe_same_stage.in_set(QueueSet));
+    runtime.add_systems::<Update, _, _>(&mut world, observe_before_frontier.in_set(QueueSet));
     runtime.add_systems::<Update, _, _>(
         &mut world,
-        observe_post_stage.in_set(ObserveSet).after(QueueSet),
+        observe_after_frontier.in_set(ObserveSet).after(QueueSet),
     );
 
     runtime.run_schedule::<Update>(&mut world).unwrap();
 
-    let counts = world.resource::<StageCounts>().unwrap();
-    assert_eq!(counts.same_stage, vec![0]);
-    assert_eq!(counts.post_stage, vec![2]);
+    let counts = world.resource::<PublicationWindowCounts>().unwrap();
+    assert_eq!(counts.before_frontier, vec![0]);
+    assert_eq!(counts.after_frontier, vec![2]);
 }

@@ -82,18 +82,18 @@ fn main() -> Result<(), RuntimeError> {
     );
 
     let mut boundaries = Vec::new();
-    runtime.run_schedule_with_deferred_apply_boundary::<Update, _, _>(
+    runtime.run_schedule_with_deferred_publication_frontier::<Update, _, _>(
         &mut world,
-        |boundary, world| {
+        |frontier, world| {
             boundaries.push((
-                boundary.index(),
+                frontier.ordinal(),
                 world.query_state::<&Position, ()>().iter(world).count(),
             ));
             Ok::<(), std::convert::Infallible>(())
         },
     )?;
 
-    assert_eq!(boundaries, vec![(0, 2), (1, 2), (2, 2)]);
+    assert_eq!(boundaries, vec![(0, 2)]);
     assert_eq!(world.resource::<SpawnedCount>().unwrap().0, 1);
     assert_eq!(world.resource::<Frame>().unwrap().0, 1);
     Ok(())

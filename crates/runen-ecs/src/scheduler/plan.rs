@@ -8,15 +8,6 @@ use std::cmp::Ordering as CmpOrdering;
 use std::collections::BTreeSet;
 use thiserror::Error;
 
-/// One semantic ordering layer in an ECS schedule.
-///
-/// Stages are formed only from explicit before/after set constraints. Access
-/// incompatibilities are recorded separately and never create stage boundaries.
-#[derive(Debug, Clone)]
-pub(crate) struct ExecutionStage {
-    pub(crate) system_indices: Vec<usize>,
-}
-
 #[allow(dead_code)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum OrderingResolutionKind {
@@ -54,11 +45,36 @@ pub(crate) struct PrecedenceReason {
 #[derive(Debug, Clone)]
 pub(crate) struct ExecutionPlan {
     pub(crate) label: ScheduleKey,
-    pub(crate) stages: Vec<ExecutionStage>,
+    pub(crate) reference_system_indices: Vec<usize>,
+    #[allow(dead_code)]
+    pub(crate) reference_rank_by_system_index: Vec<Option<usize>>,
     #[allow(dead_code)]
     pub(crate) ordering_resolutions: Vec<OrderingResolution>,
     #[allow(dead_code)]
     pub(crate) precedence_reasons: Vec<PrecedenceReason>,
+    #[allow(dead_code)]
+    pub(crate) publication_obligations: Vec<PublicationObligation>,
+    pub(crate) publication_frontiers: Vec<PublicationFrontierPlan>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum PublicationObligationReason {
+    Precedence(usize),
+    Completion { system_index: usize },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct PublicationObligation {
+    pub(crate) producer_rank: usize,
+    pub(crate) deadline_cut: usize,
+    pub(crate) reason: PublicationObligationReason,
+    pub(crate) frontier_ordinal: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct PublicationFrontierPlan {
+    pub(crate) cut: usize,
+    pub(crate) obligation_indices: Vec<usize>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
@@ -292,29 +308,23 @@ impl ScheduleRegistry {
             }
         }
 
-        let mut stages = Vec::new();
+        let mut precedence_depth = vec![0usize; scheduled_indices.len()];
         let mut scheduled_count = 0usize;
         while !ready.is_empty() {
-            let stage_positions = ready.iter().copied().collect::<Vec<_>>();
-            ready.clear();
+            let position = *ready
+                .first()
+                .expect("non-empty ready set has a first position");
+            ready.remove(&position);
+            scheduled_count = scheduled_count.saturating_add(1);
 
-            let mut system_indices = Vec::with_capacity(stage_positions.len());
-            for position in &stage_positions {
-                let system_index = scheduled_indices[*position];
-                system_indices.push(system_index);
-            }
-            scheduled_count = scheduled_count.saturating_add(stage_positions.len());
-
-            for position in stage_positions {
-                for dependent in outgoing[position].iter().copied() {
-                    incoming[dependent] = incoming[dependent].saturating_sub(1);
-                    if incoming[dependent] == 0 {
-                        ready.insert(dependent);
-                    }
+            for dependent in outgoing[position].iter().copied() {
+                precedence_depth[dependent] =
+                    precedence_depth[dependent].max(precedence_depth[position].saturating_add(1));
+                incoming[dependent] = incoming[dependent].saturating_sub(1);
+                if incoming[dependent] == 0 {
+                    ready.insert(dependent);
                 }
             }
-
-            stages.push(ExecutionStage { system_indices });
         }
 
         if scheduled_count != scheduled_indices.len() {
@@ -323,11 +333,114 @@ impl ScheduleRegistry {
             });
         }
 
+        let mut reference_positions = (0..scheduled_indices.len()).collect::<Vec<_>>();
+        reference_positions.sort_by_key(|position| (precedence_depth[*position], *position));
+        let reference_system_indices = reference_positions
+            .iter()
+            .map(|position| scheduled_indices[*position])
+            .collect::<Vec<_>>();
+        let mut reference_rank_by_system_index = vec![None; self.systems.len()];
+        for (rank, system_index) in reference_system_indices.iter().copied().enumerate() {
+            reference_rank_by_system_index[system_index] = Some(rank);
+        }
+
+        let mut publication_obligations = Vec::new();
+        for (reason_index, reason) in precedence_reasons.iter().enumerate() {
+            let producer = &self.systems[reason.predecessor_system_index];
+            if !producer.deferred_recorder_class().is_deferred_producing() {
+                continue;
+            }
+            let producer_rank = reference_rank_by_system_index[reason.predecessor_system_index]
+                .expect("precedence producer belongs to built schedule");
+            let deadline_cut = reference_rank_by_system_index[reason.successor_system_index]
+                .expect("precedence successor belongs to built schedule");
+            publication_obligations.push(PublicationObligation {
+                producer_rank,
+                deadline_cut,
+                reason: PublicationObligationReason::Precedence(reason_index),
+                frontier_ordinal: usize::MAX,
+            });
+        }
+        for system_index in reference_system_indices.iter().copied() {
+            let system = &self.systems[system_index];
+            if !system.deferred_recorder_class().is_deferred_producing() {
+                continue;
+            }
+            let producer_rank = reference_rank_by_system_index[system_index]
+                .expect("deferred producer belongs to built schedule");
+            publication_obligations.push(PublicationObligation {
+                producer_rank,
+                deadline_cut: reference_system_indices.len(),
+                reason: PublicationObligationReason::Completion { system_index },
+                frontier_ordinal: usize::MAX,
+            });
+        }
+
+        let mut obligation_order = (0..publication_obligations.len()).collect::<Vec<_>>();
+        obligation_order.sort_by(|left, right| {
+            let left_obligation = &publication_obligations[*left];
+            let right_obligation = &publication_obligations[*right];
+            left_obligation
+                .deadline_cut
+                .cmp(&right_obligation.deadline_cut)
+                .then_with(|| {
+                    compare_publication_reasons(
+                        &left_obligation.reason,
+                        &right_obligation.reason,
+                        &precedence_reasons,
+                        &self.systems,
+                    )
+                })
+                .then_with(|| left.cmp(right))
+        });
+
+        let mut selected_cuts = Vec::new();
+        for obligation_index in obligation_order {
+            let obligation = &publication_obligations[obligation_index];
+            let covered = selected_cuts
+                .iter()
+                .any(|cut| *cut > obligation.producer_rank && *cut <= obligation.deadline_cut);
+            if !covered && !selected_cuts.contains(&obligation.deadline_cut) {
+                selected_cuts.push(obligation.deadline_cut);
+            }
+        }
+        selected_cuts.sort_unstable();
+
+        let publication_frontiers = selected_cuts
+            .iter()
+            .copied()
+            .map(|cut| PublicationFrontierPlan {
+                cut,
+                obligation_indices: Vec::new(),
+            })
+            .collect::<Vec<_>>();
+
+        for obligation in &mut publication_obligations {
+            let frontier_ordinal = publication_frontiers
+                .iter()
+                .position(|frontier| {
+                    frontier.cut > obligation.producer_rank
+                        && frontier.cut <= obligation.deadline_cut
+                })
+                .expect("every publication obligation has a selected frontier");
+            obligation.frontier_ordinal = frontier_ordinal;
+        }
+
+        let mut publication_frontiers = publication_frontiers;
+        for (obligation_index, obligation) in publication_obligations.iter().enumerate() {
+            publication_frontiers[obligation.frontier_ordinal]
+                .obligation_indices
+                .push(obligation_index);
+        }
+
         Ok(ExecutionPlan {
             label,
-            stages,
+            reference_system_indices,
+            reference_rank_by_system_index,
             ordering_resolutions,
             precedence_reasons,
+            publication_obligations,
+            publication_frontiers,
         })
     }
 
@@ -482,9 +595,57 @@ fn compare_unresolved(
         .then_with(|| left.target_set.cmp(&right.target_set))
 }
 
+fn compare_publication_reasons(
+    left: &PublicationObligationReason,
+    right: &PublicationObligationReason,
+    precedence_reasons: &[PrecedenceReason],
+    systems: &[RegisteredSystem],
+) -> CmpOrdering {
+    match (left, right) {
+        (
+            PublicationObligationReason::Precedence(left_index),
+            PublicationObligationReason::Precedence(right_index),
+        ) => {
+            let left_reason = &precedence_reasons[*left_index];
+            let right_reason = &precedence_reasons[*right_index];
+            left_reason
+                .source
+                .cmp(&right_reason.source)
+                .then_with(|| left_reason.direction.cmp(&right_reason.direction))
+                .then_with(|| left_reason.target_set.cmp(&right_reason.target_set))
+                .then_with(|| left_reason.presence.cmp(&right_reason.presence))
+                .then_with(|| left_reason.predecessor.cmp(&right_reason.predecessor))
+                .then_with(|| left_reason.successor.cmp(&right_reason.successor))
+                .then_with(|| left_index.cmp(right_index))
+        }
+        (
+            PublicationObligationReason::Completion {
+                system_index: left_index,
+            },
+            PublicationObligationReason::Completion {
+                system_index: right_index,
+            },
+        ) => systems[*left_index]
+            .name()
+            .cmp(systems[*right_index].name())
+            .then_with(|| left_index.cmp(right_index)),
+        (
+            PublicationObligationReason::Precedence(_),
+            PublicationObligationReason::Completion { .. },
+        ) => CmpOrdering::Less,
+        (
+            PublicationObligationReason::Completion { .. },
+            PublicationObligationReason::Precedence(_),
+        ) => CmpOrdering::Greater,
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{OrderingResolutionKind, ScheduleRegistry};
+    use super::{
+        OrderingResolutionKind, PublicationFrontierPlan, PublicationObligationReason,
+        ScheduleRegistry,
+    };
     use crate::scheduler::access::SystemAccess;
     use crate::scheduler::label::{ScheduleLabel, SystemSet};
     use crate::scheduler::system::{OrderingDeclaration, OrderingPresence, RegisteredSystem};
@@ -543,6 +704,7 @@ mod tests {
             TargetA::key(),
         ));
         source.before_set_key(TargetB::key());
+        source.set_deferred_recorder_class(crate::system::DeferredRecorderClass::LocalDeferred);
         let mut target = system("target");
         target.with_set_key(TargetA::key());
         target.with_set_key(TargetB::key());
@@ -552,9 +714,7 @@ mod tests {
         let plan = registry.plan_for::<Update>().unwrap().unwrap();
         assert_eq!(plan.ordering_resolutions.len(), 2);
         assert_eq!(plan.precedence_reasons.len(), 2);
-        assert_eq!(plan.stages.len(), 2);
-        assert_eq!(plan.stages[0].system_indices, vec![0]);
-        assert_eq!(plan.stages[1].system_indices, vec![1]);
+        assert_eq!(plan.reference_system_indices, vec![0, 1]);
         assert!(plan.precedence_reasons.iter().all(|reason| {
             reason.predecessor_system_index == 0 && reason.successor_system_index == 1
         }));
@@ -578,5 +738,205 @@ mod tests {
                 .iter()
                 .any(|reason| reason.presence == OrderingPresence::Required)
         );
+        assert_eq!(plan.publication_frontiers.len(), 1);
+        assert_eq!(plan.publication_frontiers[0].obligation_indices.len(), 3);
+    }
+
+    #[test]
+    fn reference_order_uses_depth_then_schedule_source_ordinal() {
+        let mut registry = ScheduleRegistry::new();
+        let mut a = system("A");
+        a.with_set_key(TargetA::key());
+        let c = system("C").after_set::<TargetA>();
+        let b = system("B");
+        registry.add_system(a).unwrap();
+        registry.add_system(c).unwrap();
+        registry.add_system(b).unwrap();
+
+        let plan = registry.plan_for::<Update>().unwrap().unwrap();
+        assert_eq!(plan.reference_system_indices, vec![0, 2, 1]);
+    }
+
+    #[test]
+    fn non_deferred_schedule_has_no_publication_frontier() {
+        let mut registry = ScheduleRegistry::new();
+        registry.add_system(system("plain")).unwrap();
+
+        let plan = registry.plan_for::<Update>().unwrap().unwrap();
+        assert!(plan.publication_frontiers.is_empty());
+        assert!(plan.publication_obligations.is_empty());
+    }
+
+    #[test]
+    fn deferred_completion_is_one_frontier_at_schedule_completion() {
+        let mut registry = ScheduleRegistry::new();
+        let mut producer = system("producer");
+        producer.set_deferred_recorder_class(crate::system::DeferredRecorderClass::LocalDeferred);
+        registry.add_system(producer).unwrap();
+
+        let plan = registry.plan_for::<Update>().unwrap().unwrap();
+        assert_eq!(plan.publication_frontiers.len(), 1);
+        assert_eq!(plan.publication_frontiers[0].cut, 1);
+        assert_eq!(plan.publication_obligations.len(), 1);
+        assert_eq!(plan.publication_obligations[0].frontier_ordinal, 0);
+    }
+
+    #[test]
+    fn edge_and_completion_obligations_share_an_earlier_frontier() {
+        let mut registry = ScheduleRegistry::new();
+        let mut producer = system("producer");
+        producer.with_set_key(TargetA::key());
+        producer.set_deferred_recorder_class(crate::system::DeferredRecorderClass::LocalDeferred);
+        let successor = system("successor").after_set::<TargetA>();
+        registry.add_system(producer).unwrap();
+        registry.add_system(successor).unwrap();
+
+        let plan = registry.plan_for::<Update>().unwrap().unwrap();
+        assert_eq!(plan.publication_frontiers.len(), 1);
+        assert_eq!(plan.publication_frontiers[0].cut, 1);
+        assert_eq!(plan.publication_frontiers[0].obligation_indices, vec![0, 1]);
+        assert!(
+            plan.publication_obligations
+                .iter()
+                .all(|obligation| obligation.frontier_ordinal == 0)
+        );
+    }
+
+    #[test]
+    fn multiple_deferred_producers_share_one_frontier() {
+        let mut registry = ScheduleRegistry::new();
+        let mut first = system("first");
+        first.with_set_key(TargetA::key());
+        first.set_deferred_recorder_class(crate::system::DeferredRecorderClass::LocalDeferred);
+        let mut second = system("second");
+        second.with_set_key(TargetA::key());
+        second.set_deferred_recorder_class(crate::system::DeferredRecorderClass::LocalDeferred);
+        let successor = system("successor").after_set::<TargetA>();
+        registry.add_system(first).unwrap();
+        registry.add_system(second).unwrap();
+        registry.add_system(successor).unwrap();
+
+        let plan = registry.plan_for::<Update>().unwrap().unwrap();
+        assert_eq!(plan.publication_frontiers.len(), 1);
+        assert_eq!(plan.publication_frontiers[0].cut, 2);
+        assert_eq!(plan.publication_frontiers[0].obligation_indices.len(), 4);
+    }
+
+    #[test]
+    fn non_overlapping_obligations_require_two_exact_frontiers() {
+        let mut registry = ScheduleRegistry::new();
+        let mut first = system("first");
+        first.with_set_key(TargetA::key());
+        first.set_deferred_recorder_class(crate::system::DeferredRecorderClass::LocalDeferred);
+        let middle = system("middle")
+            .with_set::<TargetB>()
+            .after_set::<TargetA>();
+        let mut second = system("second");
+        second.set_deferred_recorder_class(crate::system::DeferredRecorderClass::LocalDeferred);
+        second = second.after_set::<TargetB>();
+        registry.add_system(first).unwrap();
+        registry.add_system(middle).unwrap();
+        registry.add_system(second).unwrap();
+
+        let plan = registry.plan_for::<Update>().unwrap().unwrap();
+        assert_eq!(
+            plan.publication_frontiers
+                .iter()
+                .map(|frontier| frontier.cut)
+                .collect::<Vec<_>>(),
+            vec![1, 3]
+        );
+        assert_eq!(plan.publication_frontiers.len(), 2);
+    }
+
+    #[test]
+    fn incidental_early_publication_does_not_create_precedence() {
+        let mut registry = ScheduleRegistry::new();
+        let mut unrelated = system("unrelated");
+        unrelated.set_deferred_recorder_class(crate::system::DeferredRecorderClass::LocalDeferred);
+        let mut producer = system("producer");
+        producer.with_set_key(TargetA::key());
+        producer.set_deferred_recorder_class(crate::system::DeferredRecorderClass::LocalDeferred);
+        let successor = system("successor").after_set::<TargetA>();
+        registry.add_system(unrelated).unwrap();
+        registry.add_system(producer).unwrap();
+        registry.add_system(successor).unwrap();
+
+        let plan = registry.plan_for::<Update>().unwrap().unwrap();
+        assert_eq!(plan.publication_frontiers.len(), 1);
+        assert_eq!(plan.publication_frontiers[0].cut, 2);
+        assert!(plan.precedence_reasons.iter().all(|reason| {
+            reason.predecessor_system_index != 0 && reason.successor_system_index != 0
+        }));
+        let unrelated_obligation = plan
+            .publication_obligations
+            .iter()
+            .find(|obligation| {
+                matches!(
+                    obligation.reason,
+                    PublicationObligationReason::Completion { system_index: 0 }
+                )
+            })
+            .expect("unrelated producer has a completion obligation");
+        assert_eq!(unrelated_obligation.frontier_ordinal, 0);
+    }
+
+    #[test]
+    fn unrelated_grouping_opportunity_does_not_change_frontier_cardinality() {
+        fn build(include_unrelated: bool) -> Vec<usize> {
+            let mut registry = ScheduleRegistry::new();
+            let mut producer = system("producer");
+            producer.with_set_key(TargetA::key());
+            producer
+                .set_deferred_recorder_class(crate::system::DeferredRecorderClass::LocalDeferred);
+            registry.add_system(producer).unwrap();
+            if include_unrelated {
+                registry.add_system(system("unrelated")).unwrap();
+            }
+            registry
+                .add_system(system("successor").after_set::<TargetA>())
+                .unwrap();
+            registry
+                .plan_for::<Update>()
+                .unwrap()
+                .unwrap()
+                .publication_frontiers
+                .iter()
+                .map(|frontier| frontier.cut)
+                .collect()
+        }
+
+        assert_eq!(build(false).len(), build(true).len());
+        assert_eq!(build(false), vec![1]);
+        assert_eq!(build(true), vec![2]);
+    }
+
+    #[test]
+    fn equivalent_declaration_order_has_identical_frontier_result() {
+        fn build(reverse: bool) -> Vec<PublicationFrontierPlan> {
+            let mut registry = ScheduleRegistry::new();
+            let mut source = system("source");
+            source.set_deferred_recorder_class(crate::system::DeferredRecorderClass::LocalDeferred);
+            if reverse {
+                source.before_set_key(TargetB::key());
+                source.before_set_key(TargetA::key());
+            } else {
+                source.before_set_key(TargetA::key());
+                source.before_set_key(TargetB::key());
+            }
+            let mut target = system("target");
+            target.with_set_key(TargetA::key());
+            target.with_set_key(TargetB::key());
+            registry.add_system(source).unwrap();
+            registry.add_system(target).unwrap();
+            registry
+                .plan_for::<Update>()
+                .unwrap()
+                .unwrap()
+                .publication_frontiers
+                .clone()
+        }
+
+        assert_eq!(build(false), build(true));
     }
 }

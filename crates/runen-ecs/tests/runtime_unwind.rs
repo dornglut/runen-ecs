@@ -11,20 +11,20 @@ impl ScheduleLabel for Update {
 }
 
 #[derive(Copy, Clone)]
-struct CommittedStage;
+struct CommittedProducerSet;
 
-impl SystemSet for CommittedStage {
+impl SystemSet for CommittedProducerSet {
     fn name() -> &'static str {
-        "CommittedStage"
+        "CommittedProducerSet"
     }
 }
 
 #[derive(Copy, Clone)]
-struct AbortedStage;
+struct LaterFailureSet;
 
-impl SystemSet for AbortedStage {
+impl SystemSet for LaterFailureSet {
     fn name() -> &'static str {
-        "AbortedStage"
+        "LaterFailureSet"
     }
 }
 
@@ -39,7 +39,7 @@ fn marker_count(world: &mut World) -> usize {
 }
 
 #[test]
-fn panicked_schedule_discards_unpublished_stage_commands_before_runtime_reuse() {
+fn panicked_schedule_discards_unpublished_deferred_work_before_runtime_reuse() {
     fn enqueue(mut commands: Commands) {
         commands.spawn(Marker(1));
     }
@@ -73,7 +73,7 @@ fn panicked_schedule_discards_unpublished_stage_commands_before_runtime_reuse() 
 }
 
 #[test]
-fn panicked_later_stage_preserves_committed_boundary_and_discards_only_unpublished_work() {
+fn panicked_later_system_preserves_committed_frontier_and_discards_only_unpublished_work() {
     fn enqueue_committed(mut commands: Commands) {
         commands.spawn(Marker(1));
     }
@@ -85,7 +85,7 @@ fn panicked_later_stage_preserves_committed_boundary_and_discards_only_unpublish
     fn panic_once(mut gate: ResMut<PanicGate>) {
         if !gate.0 {
             gate.0 = true;
-            panic!("intentional later-stage panic");
+            panic!("intentional later-system panic");
         }
     }
 
@@ -93,12 +93,16 @@ fn panicked_later_stage_preserves_committed_boundary_and_discards_only_unpublish
     world.insert_resource(PanicGate(false));
 
     let mut runtime = Runtime::new();
-    runtime.add_systems::<Update, _, _>(&mut world, enqueue_committed.in_set(CommittedStage));
+    runtime.add_systems::<Update, _, _>(&mut world, enqueue_committed.in_set(CommittedProducerSet));
     runtime.add_systems::<Update, _, _>(
         &mut world,
         (
-            enqueue_aborted.in_set(AbortedStage).after(CommittedStage),
-            panic_once.in_set(AbortedStage).after(CommittedStage),
+            enqueue_aborted
+                .in_set(LaterFailureSet)
+                .after(CommittedProducerSet),
+            panic_once
+                .in_set(LaterFailureSet)
+                .after(CommittedProducerSet),
         ),
     );
 
@@ -107,7 +111,7 @@ fn panicked_later_stage_preserves_committed_boundary_and_discards_only_unpublish
     }));
     assert!(
         first_run.is_err(),
-        "the later stage must propagate the system panic"
+        "the later system must propagate the system panic"
     );
     assert_eq!(marker_count(&mut world), 1);
 

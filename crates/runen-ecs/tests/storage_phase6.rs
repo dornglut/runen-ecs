@@ -79,7 +79,7 @@ fn archetype_location_tracking_updates_on_insert_remove_and_despawn() {
 }
 
 #[test]
-fn command_flush_boundary_remains_stage_based() {
+fn command_publication_frontier_preserves_storage_visibility() {
     let mut world = World::new();
     world.insert_resource(SeenCounts(Vec::new()));
     let mut runtime = Runtime::new();

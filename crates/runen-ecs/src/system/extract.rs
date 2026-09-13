@@ -19,6 +19,30 @@ pub enum SystemParamError {
     RuntimeContext(&'static str),
 }
 
+/// The normalized deferred-recorder capability of one [`SystemParam`] graph.
+///
+/// This is parameter metadata, not World access metadata. The runtime uses only
+/// the non-`None` projection when deriving semantic publication frontiers.
+#[doc(hidden)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum DeferredRecorderClass {
+    None,
+    LocalDeferred,
+}
+
+impl DeferredRecorderClass {
+    pub const fn merge(self, other: Self) -> Self {
+        match (self, other) {
+            (Self::LocalDeferred, _) | (_, Self::LocalDeferred) => Self::LocalDeferred,
+            _ => Self::None,
+        }
+    }
+
+    pub const fn is_deferred_producing(self) -> bool {
+        matches!(self, Self::LocalDeferred)
+    }
+}
+
 /// Invocation-scoped extraction context owned by the RunenECS runtime.
 ///
 /// Safe system code never constructs this value. It is public only because the
@@ -97,6 +121,9 @@ pub unsafe trait SystemParam: Sized {
     type Item<'world, 'state>;
 
     fn init_state(world: &mut World) -> Result<Self::State, SystemParamError>;
+    fn deferred_recorder_class() -> DeferredRecorderClass {
+        DeferredRecorderClass::None
+    }
     fn access(state: &Self::State) -> QueryAccess;
     fn slot_descriptor() -> ParamSlotDescriptor {
         let type_name = std::any::type_name::<Self>();
