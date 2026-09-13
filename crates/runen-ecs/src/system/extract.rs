@@ -17,35 +17,29 @@ pub enum SystemParamError {
     },
     #[error("runtime context error: {0}")]
     RuntimeContext(&'static str),
-    #[error("system parameter graph mixes local and transferable deferred recorders")]
-    InvalidDeferredRecorderComposition,
 }
 
 /// The normalized deferred-recorder capability of one [`SystemParam`] graph.
 ///
 /// This is parameter metadata, not World access metadata. The runtime uses only
 /// the non-`None` projection when deriving semantic publication frontiers.
+#[doc(hidden)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum DeferredRecorderClass {
     None,
     LocalDeferred,
-    TransferableDeferred,
 }
 
 impl DeferredRecorderClass {
-    pub const fn is_deferred_producing(self) -> bool {
-        !matches!(self, Self::None)
+    pub const fn merge(self, other: Self) -> Self {
+        match (self, other) {
+            (Self::LocalDeferred, _) | (_, Self::LocalDeferred) => Self::LocalDeferred,
+            _ => Self::None,
+        }
     }
 
-    pub const fn merge(self, other: Self) -> Result<Self, SystemParamError> {
-        match (self, other) {
-            (Self::None, class) | (class, Self::None) => Ok(class),
-            (Self::LocalDeferred, Self::LocalDeferred) => Ok(Self::LocalDeferred),
-            (Self::TransferableDeferred, Self::TransferableDeferred) => {
-                Ok(Self::TransferableDeferred)
-            }
-            _ => Err(SystemParamError::InvalidDeferredRecorderComposition),
-        }
+    pub const fn is_deferred_producing(self) -> bool {
+        matches!(self, Self::LocalDeferred)
     }
 }
 
@@ -127,8 +121,8 @@ pub unsafe trait SystemParam: Sized {
     type Item<'world, 'state>;
 
     fn init_state(world: &mut World) -> Result<Self::State, SystemParamError>;
-    fn deferred_recorder_class() -> Result<DeferredRecorderClass, SystemParamError> {
-        Ok(DeferredRecorderClass::None)
+    fn deferred_recorder_class() -> DeferredRecorderClass {
+        DeferredRecorderClass::None
     }
     fn access(state: &Self::State) -> QueryAccess;
     fn slot_descriptor() -> ParamSlotDescriptor {

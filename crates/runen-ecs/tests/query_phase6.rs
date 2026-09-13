@@ -745,7 +745,7 @@ fn changed_filter_tracks_get_mut_using_archetype_metadata_ticks() {
 }
 
 #[test]
-fn added_filter_respects_command_flush_boundary_between_stages() {
+fn added_filter_respects_command_publication_frontier() {
     fn queue_spawn_once(mut gate: ResMut<QuerySpawnGate>, mut commands: Commands) {
         if gate.0 {
             return;

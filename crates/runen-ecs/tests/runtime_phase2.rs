@@ -195,7 +195,7 @@ fn res_provides_read_only_resource_access() {
 }
 
 #[test]
-fn commands_flush_at_stage_end_not_between_systems_in_same_stage() {
+fn commands_publish_at_frontier_not_between_unordered_systems() {
     fn enqueue_spawn(mut commands: Commands) {
         commands.spawn(Marker);
     }

@@ -136,10 +136,10 @@ pub fn system_param_derive(input: TokenStream) -> TokenStream {
                 ))
             }
 
-            fn deferred_recorder_class() -> Result<#ecs::DeferredRecorderClass, #ecs::SystemParamError> {
+            fn deferred_recorder_class() -> #ecs::DeferredRecorderClass {
                 let mut class = #ecs::DeferredRecorderClass::None;
-                #(class = class.merge(<#field_types as #ecs::SystemParam>::deferred_recorder_class()?)?;)*
-                Ok(class)
+                #(class = class.merge(<#field_types as #ecs::SystemParam>::deferred_recorder_class());)*
+                class
             }
 
             fn access(state: &Self::State) -> #ecs::QueryAccess {

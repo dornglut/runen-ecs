@@ -211,8 +211,8 @@ unsafe impl<'param> SystemParam for Commands<'param> {
     fn init_state(_: &mut World) -> Result<Self::State, SystemParamError> {
         Ok(())
     }
-    fn deferred_recorder_class() -> Result<DeferredRecorderClass, SystemParamError> {
-        Ok(DeferredRecorderClass::LocalDeferred)
+    fn deferred_recorder_class() -> DeferredRecorderClass {
+        DeferredRecorderClass::LocalDeferred
     }
     fn access(_: &Self::State) -> QueryAccess {
         QueryAccess::structural_mutation()
@@ -236,10 +236,10 @@ macro_rules! impl_tuple_system_param {
             fn init_state(world: &mut World) -> Result<Self::State, SystemParamError> {
                 Ok(($($param::init_state(world)?,)+))
             }
-            fn deferred_recorder_class() -> Result<DeferredRecorderClass, SystemParamError> {
+            fn deferred_recorder_class() -> DeferredRecorderClass {
                 let mut class = DeferredRecorderClass::None;
-                $(class = class.merge($param::deferred_recorder_class()?)?;)+
-                Ok(class)
+                $(class = class.merge($param::deferred_recorder_class());)+
+                class
             }
             fn access(state: &Self::State) -> QueryAccess {
                 let mut access = QueryAccess::default();

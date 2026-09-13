@@ -494,7 +494,7 @@ trait SystemParamState: Sized {
     type Item<'world, 'state>;
 
     fn init_state(world: &mut World) -> std::result::Result<Self::State, SystemParamError>;
-    fn deferred_recorder_class() -> std::result::Result<DeferredRecorderClass, SystemParamError>;
+    fn deferred_recorder_class() -> DeferredRecorderClass;
     fn access(state: &Self::State) -> QueryAccess;
     fn slot_descriptor() -> ParamSlotDescriptor;
 
@@ -515,7 +515,7 @@ where
         T::init_state(world)
     }
 
-    fn deferred_recorder_class() -> std::result::Result<DeferredRecorderClass, SystemParamError> {
+    fn deferred_recorder_class() -> DeferredRecorderClass {
         T::deferred_recorder_class()
     }
 
@@ -596,7 +596,7 @@ macro_rules! impl_into_system {
                 let mut deferred_recorder_class = DeferredRecorderClass::None;
                 $(
                     deferred_recorder_class = deferred_recorder_class
-                        .merge(<$param as SystemParamState>::deferred_recorder_class()?)?;
+                        .merge(<$param as SystemParamState>::deferred_recorder_class());
                 )*
                 let mut states = (
                     $(
@@ -891,25 +891,11 @@ impl Runtime {
             }
         }
 
-        if plan
-            .publication_frontiers
-            .get(next_frontier)
-            .is_some_and(|frontier| frontier.cut == plan.reference_system_indices.len())
-        {
-            if let Err(err) = self.publish_deferred_commands(world) {
-                self.discard_deferred_commands();
-                return Err(err);
-            }
-            if let Err(err) = on_frontier(
-                DeferredPublicationFrontier {
-                    schedule: plan.label,
-                    ordinal: next_frontier,
-                },
-                world,
-            ) {
-                self.discard_deferred_commands();
-                return Err(RuntimeError::Boundary { source: err.into() });
-            }
+        if next_frontier != plan.publication_frontiers.len() {
+            self.discard_deferred_commands();
+            return Err(RuntimeError::Invariant {
+                message: "publication plan contained an unreached frontier",
+            });
         }
         Ok(())
     }

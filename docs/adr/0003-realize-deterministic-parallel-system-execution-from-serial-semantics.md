@@ -26,7 +26,7 @@ A parallel executor cannot safely be obtained by putting those calls on a thread
 - current direct mutation bookkeeping writes one shared World change cursor and shared change maps;
 - current query capabilities contain pointers to shared bookkeeping domains;
 - current ordinary `Commands` is invoker-thread-only by ADR 0002;
-- current public boundary callbacks are being normalized to semantic publication frontiers by #33;
+- current public boundary callbacks are expressed as semantic publication frontiers derived from the schedule plan;
 - completion order must not become command publication order;
 - panic/error handling cannot leave unpublished command buffers for a later invocation;
 - generic rollback of arbitrary component/resource writes is not available.
@@ -202,7 +202,7 @@ If the callback returns an error or panics:
 - no generic World rollback occurs;
 - a panic resumes unwinding with the original payload rather than being converted to an ordinary error.
 
-Any exposed boundary descriptor/index is the schedule-local semantic publication identity from #33, never a cohort/stage index.
+Any exposed boundary descriptor/index is the schedule-local semantic publication identity, never a cohort index.
 
 ### 12. Invoker-thread-only systems are physical fences in the baseline executor
 

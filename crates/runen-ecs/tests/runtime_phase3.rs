@@ -1,6 +1,7 @@
 use runen_ecs::prelude::*;
 use runen_ecs::{DeferredRecorderClass, QueryAccess, RuntimeError, SystemParam, SystemParamError};
 use std::marker::PhantomData;
+use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 use std::sync::{Mutex, OnceLock};
 
@@ -93,6 +94,12 @@ struct DerivedLocal<'w> {
     commands: Commands<'w>,
 }
 
+#[derive(runen_ecs::SystemParam)]
+#[allow(dead_code)]
+struct NestedDerivedLocal<'w> {
+    inner: DerivedLocal<'w>,
+}
+
 struct StructuralPretender;
 
 unsafe impl SystemParam for StructuralPretender {
@@ -115,35 +122,6 @@ unsafe impl SystemParam for StructuralPretender {
     }
 }
 
-struct TransferablePretender;
-
-unsafe impl SystemParam for TransferablePretender {
-    type State = ();
-    type Item<'world, 'state> = TransferablePretender;
-
-    fn init_state(_: &mut World) -> Result<Self::State, SystemParamError> {
-        MIXED_PARAM_INIT_COUNT.fetch_add(1, Ordering::SeqCst);
-        Ok(())
-    }
-
-    fn deferred_recorder_class() -> Result<DeferredRecorderClass, SystemParamError> {
-        Ok(DeferredRecorderClass::TransferableDeferred)
-    }
-
-    fn access(_: &Self::State) -> QueryAccess {
-        QueryAccess::default()
-    }
-
-    unsafe fn extract<'world, 'state>(
-        _: &'state mut Self::State,
-        _context: runen_ecs::SystemParamContext<'world>,
-    ) -> Result<Self::Item<'world, 'state>, SystemParamError> {
-        Ok(TransferablePretender)
-    }
-}
-
-static MIXED_PARAM_INIT_COUNT: AtomicUsize = AtomicUsize::new(0);
-
 #[derive(runen_ecs::SystemParam)]
 struct ConflictingResourceParamGroup<'w> {
     read: Res<'w, Step>,
@@ -152,6 +130,9 @@ struct ConflictingResourceParamGroup<'w> {
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, runen_ecs::Component, runen_ecs::Resource)]
 struct SpawnGate(bool);
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, runen_ecs::Resource)]
+struct EmitCommands(bool);
 
 #[derive(Debug, PartialEq, Eq, runen_ecs::Component, runen_ecs::Resource)]
 struct CountHistory(Vec<usize>);
@@ -258,7 +239,7 @@ fn grouped_conflicting_resource_borrows_are_rejected() {
 }
 
 #[test]
-fn structural_command_systems_share_stage_and_merge_deterministically() {
+fn unordered_command_systems_merge_deterministically_without_visibility() {
     fn enqueue_first(mut commands: Commands) {
         commands.spawn(Marker(1));
     }
@@ -267,7 +248,7 @@ fn structural_command_systems_share_stage_and_merge_deterministically() {
         commands.spawn(Marker(2));
     }
 
-    fn observe_stage_visibility(mut seen: ResMut<SeenCount>, mut query: Query<&Marker>) {
+    fn observe_unpublished_visibility(mut seen: ResMut<SeenCount>, mut query: Query<&Marker>) {
         seen.0 = query.iter().count() as u32;
     }
 
@@ -277,7 +258,11 @@ fn structural_command_systems_share_stage_and_merge_deterministically() {
     let mut runtime = Runtime::new();
     runtime.add_systems::<Update, _, _>(
         &mut world,
-        (enqueue_first, enqueue_second, observe_stage_visibility),
+        (
+            enqueue_first,
+            enqueue_second,
+            observe_unpublished_visibility,
+        ),
     );
 
     runtime.run_schedule::<Update>(&mut world).unwrap();
@@ -292,12 +277,12 @@ fn structural_command_systems_share_stage_and_merge_deterministically() {
 }
 
 #[test]
-fn deferred_commands_publish_before_ecs_deferred_publication_frontier_callback() {
-    fn enqueue_stage(mut commands: Commands) {
+fn deferred_commands_publish_before_semantic_frontier_callback() {
+    fn enqueue_producer(mut commands: Commands) {
         commands.spawn(Marker(7));
     }
 
-    fn observe_followup_stage(mut seen: ResMut<SeenCount>, mut query: Query<&Marker>) {
+    fn observe_successor(mut seen: ResMut<SeenCount>, mut query: Query<&Marker>) {
         seen.0 = query.iter().count() as u32;
     }
 
@@ -305,12 +290,10 @@ fn deferred_commands_publish_before_ecs_deferred_publication_frontier_callback()
     world.insert_resource(SeenCount(0));
 
     let mut runtime = Runtime::new();
-    runtime.add_systems::<Update, _, _>(&mut world, enqueue_stage.in_set(GameplaySet));
+    runtime.add_systems::<Update, _, _>(&mut world, enqueue_producer.in_set(GameplaySet));
     runtime.add_systems::<Update, _, _>(
         &mut world,
-        observe_followup_stage
-            .in_set(PostGameplaySet)
-            .after(GameplaySet),
+        observe_successor.in_set(PostGameplaySet).after(GameplaySet),
     );
 
     let mut boundaries = Vec::new();
@@ -331,22 +314,37 @@ fn deferred_commands_publish_before_ecs_deferred_publication_frontier_callback()
 
 #[test]
 fn deferred_recorder_class_is_composed_structurally() {
-    assert!(matches!(
+    assert_eq!(
         <Commands<'static> as SystemParam>::deferred_recorder_class(),
-        Ok(DeferredRecorderClass::LocalDeferred)
-    ));
-    assert!(matches!(
+        DeferredRecorderClass::LocalDeferred
+    );
+    assert_eq!(
         <DerivedLocal<'static> as SystemParam>::deferred_recorder_class(),
-        Ok(DeferredRecorderClass::LocalDeferred)
-    ));
-    assert!(matches!(
+        DeferredRecorderClass::LocalDeferred
+    );
+    assert_eq!(
+        <NestedDerivedLocal<'static> as SystemParam>::deferred_recorder_class(),
+        DeferredRecorderClass::LocalDeferred
+    );
+    assert_eq!(
         <(DerivedLocal<'static>, Commands<'static>) as SystemParam>::deferred_recorder_class(),
-        Ok(DeferredRecorderClass::LocalDeferred)
-    ));
-    assert!(matches!(
+        DeferredRecorderClass::LocalDeferred
+    );
+    assert_eq!(
+        <(
+            (Commands<'static>, Res<'static, SeenCount>),
+            DerivedLocal<'static>
+        ) as SystemParam>::deferred_recorder_class(),
+        DeferredRecorderClass::LocalDeferred
+    );
+    assert_eq!(
+        <(Commands<'static>, Commands<'static>) as SystemParam>::deferred_recorder_class(),
+        DeferredRecorderClass::LocalDeferred
+    );
+    assert_eq!(
         <Res<'static, SeenCount> as SystemParam>::deferred_recorder_class(),
-        Ok(DeferredRecorderClass::None)
-    ));
+        DeferredRecorderClass::None
+    );
 }
 
 #[test]
@@ -372,20 +370,6 @@ fn structural_access_does_not_infer_deferred_production() {
 }
 
 #[test]
-fn mixed_recorder_classes_fail_before_parameter_state_initialization() {
-    fn mixed(_: (Commands, TransferablePretender)) {}
-
-    MIXED_PARAM_INIT_COUNT.store(0, Ordering::SeqCst);
-    let mut world = World::new();
-    let mut runtime = Runtime::new();
-    runtime.add_systems::<Update, _, _>(&mut world, mixed);
-
-    let error = runtime.run_schedule::<Update>(&mut world).unwrap_err();
-    assert!(matches!(error, RuntimeError::Setup { .. }));
-    assert_eq!(MIXED_PARAM_INIT_COUNT.load(Ordering::SeqCst), 0);
-}
-
-#[test]
 fn schedule_without_deferred_parameters_has_no_frontier_callback() {
     let mut world = World::new();
     let mut runtime = Runtime::new();
@@ -407,9 +391,7 @@ fn schedule_without_deferred_parameters_has_no_frontier_callback() {
 
 #[test]
 fn empty_deferred_buffer_still_reaches_its_structural_frontier() {
-    fn empty_commands(mut commands: Commands) {
-        commands.queue(|_| Ok(()));
-    }
+    fn empty_commands(_commands: Commands) {}
 
     let mut world = World::new();
     let mut runtime = Runtime::new();
@@ -430,13 +412,261 @@ fn empty_deferred_buffer_still_reaches_its_structural_frontier() {
 }
 
 #[test]
+fn queue_empty_and_nonempty_runs_share_the_same_frontier_sequence() {
+    fn conditional_producer(emit: Res<EmitCommands>, mut commands: Commands) {
+        if emit.0 {
+            commands.spawn(Marker(7));
+        }
+    }
+    fn successor() {}
+
+    let mut world = World::new();
+    world.insert_resource(EmitCommands(true));
+    let mut runtime = Runtime::new();
+    runtime.add_systems::<Update, _, _>(&mut world, conditional_producer.in_set(GameplaySet));
+    runtime.add_systems::<Update, _, _>(&mut world, successor.after(GameplaySet));
+
+    let mut nonempty_frontiers = Vec::new();
+    runtime
+        .run_schedule_with_deferred_publication_frontier::<Update, _, _>(
+            &mut world,
+            |frontier, _| {
+                nonempty_frontiers.push(frontier.ordinal());
+                Ok::<(), RuntimeError>(())
+            },
+        )
+        .unwrap();
+
+    world.resource_mut::<EmitCommands>().unwrap().0 = false;
+    let mut empty_frontiers = Vec::new();
+    runtime
+        .run_schedule_with_deferred_publication_frontier::<Update, _, _>(
+            &mut world,
+            |frontier, _| {
+                empty_frontiers.push(frontier.ordinal());
+                Ok::<(), RuntimeError>(())
+            },
+        )
+        .unwrap();
+
+    assert_eq!(nonempty_frontiers, vec![0]);
+    assert_eq!(empty_frontiers, nonempty_frontiers);
+}
+
+#[test]
+fn frontier_callback_error_keeps_publication_and_stops_later_systems() {
+    fn producer(mut commands: Commands) {
+        commands.spawn(Marker(11));
+    }
+    fn later(mut seen: ResMut<SeenCount>) {
+        seen.0 = 1;
+    }
+
+    let mut world = World::new();
+    world.insert_resource(SeenCount(0));
+    let mut runtime = Runtime::new();
+    runtime.add_systems::<Update, _, _>(&mut world, producer.in_set(GameplaySet));
+    runtime.add_systems::<Update, _, _>(&mut world, later.after(GameplaySet));
+
+    let result = runtime.run_schedule_with_deferred_publication_frontier::<Update, _, _>(
+        &mut world,
+        |_frontier, world| {
+            assert_eq!(world.query_state::<&Marker, ()>().iter(world).count(), 1);
+            Err::<(), _>(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "intentional frontier callback error",
+            ))
+        },
+    );
+
+    assert!(matches!(result, Err(RuntimeError::Boundary { .. })));
+    assert_eq!(world.query_state::<&Marker, ()>().iter(&world).count(), 1);
+    assert_eq!(world.resource::<SeenCount>().unwrap().0, 0);
+}
+
+#[test]
+fn frontier_callback_panic_preserves_publication_and_runtime_reuse() {
+    fn producer(mut commands: Commands) {
+        commands.spawn(Marker(12));
+    }
+    fn later(mut seen: ResMut<SeenCount>) {
+        seen.0 = 1;
+    }
+
+    let mut world = World::new();
+    world.insert_resource(SeenCount(0));
+    let mut runtime = Runtime::new();
+    runtime.add_systems::<Update, _, _>(&mut world, producer.in_set(GameplaySet));
+    runtime.add_systems::<Update, _, _>(&mut world, later.after(GameplaySet));
+
+    let first = catch_unwind(AssertUnwindSafe(|| {
+        runtime.run_schedule_with_deferred_publication_frontier::<Update, _, _>(
+            &mut world,
+            |_frontier, _world| -> Result<(), std::io::Error> {
+                panic!("intentional frontier callback panic");
+            },
+        )
+    }));
+    assert!(first.is_err());
+    assert_eq!(world.query_state::<&Marker, ()>().iter(&world).count(), 1);
+    assert_eq!(world.resource::<SeenCount>().unwrap().0, 0);
+
+    runtime.run_schedule::<Update>(&mut world).unwrap();
+    assert_eq!(world.query_state::<&Marker, ()>().iter(&world).count(), 2);
+    assert_eq!(world.resource::<SeenCount>().unwrap().0, 1);
+}
+
+#[test]
+fn system_error_before_unreached_frontier_skips_callback_and_later_systems() {
+    fn fail() -> Result<(), std::io::Error> {
+        Err(std::io::Error::other("intentional system error"))
+    }
+    fn producer(mut commands: Commands) {
+        commands.spawn(Marker(18));
+    }
+    fn later(mut seen: ResMut<SeenCount>) {
+        seen.0 = 1;
+    }
+
+    let mut world = World::new();
+    world.insert_resource(SeenCount(0));
+    let mut runtime = Runtime::new();
+    runtime.add_systems::<Update, _, _>(&mut world, fail.in_set(GameplaySet));
+    runtime.add_systems::<Update, _, _>(
+        &mut world,
+        producer.in_set(PostGameplaySet).after(GameplaySet),
+    );
+    runtime.add_systems::<Update, _, _>(&mut world, later.after(PostGameplaySet));
+
+    let mut callbacks = 0;
+    let result = runtime.run_schedule_with_deferred_publication_frontier::<Update, _, _>(
+        &mut world,
+        |_frontier, _world| {
+            callbacks += 1;
+            Ok::<(), RuntimeError>(())
+        },
+    );
+
+    assert!(matches!(result, Err(RuntimeError::System { .. })));
+    assert_eq!(callbacks, 0);
+    assert_eq!(world.query_state::<&Marker, ()>().iter(&world).count(), 0);
+    assert_eq!(world.resource::<SeenCount>().unwrap().0, 0);
+}
+
+#[test]
+fn deferred_application_error_is_fail_stop_after_prior_commands() {
+    fn producer(target: Res<TargetEntity>, mut commands: Commands) {
+        let entity = target.0;
+        commands.queue(move |world| {
+            world.despawn(entity)?;
+            Ok(())
+        });
+        commands.queue(move |world| {
+            world.despawn(entity)?;
+            Ok(())
+        });
+        commands.spawn(Marker(13));
+    }
+    fn later(mut seen: ResMut<SeenCount>) {
+        seen.0 = 1;
+    }
+
+    let mut world = World::new();
+    let target = world.spawn(Marker(0)).unwrap();
+    world.insert_resource(TargetEntity(target));
+    world.insert_resource(SeenCount(0));
+    let mut runtime = Runtime::new();
+    runtime.add_systems::<Update, _, _>(&mut world, producer.in_set(GameplaySet));
+    runtime.add_systems::<Update, _, _>(&mut world, later.after(GameplaySet));
+
+    let mut callbacks = 0;
+    let result = runtime.run_schedule_with_deferred_publication_frontier::<Update, _, _>(
+        &mut world,
+        |_frontier, _world| {
+            callbacks += 1;
+            Ok::<(), RuntimeError>(())
+        },
+    );
+
+    assert!(matches!(result, Err(RuntimeError::Command(_))));
+    assert_eq!(callbacks, 0);
+    assert_eq!(world.query_state::<&Marker, ()>().iter(&world).count(), 0);
+    assert_eq!(world.resource::<SeenCount>().unwrap().0, 0);
+}
+
+#[test]
+fn deferred_application_panic_is_fail_stop_without_leaking_later_commands() {
+    fn producer(mut gate: ResMut<SpawnGate>, mut commands: Commands) {
+        commands.spawn(Marker(14));
+        if !gate.0 {
+            gate.0 = true;
+            commands.queue(|_| -> Result<(), runen_ecs::CommandError> {
+                panic!("intentional deferred application panic");
+            });
+            commands.spawn(Marker(15));
+        } else {
+            commands.spawn(Marker(16));
+        }
+    }
+
+    let mut world = World::new();
+    world.insert_resource(SpawnGate(false));
+    let mut runtime = Runtime::new();
+    runtime.add_systems::<Update, _, _>(&mut world, producer);
+
+    let first = catch_unwind(AssertUnwindSafe(|| {
+        runtime.run_schedule::<Update>(&mut world)
+    }));
+    assert!(first.is_err());
+    let first_values = world
+        .query_state::<&Marker, ()>()
+        .iter(&world)
+        .map(|marker| marker.0)
+        .collect::<Vec<_>>();
+    assert_eq!(first_values, vec![14]);
+
+    runtime.run_schedule::<Update>(&mut world).unwrap();
+    let mut second_values = world
+        .query_state::<&Marker, ()>()
+        .iter(&world)
+        .map(|marker| marker.0)
+        .collect::<Vec<_>>();
+    second_values.sort_unstable();
+    assert_eq!(second_values, vec![14, 14, 16]);
+}
+
+#[test]
+fn frontier_callback_runs_on_invoking_thread_with_exclusive_world() {
+    fn producer(mut commands: Commands) {
+        commands.spawn(Marker(17));
+    }
+
+    let invoking_thread = std::thread::current().id();
+    let mut world = World::new();
+    world.insert_resource(SeenCount(0));
+    let mut runtime = Runtime::new();
+    runtime.add_systems::<Update, _, _>(&mut world, producer);
+
+    runtime
+        .run_schedule_with_deferred_publication_frontier::<Update, _, _>(
+            &mut world,
+            |_frontier, world| {
+                assert_eq!(std::thread::current().id(), invoking_thread);
+                world.resource_mut::<SeenCount>().unwrap().0 = 1;
+                Ok::<(), RuntimeError>(())
+            },
+        )
+        .unwrap();
+
+    assert_eq!(world.resource::<SeenCount>().unwrap().0, 1);
+}
+
+#[test]
 fn canonical_frontiers_are_multiple_and_later_frontier_may_be_empty() {
     fn first_producer(mut commands: Commands) {
         commands.spawn(Marker(1));
     }
-    fn second_producer(mut commands: Commands) {
-        commands.spawn(Marker(2));
-    }
+    fn second_producer(_commands: Commands) {}
     fn prepare() {}
     fn first_successor(mut seen: ResMut<SeenCount>, mut query: Query<&Marker>) {
         seen.0 = query.iter().count() as u32;
@@ -471,7 +701,7 @@ fn canonical_frontiers_are_multiple_and_later_frontier_may_be_empty() {
         )
         .unwrap();
 
-    assert_eq!(frontiers, vec![(0, 1), (1, 2)]);
+    assert_eq!(frontiers, vec![(0, 1), (1, 1)]);
     assert_eq!(world.resource::<SeenCount>().unwrap().0, 1);
 }
 
@@ -570,14 +800,14 @@ fn batch_commands_apply_in_deterministic_insertion_order() {
 }
 
 #[test]
-fn batch_commands_do_not_mutate_before_stage_flush() {
+fn batch_commands_do_not_mutate_before_publication() {
     fn enqueue_batch(mut commands: Commands) {
         commands.batch(|batch| {
             batch.spawn(Marker(9));
         });
     }
 
-    fn observe_same_stage(mut seen: ResMut<SeenCount>, mut query: Query<&Marker>) {
+    fn observe_unpublished_state(mut seen: ResMut<SeenCount>, mut query: Query<&Marker>) {
         seen.0 = query.iter().count() as u32;
     }
 
@@ -585,7 +815,7 @@ fn batch_commands_do_not_mutate_before_stage_flush() {
     world.insert_resource(SeenCount(99));
 
     let mut runtime = Runtime::new();
-    runtime.add_systems::<Update, _, _>(&mut world, (enqueue_batch, observe_same_stage));
+    runtime.add_systems::<Update, _, _>(&mut world, (enqueue_batch, observe_unpublished_state));
     runtime.run_schedule::<Update>(&mut world).unwrap();
 
     assert_eq!(world.resource::<SeenCount>().unwrap().0, 0);
@@ -670,7 +900,7 @@ fn batch_stops_on_first_error_and_keeps_earlier_mutations() {
 }
 
 #[test]
-fn multiple_batches_in_one_stage_keep_deterministic_system_order() {
+fn multiple_batches_in_one_schedule_keep_deterministic_system_order() {
     fn enqueue_batch_a(mut commands: Commands) {
         commands.batch(|batch| {
             batch.spawn(Marker(1));
@@ -698,7 +928,7 @@ fn multiple_batches_in_one_stage_keep_deterministic_system_order() {
 }
 
 #[test]
-fn typed_commands_do_not_mutate_before_stage_flush() {
+fn typed_commands_do_not_mutate_before_publication() {
     fn enqueue_typed(mut commands: Commands) {
         commands.queue(|world| {
             let _ = world.spawn(Marker(9))?;
@@ -706,7 +936,7 @@ fn typed_commands_do_not_mutate_before_stage_flush() {
         });
     }
 
-    fn observe_same_stage(mut seen: ResMut<SeenCount>, mut query: Query<&Marker>) {
+    fn observe_unpublished_state(mut seen: ResMut<SeenCount>, mut query: Query<&Marker>) {
         seen.0 = query.iter().count() as u32;
     }
 
@@ -714,7 +944,7 @@ fn typed_commands_do_not_mutate_before_stage_flush() {
     world.insert_resource(SeenCount(99));
 
     let mut runtime = Runtime::new();
-    runtime.add_systems::<Update, _, _>(&mut world, (enqueue_typed, observe_same_stage));
+    runtime.add_systems::<Update, _, _>(&mut world, (enqueue_typed, observe_unpublished_state));
     runtime.run_schedule::<Update>(&mut world).unwrap();
 
     assert_eq!(world.resource::<SeenCount>().unwrap().0, 0);
@@ -722,8 +952,8 @@ fn typed_commands_do_not_mutate_before_stage_flush() {
 }
 
 #[test]
-fn typed_commands_follow_stage_boundary_visibility_contract() {
-    fn enqueue_stage_typed(target: Res<TargetEntity>, mut commands: Commands) {
+fn typed_commands_follow_semantic_frontier_visibility_contract() {
+    fn enqueue_typed_producer(target: Res<TargetEntity>, mut commands: Commands) {
         let entity = target.0;
         commands.queue(move |world| {
             world.insert(entity, Extra(17))?;
@@ -731,7 +961,7 @@ fn typed_commands_follow_stage_boundary_visibility_contract() {
         });
     }
 
-    fn observe_followup_stage(mut seen: ResMut<SeenCount>, mut query: Query<&Extra>) {
+    fn observe_successor(mut seen: ResMut<SeenCount>, mut query: Query<&Extra>) {
         seen.0 = query.iter().count() as u32;
     }
 
@@ -741,12 +971,10 @@ fn typed_commands_follow_stage_boundary_visibility_contract() {
     world.insert_resource(SeenCount(0));
 
     let mut runtime = Runtime::new();
-    runtime.add_systems::<Update, _, _>(&mut world, enqueue_stage_typed.in_set(GameplaySet));
+    runtime.add_systems::<Update, _, _>(&mut world, enqueue_typed_producer.in_set(GameplaySet));
     runtime.add_systems::<Update, _, _>(
         &mut world,
-        observe_followup_stage
-            .in_set(PostGameplaySet)
-            .after(GameplaySet),
+        observe_successor.in_set(PostGameplaySet).after(GameplaySet),
     );
 
     runtime.run_schedule::<Update>(&mut world).unwrap();
@@ -790,7 +1018,7 @@ fn borrowed_command_owner_is_stable_across_repeated_runs() {
 }
 
 #[test]
-fn failed_schedule_drops_stage_deferred_commands_instead_of_replaying_next_run() {
+fn failed_schedule_drops_unpublished_deferred_commands_instead_of_replaying_next_run() {
     fn enqueue_then_fail_once(
         mut gate: ResMut<SpawnGate>,
         mut commands: Commands,
@@ -875,7 +1103,7 @@ fn cached_system_param_state_reuse_is_stable_over_many_runs() {
 }
 
 #[test]
-fn flush_stage_structural_migration_is_visible_in_followup_stage() {
+fn publication_structural_migration_is_visible_in_semantic_successor() {
     fn queue_migration(mut step: ResMut<Step>, target: Res<TargetEntity>, mut commands: Commands) {
         match step.0 {
             0 => commands.insert(target.0, Extra(7)),

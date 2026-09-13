@@ -642,7 +642,10 @@ fn compare_publication_reasons(
 
 #[cfg(test)]
 mod tests {
-    use super::{OrderingResolutionKind, ScheduleRegistry};
+    use super::{
+        OrderingResolutionKind, PublicationFrontierPlan, PublicationObligationReason,
+        ScheduleRegistry,
+    };
     use crate::scheduler::access::SystemAccess;
     use crate::scheduler::label::{ScheduleLabel, SystemSet};
     use crate::scheduler::system::{OrderingDeclaration, OrderingPresence, RegisteredSystem};
@@ -701,6 +704,7 @@ mod tests {
             TargetA::key(),
         ));
         source.before_set_key(TargetB::key());
+        source.set_deferred_recorder_class(crate::system::DeferredRecorderClass::LocalDeferred);
         let mut target = system("target");
         target.with_set_key(TargetA::key());
         target.with_set_key(TargetB::key());
@@ -734,6 +738,8 @@ mod tests {
                 .iter()
                 .any(|reason| reason.presence == OrderingPresence::Required)
         );
+        assert_eq!(plan.publication_frontiers.len(), 1);
+        assert_eq!(plan.publication_frontiers[0].obligation_indices.len(), 3);
     }
 
     #[test]
@@ -794,5 +800,143 @@ mod tests {
                 .iter()
                 .all(|obligation| obligation.frontier_ordinal == 0)
         );
+    }
+
+    #[test]
+    fn multiple_deferred_producers_share_one_frontier() {
+        let mut registry = ScheduleRegistry::new();
+        let mut first = system("first");
+        first.with_set_key(TargetA::key());
+        first.set_deferred_recorder_class(crate::system::DeferredRecorderClass::LocalDeferred);
+        let mut second = system("second");
+        second.with_set_key(TargetA::key());
+        second.set_deferred_recorder_class(crate::system::DeferredRecorderClass::LocalDeferred);
+        let successor = system("successor").after_set::<TargetA>();
+        registry.add_system(first).unwrap();
+        registry.add_system(second).unwrap();
+        registry.add_system(successor).unwrap();
+
+        let plan = registry.plan_for::<Update>().unwrap().unwrap();
+        assert_eq!(plan.publication_frontiers.len(), 1);
+        assert_eq!(plan.publication_frontiers[0].cut, 2);
+        assert_eq!(plan.publication_frontiers[0].obligation_indices.len(), 4);
+    }
+
+    #[test]
+    fn non_overlapping_obligations_require_two_exact_frontiers() {
+        let mut registry = ScheduleRegistry::new();
+        let mut first = system("first");
+        first.with_set_key(TargetA::key());
+        first.set_deferred_recorder_class(crate::system::DeferredRecorderClass::LocalDeferred);
+        let middle = system("middle")
+            .with_set::<TargetB>()
+            .after_set::<TargetA>();
+        let mut second = system("second");
+        second.set_deferred_recorder_class(crate::system::DeferredRecorderClass::LocalDeferred);
+        second = second.after_set::<TargetB>();
+        registry.add_system(first).unwrap();
+        registry.add_system(middle).unwrap();
+        registry.add_system(second).unwrap();
+
+        let plan = registry.plan_for::<Update>().unwrap().unwrap();
+        assert_eq!(
+            plan.publication_frontiers
+                .iter()
+                .map(|frontier| frontier.cut)
+                .collect::<Vec<_>>(),
+            vec![1, 3]
+        );
+        assert_eq!(plan.publication_frontiers.len(), 2);
+    }
+
+    #[test]
+    fn incidental_early_publication_does_not_create_precedence() {
+        let mut registry = ScheduleRegistry::new();
+        let mut unrelated = system("unrelated");
+        unrelated.set_deferred_recorder_class(crate::system::DeferredRecorderClass::LocalDeferred);
+        let mut producer = system("producer");
+        producer.with_set_key(TargetA::key());
+        producer.set_deferred_recorder_class(crate::system::DeferredRecorderClass::LocalDeferred);
+        let successor = system("successor").after_set::<TargetA>();
+        registry.add_system(unrelated).unwrap();
+        registry.add_system(producer).unwrap();
+        registry.add_system(successor).unwrap();
+
+        let plan = registry.plan_for::<Update>().unwrap().unwrap();
+        assert_eq!(plan.publication_frontiers.len(), 1);
+        assert_eq!(plan.publication_frontiers[0].cut, 2);
+        assert!(plan.precedence_reasons.iter().all(|reason| {
+            reason.predecessor_system_index != 0 && reason.successor_system_index != 0
+        }));
+        let unrelated_obligation = plan
+            .publication_obligations
+            .iter()
+            .find(|obligation| {
+                matches!(
+                    obligation.reason,
+                    PublicationObligationReason::Completion { system_index: 0 }
+                )
+            })
+            .expect("unrelated producer has a completion obligation");
+        assert_eq!(unrelated_obligation.frontier_ordinal, 0);
+    }
+
+    #[test]
+    fn unrelated_grouping_opportunity_does_not_change_frontier_cardinality() {
+        fn build(include_unrelated: bool) -> Vec<usize> {
+            let mut registry = ScheduleRegistry::new();
+            let mut producer = system("producer");
+            producer.with_set_key(TargetA::key());
+            producer
+                .set_deferred_recorder_class(crate::system::DeferredRecorderClass::LocalDeferred);
+            registry.add_system(producer).unwrap();
+            if include_unrelated {
+                registry.add_system(system("unrelated")).unwrap();
+            }
+            registry
+                .add_system(system("successor").after_set::<TargetA>())
+                .unwrap();
+            registry
+                .plan_for::<Update>()
+                .unwrap()
+                .unwrap()
+                .publication_frontiers
+                .iter()
+                .map(|frontier| frontier.cut)
+                .collect()
+        }
+
+        assert_eq!(build(false).len(), build(true).len());
+        assert_eq!(build(false), vec![1]);
+        assert_eq!(build(true), vec![2]);
+    }
+
+    #[test]
+    fn equivalent_declaration_order_has_identical_frontier_result() {
+        fn build(reverse: bool) -> Vec<PublicationFrontierPlan> {
+            let mut registry = ScheduleRegistry::new();
+            let mut source = system("source");
+            source.set_deferred_recorder_class(crate::system::DeferredRecorderClass::LocalDeferred);
+            if reverse {
+                source.before_set_key(TargetB::key());
+                source.before_set_key(TargetA::key());
+            } else {
+                source.before_set_key(TargetA::key());
+                source.before_set_key(TargetB::key());
+            }
+            let mut target = system("target");
+            target.with_set_key(TargetA::key());
+            target.with_set_key(TargetB::key());
+            registry.add_system(source).unwrap();
+            registry.add_system(target).unwrap();
+            registry
+                .plan_for::<Update>()
+                .unwrap()
+                .unwrap()
+                .publication_frontiers
+                .clone()
+        }
+
+        assert_eq!(build(false), build(true));
     }
 }
