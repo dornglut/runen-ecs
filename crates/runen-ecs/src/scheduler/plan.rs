@@ -381,7 +381,7 @@ impl ScheduleRegistry {
                     .iter()
                     .map(|declaration| declaration.target()),
             ) {
-                if !keys.iter().any(|existing| *existing == key) {
+                if !keys.contains(&key) {
                     keys.push(key);
                 }
             }
