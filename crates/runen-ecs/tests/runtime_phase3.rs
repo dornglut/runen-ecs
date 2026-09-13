@@ -472,10 +472,7 @@ fn frontier_callback_error_keeps_publication_and_stops_later_systems() {
         &mut world,
         |_frontier, world| {
             assert_eq!(world.query_state::<&Marker, ()>().iter(world).count(), 1);
-            Err::<(), _>(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                "intentional frontier callback error",
-            ))
+            Err::<(), _>(std::io::Error::other("intentional frontier callback error"))
         },
     );
 
