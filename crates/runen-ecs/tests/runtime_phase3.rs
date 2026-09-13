@@ -1,5 +1,5 @@
 use runen_ecs::prelude::*;
-use runen_ecs::{QueryAccess, RuntimeError, SystemParam, SystemParamError};
+use runen_ecs::{DeferredRecorderClass, QueryAccess, RuntimeError, SystemParam, SystemParamError};
 use std::marker::PhantomData;
 use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 use std::sync::{Mutex, OnceLock};
@@ -86,6 +86,63 @@ struct LifetimeCollisionParamGroup<'w> {
     step: Res<'w, Step>,
     seen: ResMut<'w, SeenCount>,
 }
+
+#[derive(runen_ecs::SystemParam)]
+#[allow(dead_code)]
+struct DerivedLocal<'w> {
+    commands: Commands<'w>,
+}
+
+struct StructuralPretender;
+
+unsafe impl SystemParam for StructuralPretender {
+    type State = ();
+    type Item<'world, 'state> = StructuralPretender;
+
+    fn init_state(_: &mut World) -> Result<Self::State, SystemParamError> {
+        Ok(())
+    }
+
+    fn access(_: &Self::State) -> QueryAccess {
+        QueryAccess::structural_mutation()
+    }
+
+    unsafe fn extract<'world, 'state>(
+        _: &'state mut Self::State,
+        _context: runen_ecs::SystemParamContext<'world>,
+    ) -> Result<Self::Item<'world, 'state>, SystemParamError> {
+        Ok(StructuralPretender)
+    }
+}
+
+struct TransferablePretender;
+
+unsafe impl SystemParam for TransferablePretender {
+    type State = ();
+    type Item<'world, 'state> = TransferablePretender;
+
+    fn init_state(_: &mut World) -> Result<Self::State, SystemParamError> {
+        MIXED_PARAM_INIT_COUNT.fetch_add(1, Ordering::SeqCst);
+        Ok(())
+    }
+
+    fn deferred_recorder_class() -> Result<DeferredRecorderClass, SystemParamError> {
+        Ok(DeferredRecorderClass::TransferableDeferred)
+    }
+
+    fn access(_: &Self::State) -> QueryAccess {
+        QueryAccess::default()
+    }
+
+    unsafe fn extract<'world, 'state>(
+        _: &'state mut Self::State,
+        _context: runen_ecs::SystemParamContext<'world>,
+    ) -> Result<Self::Item<'world, 'state>, SystemParamError> {
+        Ok(TransferablePretender)
+    }
+}
+
+static MIXED_PARAM_INIT_COUNT: AtomicUsize = AtomicUsize::new(0);
 
 #[derive(runen_ecs::SystemParam)]
 struct ConflictingResourceParamGroup<'w> {
@@ -235,7 +292,7 @@ fn structural_command_systems_share_stage_and_merge_deterministically() {
 }
 
 #[test]
-fn deferred_commands_flush_before_ecs_deferred_apply_boundary_callback() {
+fn deferred_commands_publish_before_ecs_deferred_publication_frontier_callback() {
     fn enqueue_stage(mut commands: Commands) {
         commands.spawn(Marker(7));
     }
@@ -258,14 +315,163 @@ fn deferred_commands_flush_before_ecs_deferred_apply_boundary_callback() {
 
     let mut boundaries = Vec::new();
     runtime
-        .run_schedule_with_deferred_apply_boundary::<Update, _, _>(&mut world, |boundary, world| {
-            let marker_count = world.query_state::<&Marker, ()>().iter(&*world).count();
-            boundaries.push((boundary.schedule().name(), boundary.index(), marker_count));
-            Ok::<(), std::io::Error>(())
-        })
+        .run_schedule_with_deferred_publication_frontier::<Update, _, _>(
+            &mut world,
+            |frontier, world| {
+                let marker_count = world.query_state::<&Marker, ()>().iter(&*world).count();
+                boundaries.push((frontier.schedule().name(), frontier.ordinal(), marker_count));
+                Ok::<(), std::io::Error>(())
+            },
+        )
         .unwrap();
 
-    assert_eq!(boundaries, vec![("Update", 0, 1), ("Update", 1, 1)]);
+    assert_eq!(boundaries, vec![("Update", 0, 1)]);
+    assert_eq!(world.resource::<SeenCount>().unwrap().0, 1);
+}
+
+#[test]
+fn deferred_recorder_class_is_composed_structurally() {
+    assert!(matches!(
+        <Commands<'static> as SystemParam>::deferred_recorder_class(),
+        Ok(DeferredRecorderClass::LocalDeferred)
+    ));
+    assert!(matches!(
+        <DerivedLocal<'static> as SystemParam>::deferred_recorder_class(),
+        Ok(DeferredRecorderClass::LocalDeferred)
+    ));
+    assert!(matches!(
+        <(DerivedLocal<'static>, Commands<'static>) as SystemParam>::deferred_recorder_class(),
+        Ok(DeferredRecorderClass::LocalDeferred)
+    ));
+    assert!(matches!(
+        <Res<'static, SeenCount> as SystemParam>::deferred_recorder_class(),
+        Ok(DeferredRecorderClass::None)
+    ));
+}
+
+#[test]
+fn structural_access_does_not_infer_deferred_production() {
+    fn structural_only(_: StructuralPretender) {}
+
+    let mut world = World::new();
+    let mut runtime = Runtime::new();
+    runtime.add_systems::<Update, _, _>(&mut world, structural_only);
+
+    let mut frontiers = Vec::new();
+    runtime
+        .run_schedule_with_deferred_publication_frontier::<Update, _, _>(
+            &mut world,
+            |frontier, _| {
+                frontiers.push(frontier.ordinal());
+                Ok::<(), RuntimeError>(())
+            },
+        )
+        .unwrap();
+
+    assert!(frontiers.is_empty());
+}
+
+#[test]
+fn mixed_recorder_classes_fail_before_parameter_state_initialization() {
+    fn mixed(_: (Commands, TransferablePretender)) {}
+
+    MIXED_PARAM_INIT_COUNT.store(0, Ordering::SeqCst);
+    let mut world = World::new();
+    let mut runtime = Runtime::new();
+    runtime.add_systems::<Update, _, _>(&mut world, mixed);
+
+    let error = runtime.run_schedule::<Update>(&mut world).unwrap_err();
+    assert!(matches!(error, RuntimeError::Setup { .. }));
+    assert_eq!(MIXED_PARAM_INIT_COUNT.load(Ordering::SeqCst), 0);
+}
+
+#[test]
+fn schedule_without_deferred_parameters_has_no_frontier_callback() {
+    let mut world = World::new();
+    let mut runtime = Runtime::new();
+    runtime.add_systems::<Update, _, _>(&mut world, || {});
+
+    let mut frontiers = Vec::new();
+    runtime
+        .run_schedule_with_deferred_publication_frontier::<Update, _, _>(
+            &mut world,
+            |frontier, _| {
+                frontiers.push(frontier.ordinal());
+                Ok::<(), RuntimeError>(())
+            },
+        )
+        .unwrap();
+
+    assert!(frontiers.is_empty());
+}
+
+#[test]
+fn empty_deferred_buffer_still_reaches_its_structural_frontier() {
+    fn empty_commands(mut commands: Commands) {
+        commands.queue(|_| Ok(()));
+    }
+
+    let mut world = World::new();
+    let mut runtime = Runtime::new();
+    runtime.add_systems::<Update, _, _>(&mut world, empty_commands);
+
+    let mut frontiers = Vec::new();
+    runtime
+        .run_schedule_with_deferred_publication_frontier::<Update, _, _>(
+            &mut world,
+            |frontier, _| {
+                frontiers.push(frontier.ordinal());
+                Ok::<(), RuntimeError>(())
+            },
+        )
+        .unwrap();
+
+    assert_eq!(frontiers, vec![0]);
+}
+
+#[test]
+fn canonical_frontiers_are_multiple_and_later_frontier_may_be_empty() {
+    fn first_producer(mut commands: Commands) {
+        commands.spawn(Marker(1));
+    }
+    fn second_producer(mut commands: Commands) {
+        commands.spawn(Marker(2));
+    }
+    fn prepare() {}
+    fn first_successor(mut seen: ResMut<SeenCount>, mut query: Query<&Marker>) {
+        seen.0 = query.iter().count() as u32;
+    }
+    fn second_successor() {}
+
+    let mut world = World::new();
+    world.insert_resource(SeenCount(0));
+    let mut runtime = Runtime::new();
+    runtime.add_systems::<Update, _, _>(&mut world, first_producer.in_set(GameplaySet));
+    runtime.add_systems::<Update, _, _>(&mut world, first_successor.after(GameplaySet));
+    runtime.add_systems::<Update, _, _>(&mut world, prepare.in_set(LateObserveSet));
+    runtime.add_systems::<Update, _, _>(
+        &mut world,
+        second_producer
+            .in_set(PostGameplaySet)
+            .after(LateObserveSet),
+    );
+    runtime.add_systems::<Update, _, _>(&mut world, second_successor.after(PostGameplaySet));
+
+    let mut frontiers = Vec::new();
+    runtime
+        .run_schedule_with_deferred_publication_frontier::<Update, _, _>(
+            &mut world,
+            |frontier, world| {
+                frontiers.push((
+                    frontier.ordinal(),
+                    world.query_state::<&Marker, ()>().iter(world).count(),
+                ));
+                Ok::<(), RuntimeError>(())
+            },
+        )
+        .unwrap();
+
+    assert_eq!(frontiers, vec![(0, 1), (1, 2)]);
     assert_eq!(world.resource::<SeenCount>().unwrap().0, 1);
 }
 

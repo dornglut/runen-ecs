@@ -6,6 +6,7 @@ const QUERY_ACCESS_RS: &str = include_str!("../src/query/access_and_filters.rs")
 const SYSTEM_MOD_RS: &str = include_str!("../src/system/mod.rs");
 const SYSTEM_EXTRACT_RS: &str = include_str!("../src/system/extract.rs");
 const SYSTEM_PARAMS_RS: &str = include_str!("../src/system/params.rs");
+const SYSTEM_RUNTIME_RS: &str = include_str!("../src/system/runtime.rs");
 const WORLD_MOD_RS: &str = include_str!("../src/world/mod.rs");
 const WORLD_STATE_RS: &str = include_str!("../src/world/state.rs");
 const WORLD_CAPABILITY_RS: &str = include_str!("../src/world/capability.rs");
@@ -74,6 +75,32 @@ fn downstream_macro_support_contracts_remain_root_reachable() {
             "downstream macro support contract disappeared from the crate root: {required}"
         );
     }
+}
+
+#[test]
+fn deferred_publication_api_has_no_physical_stage_compatibility_surface() {
+    for obsolete in [
+        "DeferredApplyBoundary",
+        "run_schedule_with_deferred_apply_boundary",
+        "ExecutionStage",
+        "flush_stage_commands",
+        "begin_stage_command_flush",
+    ] {
+        assert!(
+            !LIB_RS.contains(obsolete),
+            "obsolete API remains: {obsolete}"
+        );
+        assert!(
+            !SYSTEM_MOD_RS.contains(obsolete),
+            "obsolete system API remains: {obsolete}"
+        );
+        assert!(
+            !SYSTEM_RUNTIME_RS.contains(obsolete),
+            "obsolete runtime API remains: {obsolete}"
+        );
+    }
+    assert!(LIB_RS.contains("DeferredPublicationFrontier"));
+    assert!(SYSTEM_RUNTIME_RS.contains("run_schedule_with_deferred_publication_frontier"));
 }
 
 #[test]

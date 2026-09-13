@@ -1,5 +1,5 @@
 use super::OrderingDirection;
-use super::extract::{SystemParam, SystemParamContext, SystemParamError};
+use super::extract::{DeferredRecorderClass, SystemParam, SystemParamContext, SystemParamError};
 use crate::errors::RuntimeError;
 use crate::scheduler::access::{AccessKey, SystemAccess};
 use crate::scheduler::label::{ScheduleKey, ScheduleLabel, SystemSet, SystemSetKey};
@@ -36,18 +36,18 @@ impl Drop for DeferredCommandsUnwindGuard {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub struct DeferredApplyBoundary {
+pub struct DeferredPublicationFrontier {
     schedule: ScheduleKey,
-    index: usize,
+    ordinal: usize,
 }
 
-impl DeferredApplyBoundary {
+impl DeferredPublicationFrontier {
     pub const fn schedule(self) -> ScheduleKey {
         self.schedule
     }
 
-    pub const fn index(self) -> usize {
-        self.index
+    pub const fn ordinal(self) -> usize {
+        self.ordinal
     }
 }
 
@@ -494,6 +494,7 @@ trait SystemParamState: Sized {
     type Item<'world, 'state>;
 
     fn init_state(world: &mut World) -> std::result::Result<Self::State, SystemParamError>;
+    fn deferred_recorder_class() -> std::result::Result<DeferredRecorderClass, SystemParamError>;
     fn access(state: &Self::State) -> QueryAccess;
     fn slot_descriptor() -> ParamSlotDescriptor;
 
@@ -512,6 +513,10 @@ where
 
     fn init_state(world: &mut World) -> std::result::Result<Self::State, SystemParamError> {
         T::init_state(world)
+    }
+
+    fn deferred_recorder_class() -> std::result::Result<DeferredRecorderClass, SystemParamError> {
+        T::deferred_recorder_class()
     }
 
     fn access(state: &Self::State) -> QueryAccess {
@@ -588,6 +593,11 @@ macro_rules! impl_into_system {
                 deferred_commands: DeferredCommands,
             ) -> Result<RegisteredSystem> {
                 let system_name = std::any::type_name::<Func>().to_string();
+                let mut deferred_recorder_class = DeferredRecorderClass::None;
+                $(
+                    deferred_recorder_class = deferred_recorder_class
+                        .merge(<$param as SystemParamState>::deferred_recorder_class()?)?;
+                )*
                 let mut states = (
                     $(
                         <$param as SystemParamState>::init_state(world)?,
@@ -626,11 +636,12 @@ macro_rules! impl_into_system {
                             source,
                         });
                     let staged_commands = commands.finalize_external_owner();
-                    if result.is_ok() {
+                    if result.is_ok() && deferred_recorder_class.is_deferred_producing() {
                         deferred_commands_ref.borrow_mut().push(staged_commands);
                     }
                     result
                 })?;
+                registered.set_deferred_recorder_class(deferred_recorder_class);
                 registered.set_param_slots(param_slots);
                 Ok(registered)
             }
@@ -810,19 +821,20 @@ impl Runtime {
     }
 
     pub fn run_schedule<L: ScheduleLabel>(&mut self, world: &mut World) -> Result<()> {
-        self.run_schedule_with_deferred_apply_boundary::<L, _, _>(world, |_boundary, _world| {
-            Ok::<(), RuntimeError>(())
-        })
+        self.run_schedule_with_deferred_publication_frontier::<L, _, _>(
+            world,
+            |_frontier, _world| Ok::<(), RuntimeError>(()),
+        )
     }
 
-    pub fn run_schedule_with_deferred_apply_boundary<L, F, E>(
+    pub fn run_schedule_with_deferred_publication_frontier<L, F, E>(
         &mut self,
         world: &mut World,
-        mut on_boundary: F,
+        mut on_frontier: F,
     ) -> Result<()>
     where
         L: ScheduleLabel,
-        F: FnMut(DeferredApplyBoundary, &mut World) -> std::result::Result<(), E>,
+        F: FnMut(DeferredPublicationFrontier, &mut World) -> std::result::Result<(), E>,
         E: Into<Box<dyn Error + Send + Sync>> + 'static,
     {
         let _unwind_guard = DeferredCommandsUnwindGuard::new(self.deferred_commands.clone());
@@ -842,28 +854,56 @@ impl Runtime {
                 return Err(err.into());
             }
         };
-        for (boundary_index, stage) in plan.stages.iter().enumerate() {
-            for system_index in &stage.system_indices {
-                let Some(system) = self.scheduler.systems_mut().get_mut(*system_index) else {
-                    self.discard_deferred_commands();
-                    return Err(RuntimeError::Invariant {
-                        message: "execution plan referenced missing system",
-                    });
-                };
-                if let Err(err) = system.run(world) {
-                    self.discard_deferred_commands();
-                    return Err(err);
-                }
-            }
-            if let Err(err) = self.flush_stage_commands(world) {
+        let mut next_frontier = 0usize;
+        for (reference_rank, system_index) in plan.reference_system_indices.iter().enumerate() {
+            let Some(system) = self.scheduler.systems_mut().get_mut(*system_index) else {
+                self.discard_deferred_commands();
+                return Err(RuntimeError::Invariant {
+                    message: "execution plan referenced missing system",
+                });
+            };
+            if let Err(err) = system.run(world) {
                 self.discard_deferred_commands();
                 return Err(err);
             }
 
-            if let Err(err) = on_boundary(
-                DeferredApplyBoundary {
+            let cut = reference_rank.saturating_add(1);
+            while plan
+                .publication_frontiers
+                .get(next_frontier)
+                .is_some_and(|frontier| frontier.cut == cut)
+            {
+                if let Err(err) = self.publish_deferred_commands(world) {
+                    self.discard_deferred_commands();
+                    return Err(err);
+                }
+                if let Err(err) = on_frontier(
+                    DeferredPublicationFrontier {
+                        schedule: plan.label,
+                        ordinal: next_frontier,
+                    },
+                    world,
+                ) {
+                    self.discard_deferred_commands();
+                    return Err(RuntimeError::Boundary { source: err.into() });
+                }
+                next_frontier = next_frontier.saturating_add(1);
+            }
+        }
+
+        if plan
+            .publication_frontiers
+            .get(next_frontier)
+            .is_some_and(|frontier| frontier.cut == plan.reference_system_indices.len())
+        {
+            if let Err(err) = self.publish_deferred_commands(world) {
+                self.discard_deferred_commands();
+                return Err(err);
+            }
+            if let Err(err) = on_frontier(
+                DeferredPublicationFrontier {
                     schedule: plan.label,
-                    index: boundary_index,
+                    ordinal: next_frontier,
                 },
                 world,
             ) {
@@ -884,10 +924,10 @@ impl Runtime {
         })
     }
 
-    fn flush_stage_commands(&self, world: &mut World) -> Result<()> {
-        world.begin_stage_command_flush();
-        let stage_commands = std::mem::take(&mut *self.deferred_commands.borrow_mut());
-        for commands in stage_commands {
+    fn publish_deferred_commands(&self, world: &mut World) -> Result<()> {
+        world.begin_deferred_publication();
+        let pending_commands = std::mem::take(&mut *self.deferred_commands.borrow_mut());
+        for commands in pending_commands {
             commands.apply(world)?;
         }
         Ok(())

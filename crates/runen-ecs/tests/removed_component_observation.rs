@@ -149,7 +149,7 @@ fn despawn_with_component_is_visible_after_flush() {
 }
 
 #[test]
-fn removed_records_are_visible_only_for_one_stage_window() {
+fn removed_records_remain_visible_until_the_next_publication_frontier() {
     fn queue_remove_once(mut gate: ResMut<Gate>, target: Res<Target>, mut commands: Commands) {
         if gate.0 {
             return;
@@ -187,7 +187,7 @@ fn removed_records_are_visible_only_for_one_stage_window() {
 
     let counts = world.resource::<StageCounts>().unwrap();
     assert_eq!(counts.post_stage, vec![1]);
-    assert_eq!(counts.late_stage, vec![0]);
+    assert_eq!(counts.late_stage, vec![1]);
 }
 
 #[test]

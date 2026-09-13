@@ -2,6 +2,7 @@ use crate::World;
 use crate::errors::RuntimeError;
 use crate::scheduler::access::{AccessConflict, SystemAccess};
 use crate::scheduler::label::{ScheduleKey, ScheduleLabel, SystemSet, SystemSetKey};
+use crate::system::DeferredRecorderClass;
 use crate::system::OrderingDirection;
 use std::num::NonZeroU64;
 
@@ -62,7 +63,7 @@ impl ParamSlotDescriptor {
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) enum OrderingPresence {
     Optional,
     Required,
@@ -137,6 +138,7 @@ pub struct RegisteredSystem {
     ordering_declarations: Vec<OrderingDeclaration>,
     param_slots: Vec<ParamSlotDescriptor>,
     access: SystemAccess,
+    deferred_recorder_class: DeferredRecorderClass,
     run: RunnableSystemFn,
 }
 
@@ -161,6 +163,7 @@ impl RegisteredSystem {
             ordering_declarations: Vec::new(),
             param_slots: Vec::new(),
             access,
+            deferred_recorder_class: DeferredRecorderClass::None,
             run: Box::new(run),
         })
     }
@@ -226,6 +229,14 @@ impl RegisteredSystem {
 
     pub fn access(&self) -> &SystemAccess {
         &self.access
+    }
+
+    pub(crate) fn deferred_recorder_class(&self) -> DeferredRecorderClass {
+        self.deferred_recorder_class
+    }
+
+    pub(crate) fn set_deferred_recorder_class(&mut self, class: DeferredRecorderClass) {
+        self.deferred_recorder_class = class;
     }
 
     pub fn set_param_slots(&mut self, param_slots: Vec<ParamSlotDescriptor>) {

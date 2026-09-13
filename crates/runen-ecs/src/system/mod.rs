@@ -166,9 +166,9 @@ fn fmt_named_descriptor(
 pub use crate::scheduler::label::{ScheduleKey, ScheduleLabel, SystemSet, SystemSetKey};
 pub use crate::scheduler::plan::ScheduleValidationError;
 pub use crate::scheduler::system::ParamSlotDescriptor;
-pub use extract::{SystemParam, SystemParamContext, SystemParamError};
+pub use extract::{DeferredRecorderClass, SystemParam, SystemParamContext, SystemParamError};
 pub use params::{Res, ResMut, WorldMut};
 pub use runtime::{
-    ConfiguredSystem, DeferredApplyBoundary, IntoSystem, IntoSystemConfigs, IntoSystemSetKey,
+    ConfiguredSystem, DeferredPublicationFrontier, IntoSystem, IntoSystemConfigs, IntoSystemSetKey,
     Runtime, SystemConfigExt,
 };

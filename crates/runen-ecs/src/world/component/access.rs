@@ -159,7 +159,7 @@ impl World {
         }
     }
 
-    pub(crate) fn begin_stage_command_flush(&mut self) {
+    pub(crate) fn begin_deferred_publication(&mut self) {
         self.removed_component_records.clear();
     }
 

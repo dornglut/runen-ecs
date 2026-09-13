@@ -1,4 +1,4 @@
-use super::extract::{SystemParam, SystemParamContext, SystemParamError};
+use super::extract::{DeferredRecorderClass, SystemParam, SystemParamContext, SystemParamError};
 use crate::Commands;
 use crate::World;
 use crate::component::{Component, Resource};
@@ -211,6 +211,9 @@ unsafe impl<'param> SystemParam for Commands<'param> {
     fn init_state(_: &mut World) -> Result<Self::State, SystemParamError> {
         Ok(())
     }
+    fn deferred_recorder_class() -> Result<DeferredRecorderClass, SystemParamError> {
+        Ok(DeferredRecorderClass::LocalDeferred)
+    }
     fn access(_: &Self::State) -> QueryAccess {
         QueryAccess::structural_mutation()
     }
@@ -232,6 +235,11 @@ macro_rules! impl_tuple_system_param {
             type Item<'world, 'state> = ($($param::Item<'world, 'state>,)+);
             fn init_state(world: &mut World) -> Result<Self::State, SystemParamError> {
                 Ok(($($param::init_state(world)?,)+))
+            }
+            fn deferred_recorder_class() -> Result<DeferredRecorderClass, SystemParamError> {
+                let mut class = DeferredRecorderClass::None;
+                $(class = class.merge($param::deferred_recorder_class()?)?;)+
+                Ok(class)
             }
             fn access(state: &Self::State) -> QueryAccess {
                 let mut access = QueryAccess::default();

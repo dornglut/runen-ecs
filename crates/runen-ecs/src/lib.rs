@@ -30,9 +30,9 @@ pub use reflect::{
 };
 pub use runen_ecs_macros::{Bundle, Component, Reflect, Resource, SystemParam};
 pub use system::{
-    ConfiguredSystem, DeferredApplyBoundary, IntoSystem, IntoSystemConfigs, IntoSystemSetKey,
-    ParamSlotDescriptor, Res, ResMut, Runtime, ScheduleKey, ScheduleLabel, ScheduleValidationError,
-    SystemConfigExt, SystemParam, SystemParamContext, SystemParamError, SystemSet, SystemSetKey,
-    WorldMut,
+    ConfiguredSystem, DeferredPublicationFrontier, DeferredRecorderClass, IntoSystem,
+    IntoSystemConfigs, IntoSystemSetKey, ParamSlotDescriptor, Res, ResMut, Runtime, ScheduleKey,
+    ScheduleLabel, ScheduleValidationError, SystemConfigExt, SystemParam, SystemParamContext,
+    SystemParamError, SystemSet, SystemSetKey, WorldMut,
 };
 pub use world::{ChangeCursor, EntityMut, EntityRef, Mut, World};
