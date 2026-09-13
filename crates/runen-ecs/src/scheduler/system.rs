@@ -2,6 +2,7 @@ use crate::World;
 use crate::errors::RuntimeError;
 use crate::scheduler::access::{AccessConflict, SystemAccess};
 use crate::scheduler::label::{ScheduleKey, ScheduleLabel, SystemSet, SystemSetKey};
+use crate::system::OrderingDirection;
 use std::num::NonZeroU64;
 
 pub(crate) type RunnableSystemFn = Box<dyn FnMut(&mut World) -> Result<(), RuntimeError>>;
@@ -61,13 +62,79 @@ impl ParamSlotDescriptor {
     }
 }
 
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub(crate) enum OrderingPresence {
+    Optional,
+    Required,
+}
+
+impl OrderingPresence {
+    pub(crate) const fn is_required(self) -> bool {
+        matches!(self, Self::Required)
+    }
+
+    const fn merge(self, other: Self) -> Self {
+        if self.is_required() || other.is_required() {
+            Self::Required
+        } else {
+            Self::Optional
+        }
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub(crate) struct OrderingDeclaration {
+    direction: OrderingDirection,
+    target: SystemSetKey,
+    presence: OrderingPresence,
+}
+
+impl OrderingDeclaration {
+    pub(crate) const fn required(direction: OrderingDirection, target: SystemSetKey) -> Self {
+        Self {
+            direction,
+            target,
+            presence: OrderingPresence::Required,
+        }
+    }
+
+    pub(crate) const fn optional(direction: OrderingDirection, target: SystemSetKey) -> Self {
+        Self {
+            direction,
+            target,
+            presence: OrderingPresence::Optional,
+        }
+    }
+
+    pub(crate) const fn direction(self) -> OrderingDirection {
+        self.direction
+    }
+
+    pub(crate) const fn target(self) -> SystemSetKey {
+        self.target
+    }
+
+    pub(crate) const fn presence(self) -> OrderingPresence {
+        self.presence
+    }
+
+    pub(crate) fn normalize_into(declarations: &mut Vec<Self>, declaration: Self) {
+        if let Some(existing) = declarations.iter_mut().find(|existing| {
+            existing.direction == declaration.direction && existing.target == declaration.target
+        }) {
+            existing.presence = existing.presence.merge(declaration.presence);
+            return;
+        }
+        declarations.push(declaration);
+    }
+}
+
 pub struct RegisteredSystem {
     id: SystemId,
     name: String,
     label: ScheduleKey,
     sets: Vec<SystemSetKey>,
-    before_sets: Vec<SystemSetKey>,
-    after_sets: Vec<SystemSetKey>,
+    ordering_declarations: Vec<OrderingDeclaration>,
     param_slots: Vec<ParamSlotDescriptor>,
     access: SystemAccess,
     run: RunnableSystemFn,
@@ -91,8 +158,7 @@ impl RegisteredSystem {
             name,
             label: L::key(),
             sets: Vec::new(),
-            before_sets: Vec::new(),
-            after_sets: Vec::new(),
+            ordering_declarations: Vec::new(),
             param_slots: Vec::new(),
             access,
             run: Box::new(run),
@@ -117,9 +183,10 @@ impl RegisteredSystem {
     }
 
     pub fn before_set_key(&mut self, key: SystemSetKey) -> &mut Self {
-        if !self.before_sets.contains(&key) {
-            self.before_sets.push(key);
-        }
+        self.add_ordering_declaration(OrderingDeclaration::required(
+            OrderingDirection::Before,
+            key,
+        ));
         self
     }
 
@@ -129,10 +196,12 @@ impl RegisteredSystem {
     }
 
     pub fn after_set_key(&mut self, key: SystemSetKey) -> &mut Self {
-        if !self.after_sets.contains(&key) {
-            self.after_sets.push(key);
-        }
+        self.add_ordering_declaration(OrderingDeclaration::required(OrderingDirection::After, key));
         self
+    }
+
+    pub(crate) fn add_ordering_declaration(&mut self, declaration: OrderingDeclaration) {
+        OrderingDeclaration::normalize_into(&mut self.ordering_declarations, declaration);
     }
 
     pub fn name(&self) -> &str {
@@ -151,12 +220,8 @@ impl RegisteredSystem {
         &self.sets
     }
 
-    pub fn before_sets(&self) -> &[SystemSetKey] {
-        &self.before_sets
-    }
-
-    pub fn after_sets(&self) -> &[SystemSetKey] {
-        &self.after_sets
+    pub(crate) fn ordering_declarations(&self) -> &[OrderingDeclaration] {
+        &self.ordering_declarations
     }
 
     pub fn access(&self) -> &SystemAccess {
