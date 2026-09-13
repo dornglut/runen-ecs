@@ -169,9 +169,7 @@ impl ScheduleRegistry {
         for (source_pos, source_index) in scheduled_indices.iter().copied().enumerate() {
             let source = &self.systems[source_index];
             let mut declarations = source.ordering_declarations().to_vec();
-            declarations.sort_by(|left, right| {
-                compare_declarations(left, right, &set_descriptors)
-            });
+            declarations.sort_by(|left, right| compare_declarations(left, right, &set_descriptors));
 
             for declaration in declarations {
                 let target_set = system_set_descriptor(&set_descriptors, declaration.target());
@@ -367,11 +365,7 @@ impl ScheduleRegistry {
             .filter(|prior| same_schedule_diagnostic_text(**prior, label))
             .count()
             .saturating_add(1);
-        ScheduleDiagnosticDescriptor::new(
-            label.name(),
-            label.diagnostic_type_name(),
-            occurrence,
-        )
+        ScheduleDiagnosticDescriptor::new(label.name(), label.diagnostic_type_name(), occurrence)
     }
 
     fn system_set_descriptors(
@@ -422,13 +416,13 @@ struct UnresolvedOrderingReference {
     target_set: SystemSetDiagnosticDescriptor,
 }
 
-fn compare_schedule_keys_for_diagnostics(
-    left: &ScheduleKey,
-    right: &ScheduleKey,
-) -> CmpOrdering {
+fn compare_schedule_keys_for_diagnostics(left: &ScheduleKey, right: &ScheduleKey) -> CmpOrdering {
     left.name()
         .cmp(right.name())
-        .then_with(|| left.diagnostic_type_name().cmp(right.diagnostic_type_name()))
+        .then_with(|| {
+            left.diagnostic_type_name()
+                .cmp(right.diagnostic_type_name())
+        })
         .then_with(|| left.type_id().cmp(&right.type_id()))
 }
 
@@ -438,7 +432,10 @@ fn compare_system_set_keys_for_diagnostics(
 ) -> CmpOrdering {
     left.name()
         .cmp(right.name())
-        .then_with(|| left.diagnostic_type_name().cmp(right.diagnostic_type_name()))
+        .then_with(|| {
+            left.diagnostic_type_name()
+                .cmp(right.diagnostic_type_name())
+        })
         .then_with(|| left.type_id().cmp(&right.type_id()))
 }
 
@@ -477,7 +474,11 @@ fn compare_unresolved(
 ) -> CmpOrdering {
     left.source
         .cmp(&right.source)
-        .then_with(|| left.declaration.direction().cmp(&right.declaration.direction()))
+        .then_with(|| {
+            left.declaration
+                .direction()
+                .cmp(&right.declaration.direction())
+        })
         .then_with(|| left.target_set.cmp(&right.target_set))
 }
 
@@ -522,7 +523,10 @@ mod tests {
             plan.ordering_resolutions[0].kind,
             OrderingResolutionKind::AbsentOptional
         ));
-        assert_eq!(plan.ordering_resolutions[0].target_set.name(), TargetA::key().name());
+        assert_eq!(
+            plan.ordering_resolutions[0].target_set.name(),
+            TargetA::key().name()
+        );
         assert_eq!(
             plan.ordering_resolutions[0].declaration.presence(),
             OrderingPresence::Optional

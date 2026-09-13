@@ -381,7 +381,11 @@ fn diagnostic_identity_follows_returned_semantic_keys_not_wrapper_types() {
         let mut world = World::new();
         let mut runtime = Runtime::new();
         runtime.add_systems::<ScheduleAlias, _, _>(&mut world, source.before(TargetA));
-        schedule_error(runtime.run_schedule::<ScheduleAlias>(&mut world).unwrap_err())
+        schedule_error(
+            runtime
+                .run_schedule::<ScheduleAlias>(&mut world)
+                .unwrap_err(),
+        )
     };
     let schedule = unresolved_schedule(&schedule_error_value);
     assert_eq!(schedule.name(), "SharedSchedule");
