@@ -1,9 +1,10 @@
+use super::OrderingDirection;
 use super::extract::{SystemParam, SystemParamContext, SystemParamError};
 use crate::errors::RuntimeError;
 use crate::scheduler::access::{AccessKey, SystemAccess};
 use crate::scheduler::label::{ScheduleKey, ScheduleLabel, SystemSet, SystemSetKey};
 use crate::scheduler::plan::ScheduleRegistry;
-use crate::scheduler::system::{ParamSlotDescriptor, RegisteredSystem};
+use crate::scheduler::system::{OrderingDeclaration, ParamSlotDescriptor, RegisteredSystem};
 use std::cell::RefCell;
 use std::error::Error;
 use std::marker::PhantomData;
@@ -93,8 +94,7 @@ where
 #[derive(Debug, Clone, Default)]
 struct SystemConfigMetadata {
     sets: Vec<SystemSetKey>,
-    before_sets: Vec<SystemSetKey>,
-    after_sets: Vec<SystemSetKey>,
+    ordering_declarations: Vec<OrderingDeclaration>,
 }
 
 impl SystemConfigMetadata {
@@ -104,27 +104,32 @@ impl SystemConfigMetadata {
         }
     }
 
+    fn ordering(&mut self, declaration: OrderingDeclaration) {
+        OrderingDeclaration::normalize_into(&mut self.ordering_declarations, declaration);
+    }
+
     fn before_set(&mut self, key: SystemSetKey) {
-        if !self.before_sets.contains(&key) {
-            self.before_sets.push(key);
-        }
+        self.ordering(OrderingDeclaration::required(OrderingDirection::Before, key));
     }
 
     fn after_set(&mut self, key: SystemSetKey) {
-        if !self.after_sets.contains(&key) {
-            self.after_sets.push(key);
-        }
+        self.ordering(OrderingDeclaration::required(OrderingDirection::After, key));
+    }
+
+    fn before_if_present_set(&mut self, key: SystemSetKey) {
+        self.ordering(OrderingDeclaration::optional(OrderingDirection::Before, key));
+    }
+
+    fn after_if_present_set(&mut self, key: SystemSetKey) {
+        self.ordering(OrderingDeclaration::optional(OrderingDirection::After, key));
     }
 
     fn apply(&self, system: &mut RegisteredSystem) {
         for key in &self.sets {
             system.with_set_key(*key);
         }
-        for key in &self.before_sets {
-            system.before_set_key(*key);
-        }
-        for key in &self.after_sets {
-            system.after_set_key(*key);
+        for declaration in &self.ordering_declarations {
+            system.add_ordering_declaration(*declaration);
         }
     }
 }
@@ -167,6 +172,22 @@ impl<S, Marker> ConfiguredSystem<S, Marker> {
         self.config.after_set(set.system_set_key());
         self
     }
+
+    pub fn before_if_present<Set>(mut self, set: Set) -> Self
+    where
+        Set: IntoSystemSetKey,
+    {
+        self.config.before_if_present_set(set.system_set_key());
+        self
+    }
+
+    pub fn after_if_present<Set>(mut self, set: Set) -> Self
+    where
+        Set: IntoSystemSetKey,
+    {
+        self.config.after_if_present_set(set.system_set_key());
+        self
+    }
 }
 
 pub trait SystemConfigExt<Marker>: IntoSystem<Marker> + Sized {
@@ -189,6 +210,20 @@ pub trait SystemConfigExt<Marker>: IntoSystem<Marker> + Sized {
         Set: IntoSystemSetKey,
     {
         ConfiguredSystem::new(self).after(set)
+    }
+
+    fn before_if_present<Set>(self, set: Set) -> ConfiguredSystem<Self, Marker>
+    where
+        Set: IntoSystemSetKey,
+    {
+        ConfiguredSystem::new(self).before_if_present(set)
+    }
+
+    fn after_if_present<Set>(self, set: Set) -> ConfiguredSystem<Self, Marker>
+    where
+        Set: IntoSystemSetKey,
+    {
+        ConfiguredSystem::new(self).after_if_present(set)
     }
 }
 
