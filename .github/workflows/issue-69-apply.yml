@@ -17,7 +17,9 @@ jobs:
           fetch-depth: 0
 
       - name: Apply command vocabulary cut
-        run: python3 tools/issue69_apply.py
+        run: |
+          python3 -c 'from pathlib import Path; p=Path("tools/issue69_apply.py"); lines=p.read_text().splitlines(); q=chr(39); repl="needle = "+q+"    assert!(PRELUDE_RS.contains(\"LocalCommands\"));\\n"+q; p.write_text("\n".join(repl if line.startswith("needle = ") else line for line in lines)+"\n")'
+          python3 tools/issue69_apply.py
 
       - name: Format candidate
         run: cargo fmt --all
