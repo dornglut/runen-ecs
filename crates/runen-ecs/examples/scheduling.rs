@@ -63,6 +63,9 @@ fn main() {
 
     runtime.run_schedule::<Update>(&mut world).unwrap();
 
-    assert_eq!(world.resource::<Order>().unwrap().0, ["prepare", "simulate"]);
+    assert_eq!(
+        world.resource::<Order>().unwrap().0,
+        ["prepare", "simulate"]
+    );
     println!("semantic order: prepare -> simulate");
 }
