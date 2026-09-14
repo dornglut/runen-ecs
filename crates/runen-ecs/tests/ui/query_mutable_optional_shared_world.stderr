@@ -15,7 +15,7 @@ help: the trait `query::traits_and_state::QueryReadOnly` is implemented for `Opt
 note: required by a bound in `QueryState::<Q, F>::iter`
  --> src/query/traits_and_state.rs
   |
-  |     pub fn iter<'w, W>(&self, world: W) -> impl Iterator<Item = Q::Item<'w>> + 'w
+  |     pub fn iter<'w, W>(&'w self, world: W) -> impl Iterator<Item = Q::Item<'w>> + 'w
   |            ---- required by a bound in this associated function
 ...
   |         W: QueryWorldSource<'w, Q>,

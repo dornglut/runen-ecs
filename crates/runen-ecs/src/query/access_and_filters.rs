@@ -287,12 +287,22 @@ pub trait QueryFilter: sealed::QueryFilterSealed {
     }
 }
 
+/// Framework-controlled proof for metadata/filter query shapes used by
+/// transferable system parameters.
+///
+/// # Safety
+///
+/// Implementations must describe only filter forms whose execution touches no
+/// component payload requiring a `Send` or `Sync` bound beyond the filter's
+/// own cached state.
+pub(crate) unsafe trait TransferableQueryFilter: QueryFilter {}
+
 impl QueryFilter for () {
     fn configure(_required: &mut Vec<TypeId>, _excluded: &mut Vec<TypeId>) {}
 }
 
-pub struct With<T: Component>(PhantomData<T>);
-pub struct Without<T: Component>(PhantomData<T>);
+pub struct With<T: Component>(PhantomData<fn() -> T>);
+pub struct Without<T: Component>(PhantomData<fn() -> T>);
 
 impl<T: Component> QueryFilter for With<T> {
     fn configure(required: &mut Vec<TypeId>, _excluded: &mut Vec<TypeId>) {
@@ -306,8 +316,8 @@ impl<T: Component> QueryFilter for Without<T> {
     }
 }
 
-pub struct Changed<T: Component>(PhantomData<T>);
-pub struct Added<T: Component>(PhantomData<T>);
+pub struct Changed<T: Component>(PhantomData<fn() -> T>);
+pub struct Added<T: Component>(PhantomData<fn() -> T>);
 
 impl sealed::QueryFilterSealed for () {}
 impl<T: Component> sealed::QueryFilterSealed for With<T> {}
@@ -420,6 +430,29 @@ macro_rules! impl_query_filter_tuple {
 }
 
 impl_query_filter_tuple!((A, B, C), (A, B, C, D), (A, B, C, D, E), (A, B, C, D, E, F));
+
+unsafe impl TransferableQueryFilter for () {}
+unsafe impl<T: Component> TransferableQueryFilter for With<T> {}
+unsafe impl<T: Component> TransferableQueryFilter for Without<T> {}
+unsafe impl<T: Component> TransferableQueryFilter for Changed<T> {}
+unsafe impl<T: Component> TransferableQueryFilter for Added<T> {}
+unsafe impl<A: TransferableQueryFilter, B: TransferableQueryFilter> TransferableQueryFilter
+    for (A, B)
+{
+}
+
+macro_rules! impl_transferable_query_filter_tuple {
+    ($(($($name:ident),+)),+ $(,)?) => {
+        $(
+            unsafe impl<$($name: TransferableQueryFilter,)+> TransferableQueryFilter
+                for ($($name,)+)
+            {
+            }
+        )+
+    };
+}
+
+impl_transferable_query_filter_tuple!((A, B, C), (A, B, C, D), (A, B, C, D, E), (A, B, C, D, E, F));
 
 impl<T: Component> Default for With<T> {
     fn default() -> Self {

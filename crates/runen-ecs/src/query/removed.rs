@@ -10,11 +10,13 @@ use std::cell::RefCell;
 use std::marker::PhantomData;
 use std::ptr::NonNull;
 
+type RemovedQueryMarker<'state, T> = (&'state mut RemovedState<T>, fn() -> T);
+
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct Removed<T: Component> {
     entity: Entity,
     tick: ChangeCursor,
-    _marker: PhantomData<T>,
+    _marker: PhantomData<fn() -> T>,
 }
 
 impl<T: Component> Removed<T> {
@@ -30,7 +32,7 @@ impl<T: Component> Removed<T> {
 pub struct RemovedState<T: Component> {
     access: QueryAccess,
     scratch: RefCell<Vec<(Entity, ChangeCursor)>>,
-    _marker: PhantomData<T>,
+    _marker: PhantomData<fn() -> T>,
 }
 
 impl<T: Component> RemovedState<T> {
@@ -76,7 +78,7 @@ impl<T: Component> RemovedState<T> {
 pub struct RemovedQuery<'world, 'state, T: Component> {
     world: QueryCapability<'world>,
     state: NonNull<RemovedState<T>>,
-    _marker: PhantomData<(&'state mut RemovedState<T>, T)>,
+    _marker: PhantomData<RemovedQueryMarker<'state, T>>,
 }
 
 impl<'world, 'state, T: Component> RemovedQuery<'world, 'state, T> {

@@ -252,15 +252,29 @@ fn c7_ownership_lifecycle_and_structural_extraction_are_absent_from_ecs_surfaces
 #[test]
 fn low_level_query_extension_is_sealed() {
     assert!(!QUERY_MOD_RS.contains("pub use traits_and_state::QueryData"));
-    assert!(!QUERY_MOD_RS.contains("QueryData"));
     assert!(QUERY_MOD_RS.contains("pub use traits_and_state::QuerySpec"));
     assert!(QUERY_TRAITS_RS.contains("pub trait QuerySpec: sealed::QuerySpecSealed"));
     assert!(QUERY_TRAITS_RS.contains("mod sealed"));
+    assert!(QUERY_TRAITS_RS.contains("pub(crate) unsafe trait TransferableQueryData"));
+    assert!(!QUERY_MOD_RS.contains("pub use traits_and_state::TransferableQueryData"));
 }
 
 #[test]
 fn low_level_system_param_extension_requires_explicit_unsafe_implementation() {
     assert!(SYSTEM_EXTRACT_RS.contains("pub unsafe trait SystemParam"));
+}
+
+#[test]
+fn transferable_system_param_is_hidden_but_macro_reachable() {
+    assert!(LIB_RS.contains("TransferableSystemParam"));
+    assert!(SYSTEM_MOD_RS.contains("TransferableSystemParam"));
+    assert!(SYSTEM_EXTRACT_RS.contains("#[doc(hidden)]\npub unsafe trait TransferableSystemParam"));
+    assert!(!PRELUDE_RS.contains("TransferableSystemParam"));
+    assert!(!LIB_RS.contains("TransferableQueryData"));
+    assert!(!LIB_RS.contains("TransferableQueryFilter"));
+    assert!(!PRELUDE_RS.contains("TransferableQueryData"));
+    assert!(!PRELUDE_RS.contains("TransferableQueryFilter"));
+    assert!(QUERY_MOD_RS.contains("pub(crate) use"));
 }
 
 #[test]

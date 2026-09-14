@@ -38,6 +38,6 @@ pub use system::{
     SchedulePairwiseConcurrencyAssessment, SchedulePrecedenceEdge, SchedulePrecedencePath,
     SchedulePrecedenceReason, SchedulePublicationFrontier, SchedulePublicationObligation,
     ScheduleValidationError, SystemConfigExt, SystemParam, SystemParamContext, SystemParamError,
-    SystemSet, SystemSetKey, WorldMut,
+    SystemSet, SystemSetKey, TransferableSystemParam, WorldMut,
 };
 pub use world::{ChangeCursor, EntityMut, EntityRef, Mut, World};

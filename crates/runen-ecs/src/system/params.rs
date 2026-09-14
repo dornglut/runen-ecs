@@ -1,9 +1,13 @@
-use super::extract::{DeferredRecorderClass, SystemParam, SystemParamContext, SystemParamError};
+use super::extract::{
+    DeferredRecorderClass, SystemParam, SystemParamContext, SystemParamError,
+    TransferableSystemParam,
+};
 use crate::Commands;
 use crate::World;
 use crate::component::{Component, Resource};
 use crate::query::{
     Query, QueryAccess, QueryFilter, QuerySpec, QueryState, RemovedQuery, RemovedState,
+    TransferableQueryData, TransferableQueryFilter,
 };
 use crate::scheduler::system::ParamSlotDescriptor;
 use crate::world::{ResourceCapability, ResourceMutationCapability};
@@ -137,6 +141,13 @@ where
     }
 }
 
+unsafe impl<'param, 'cached, Q, F> TransferableSystemParam for Query<'param, 'cached, Q, F>
+where
+    Q: QuerySpec + TransferableQueryData + 'static,
+    F: QueryFilter + TransferableQueryFilter + 'static,
+{
+}
+
 unsafe impl<'param, 'cached, T: Component + 'static> SystemParam
     for RemovedQuery<'param, 'cached, T>
 {
@@ -163,6 +174,11 @@ unsafe impl<'param, 'cached, T: Component + 'static> SystemParam
     }
 }
 
+unsafe impl<'param, 'cached, T: Component + 'static> TransferableSystemParam
+    for RemovedQuery<'param, 'cached, T>
+{
+}
+
 unsafe impl<'param, T: Resource + 'static> SystemParam for Res<'param, T> {
     type State = ();
     type Item<'world, 'state> = Res<'world, T>;
@@ -184,6 +200,8 @@ unsafe impl<'param, T: Resource + 'static> SystemParam for Res<'param, T> {
     }
 }
 
+unsafe impl<'param, T: Resource + Sync + 'static> TransferableSystemParam for Res<'param, T> {}
+
 unsafe impl<'param, T: Resource + 'static> SystemParam for ResMut<'param, T> {
     type State = ();
     type Item<'world, 'state> = ResMut<'world, T>;
@@ -204,6 +222,8 @@ unsafe impl<'param, T: Resource + 'static> SystemParam for ResMut<'param, T> {
         Ok(ResMut::new(context.resource_mut::<T>()?))
     }
 }
+
+unsafe impl<'param, T: Resource + Send + 'static> TransferableSystemParam for ResMut<'param, T> {}
 
 unsafe impl<'param> SystemParam for Commands<'param> {
     type State = ();
@@ -263,6 +283,13 @@ macro_rules! impl_tuple_system_param {
             ) -> Result<Self::Item<'world, 'state>, SystemParamError> {
                 Ok(($((unsafe { $param::extract(&mut state.$index, context) })?,)+))
             }
+        }
+
+        unsafe impl<$($param: TransferableSystemParam),+> TransferableSystemParam
+            for ($($param,)+)
+        where
+            $($param::State: Send,)+
+        {
         }
     };
 }

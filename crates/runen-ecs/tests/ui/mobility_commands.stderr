@@ -1,0 +1,21 @@
+error[E0277]: the trait bound `Commands<'static>: runen_ecs::TransferableSystemParam` is not satisfied
+ --> tests/ui/mobility_commands.rs:8:27
+  |
+8 |     assert_transferable::<runen_ecs::Commands<'static>>();
+  |                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ the trait `runen_ecs::TransferableSystemParam` is not implemented for `Commands<'static>`
+  |
+  = help: the following other types implement trait `runen_ecs::TransferableSystemParam`:
+            (A, B)
+            (A, B, C)
+            (A, B, C, D)
+            (A, B, C, D, E)
+            (A, B, C, D, E, F)
+            (A, B, C, D, E, F, G)
+            (A, B, C, D, E, F, G, H)
+            Query<'param, 'cached, Q, F>
+          and $N others
+note: required by a bound in `assert_transferable`
+ --> tests/ui/mobility_commands.rs:1:27
+  |
+1 | fn assert_transferable<P: runen_ecs::TransferableSystemParam>()
+  |                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `assert_transferable`

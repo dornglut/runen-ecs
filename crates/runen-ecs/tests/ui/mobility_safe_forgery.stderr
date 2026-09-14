@@ -1,0 +1,11 @@
+error[E0200]: the trait `runen_ecs::TransferableSystemParam` requires an `unsafe impl` declaration
+ --> tests/ui/mobility_safe_forgery.rs:3:1
+  |
+3 | impl runen_ecs::TransferableSystemParam for Forged {}
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: the trait `runen_ecs::TransferableSystemParam` enforces invariants that the compiler can't check. Review the trait documentation and make sure this implementation upholds those invariants before adding the `unsafe` keyword
+help: add `unsafe` to this trait implementation
+  |
+3 | unsafe impl runen_ecs::TransferableSystemParam for Forged {}
+  | ++++++

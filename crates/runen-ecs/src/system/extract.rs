@@ -141,3 +141,24 @@ pub unsafe trait SystemParam: Sized {
         context: SystemParamContext<'world>,
     ) -> Result<Self::Item<'world, 'state>, SystemParamError>;
 }
+
+/// Framework-owned proof that a system parameter's cached state and access
+/// shape are eligible for a future worker-safe invocation.
+///
+/// This is deliberately separate from [`SystemParam`]: the serial extraction
+/// context remains invoker-thread-local, and this proof does not authorize
+/// moving that context or executing a system on a worker today.
+///
+/// # Safety
+///
+/// An implementation must ensure that the parameter's cached [`SystemParam::State`]
+/// can be moved to another thread and that every value reachable through its
+/// declared access shape satisfies the exact `Send`/`Sync` requirements of the
+/// maintained parameter form. It must not use this proof to widen the
+/// parameter's access metadata or to transfer invocation-scoped references.
+#[doc(hidden)]
+pub unsafe trait TransferableSystemParam: SystemParam
+where
+    Self::State: Send,
+{
+}
