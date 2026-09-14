@@ -1,8 +1,7 @@
 use super::extract::{
-    DeferredRecorderClass, SystemParam, SystemParamContext, SystemParamError,
-    TransferableSystemParam,
+    DeferredRecorderClass, DeferredRecorderConflict, SystemParam, SystemParamContext,
+    SystemParamError, TransferableSystemParam,
 };
-use crate::Commands;
 use crate::World;
 use crate::component::{Component, Resource};
 use crate::query::{
@@ -11,6 +10,7 @@ use crate::query::{
 };
 use crate::scheduler::system::ParamSlotDescriptor;
 use crate::world::{ResourceCapability, ResourceMutationCapability};
+use crate::{Commands, TransferableCommands};
 use std::marker::PhantomData;
 use std::ops::{Deref, DerefMut};
 use std::ptr::NonNull;
@@ -231,8 +231,8 @@ unsafe impl<'param> SystemParam for Commands<'param> {
     fn init_state(_: &mut World) -> Result<Self::State, SystemParamError> {
         Ok(())
     }
-    fn deferred_recorder_class() -> DeferredRecorderClass {
-        DeferredRecorderClass::LocalDeferred
+    fn deferred_recorder_class() -> Result<DeferredRecorderClass, DeferredRecorderConflict> {
+        Ok(DeferredRecorderClass::LocalDeferred)
     }
     fn access(_: &Self::State) -> QueryAccess {
         QueryAccess::structural_mutation()
@@ -248,6 +248,40 @@ unsafe impl<'param> SystemParam for Commands<'param> {
     }
 }
 
+unsafe impl<'param> SystemParam for TransferableCommands<'param> {
+    type State = ();
+    type Item<'world, 'state> = TransferableCommands<'world>;
+
+    fn init_state(_: &mut World) -> Result<Self::State, SystemParamError> {
+        Ok(())
+    }
+
+    fn deferred_recorder_class() -> Result<DeferredRecorderClass, DeferredRecorderConflict> {
+        Ok(DeferredRecorderClass::TransferableDeferred)
+    }
+
+    fn access(_: &Self::State) -> QueryAccess {
+        QueryAccess::structural_mutation()
+    }
+
+    fn slot_descriptor() -> ParamSlotDescriptor {
+        ParamSlotDescriptor::leaf(
+            "transferable_commands",
+            "TransferableCommands",
+            std::any::type_name::<Self>(),
+        )
+    }
+
+    unsafe fn extract<'world, 'state>(
+        _: &'state mut Self::State,
+        context: SystemParamContext<'world>,
+    ) -> Result<Self::Item<'world, 'state>, SystemParamError> {
+        Ok(context.transferable_commands())
+    }
+}
+
+unsafe impl<'param> TransferableSystemParam for TransferableCommands<'param> {}
+
 macro_rules! impl_tuple_system_param {
     ($(($index:tt, $param:ident)),+ $(,)?) => {
         unsafe impl<$($param: SystemParam),+> SystemParam for ($($param,)+) {
@@ -256,10 +290,10 @@ macro_rules! impl_tuple_system_param {
             fn init_state(world: &mut World) -> Result<Self::State, SystemParamError> {
                 Ok(($($param::init_state(world)?,)+))
             }
-            fn deferred_recorder_class() -> DeferredRecorderClass {
+            fn deferred_recorder_class() -> Result<DeferredRecorderClass, DeferredRecorderConflict> {
                 let mut class = DeferredRecorderClass::None;
-                $(class = class.merge($param::deferred_recorder_class());)+
-                class
+                $(class = class.merge($param::deferred_recorder_class()?)?;)+
+                Ok(class)
             }
             fn access(state: &Self::State) -> QueryAccess {
                 let mut access = QueryAccess::default();
