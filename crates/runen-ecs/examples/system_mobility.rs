@@ -26,10 +26,8 @@ fn main() {
 
     let mut runtime = Runtime::new();
     runtime.add_systems::<Update, _, _>(&mut world, advance);
-    runtime.add_systems::<Update, _, _>(
-        &mut world,
-        (move || captured.set(true)).on_invoker_thread(),
-    );
+    runtime
+        .add_systems::<Update, _, _>(&mut world, (move || captured.set(true)).on_invoker_thread());
 
     runtime.run_schedule::<Update>(&mut world).unwrap();
 
