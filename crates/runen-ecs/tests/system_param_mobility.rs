@@ -122,13 +122,11 @@ fn metadata_change_filters_keep_scheduler_component_read_access() {
 #[test]
 fn query_state_scratch_can_be_reused_after_early_drop_and_with_live_iterators() {
     let mut world = World::new();
-    let guard = Box::leak(Box::new(std::sync::Mutex::new(())))
-        .lock()
-        .unwrap();
+    let mutex: &'static std::sync::Mutex<()> = Box::leak(Box::new(std::sync::Mutex::new(())));
+    let guard = mutex.lock().unwrap();
     world.spawn(SyncButNotSend(guard)).unwrap();
-    let guard = Box::leak(Box::new(std::sync::Mutex::new(())))
-        .lock()
-        .unwrap();
+    let mutex: &'static std::sync::Mutex<()> = Box::leak(Box::new(std::sync::Mutex::new(())));
+    let guard = mutex.lock().unwrap();
     world.spawn(SyncButNotSend(guard)).unwrap();
 
     let query = world.query_state::<&SyncButNotSend, ()>();
