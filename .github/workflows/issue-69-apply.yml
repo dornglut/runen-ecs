@@ -34,6 +34,7 @@ jobs:
           p.write_text(s)
           PY
           python3 tools/issue69_apply.py
+          sed -i 's/TransferableCommandsUpdate/CommandsUpdate/g' crates/runen-ecs/tests/commands.rs
 
       - name: Format candidate
         run: cargo fmt --all
