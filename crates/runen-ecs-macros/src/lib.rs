@@ -8,7 +8,7 @@ use syn::{
 
 fn ecs_crate_path() -> proc_macro2::TokenStream {
     match crate_name("runen-ecs") {
-        Ok(FoundCrate::Itself) => quote!(crate),
+        Ok(FoundCrate::Itself) => quote!(::runen_ecs),
         Ok(FoundCrate::Name(name)) => {
             let ident = format_ident!("{}", name);
             quote!(::#ident)
