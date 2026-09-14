@@ -161,7 +161,7 @@ A system parameter graph uses exactly one deferred recorder capability class. It
 
 Deferred-capability exclusivity is a parameter-validity fact. It does not create semantic precedence, access incompatibility, a publication frontier, execution stage, cohort identity, or worker-policy fact.
 
-The transfer-safe `Commands` capability is distinct, not a compatibility alias for `LocalCommands`. There is no safe conversion between ordinary and transferable deferred effects/buffers, and it is eligible for the ADR 0002 transferable `SystemParam` proof when its implementation satisfies that proof.
+The transfer-safe `Commands` capability is distinct, not a compatibility alias for `LocalCommands`. There is no safe conversion between local and transferable deferred effects/buffers, and it is eligible for the ADR 0002 transferable `SystemParam` proof when its implementation satisfies that proof.
 
 ### 9. Deferred buffers are task-local and publication-ordered
 
