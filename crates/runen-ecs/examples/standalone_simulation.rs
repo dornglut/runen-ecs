@@ -1,5 +1,5 @@
+use runen_ecs::RuntimeError;
 use runen_ecs::prelude::*;
-use runen_ecs::{RuntimeError, WorldMut};
 
 #[derive(Copy, Clone)]
 struct Update;
@@ -12,7 +12,6 @@ impl ScheduleLabel for Update {
 
 #[derive(Copy, Clone)]
 struct Spawn;
-
 impl SystemSet for Spawn {
     fn name() -> &'static str {
         "Spawn"
@@ -20,8 +19,15 @@ impl SystemSet for Spawn {
 }
 
 #[derive(Copy, Clone)]
-struct Observe;
+struct Simulate;
+impl SystemSet for Simulate {
+    fn name() -> &'static str {
+        "Simulate"
+    }
+}
 
+#[derive(Copy, Clone)]
+struct Observe;
 impl SystemSet for Observe {
     fn name() -> &'static str {
         "Observe"
@@ -43,7 +49,7 @@ struct SpawnedCount(usize);
 #[derive(Debug, Resource)]
 struct Frame(usize);
 
-fn queue_arrival(mut commands: Commands) {
+fn queue_arrival(mut commands: TransferableCommands) {
     commands.spawn((Position(10), Velocity(2), NewArrival));
 }
 
@@ -60,8 +66,8 @@ fn observe_arrivals(
     spawned.0 = query.iter().count();
 }
 
-fn advance_frame(mut world: WorldMut) {
-    world.resource_mut::<Frame>().unwrap().0 += 1;
+fn advance_frame(mut frame: ResMut<Frame>) {
+    frame.0 += 1;
 }
 
 fn main() -> Result<(), RuntimeError> {
@@ -74,27 +80,26 @@ fn main() -> Result<(), RuntimeError> {
     runtime.add_systems::<Update, _, _>(
         &mut world,
         (
-            queue_arrival.on_invoker_thread().in_set(Spawn),
-            integrate,
-            observe_arrivals.in_set(Observe).after(Spawn),
-            advance_frame.on_invoker_thread().after(Observe),
+            queue_arrival.in_set(Spawn),
+            integrate.in_set(Simulate).after(Spawn),
+            observe_arrivals.in_set(Observe).after(Simulate),
+            advance_frame.after(Observe),
         ),
     );
 
-    let mut boundaries = Vec::new();
-    runtime.run_schedule_with_deferred_publication_frontier::<Update, _, _>(
-        &mut world,
-        |frontier, world| {
-            boundaries.push((
-                frontier.ordinal(),
-                world.query_state::<&Position, ()>().iter(world).count(),
-            ));
-            Ok::<(), std::convert::Infallible>(())
-        },
-    )?;
+    runtime.run_schedule::<Update>(&mut world)?;
 
-    assert_eq!(boundaries, vec![(0, 2)]);
+    let arrival = world
+        .query_state::<&Position, With<NewArrival>>()
+        .single(&world)
+        .expect("one arrival should exist");
+    assert_eq!(arrival.0, 12);
     assert_eq!(world.resource::<SpawnedCount>().unwrap().0, 1);
     assert_eq!(world.resource::<Frame>().unwrap().0, 1);
+
+    println!(
+        "frame 1: one new arrival integrated to position {}",
+        arrival.0
+    );
     Ok(())
 }
