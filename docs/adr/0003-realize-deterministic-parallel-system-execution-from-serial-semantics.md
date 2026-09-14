@@ -24,13 +24,13 @@ RunenECS already owns the semantic facts needed to decide whether system work ma
 
 These facts are intentionally separate. Access incompatibility is not semantic ordering, execution mobility is not parallel eligibility, and physical execution groups are not public schedule meaning.
 
-The present runtime is nevertheless serial-only. It invokes systems one at a time against `&mut World`, records successful `LocalCommands` into one runtime-local queue, advances World change cursors directly from mutable access, and invokes publication-frontier callbacks after the canonical semantic cuts derived from the schedule plan.
+At decision time, the runtime was serial-only. It invoked systems one at a time against `&mut World`, recorded deferred structural work in runtime-local command queues, advanced World change cursors directly from mutable access, and invoked publication-frontier callbacks after the canonical semantic cuts derived from the schedule plan.
 
 A parallel executor cannot safely be obtained by putting those calls on a thread pool. In particular:
 
 - current direct mutation bookkeeping writes one shared World change cursor and shared change maps;
 - current query capabilities contain pointers to shared bookkeeping domains;
-- current ordinary `LocalCommands` is invoker-thread-only by ADR 0002;
+- the predecessor local recorder, now named `LocalCommands`, is invoker-thread-only by ADR 0002;
 - current public boundary callbacks are expressed as semantic publication frontiers derived from the schedule plan;
 - completion order must not become command publication order;
 - panic/error handling cannot leave unpublished command buffers for a later invocation;
@@ -149,25 +149,25 @@ The implementation may use task-local logical positions internally, but they are
 
 ### 8. Add a distinct transferable deferred-command capability
 
-Current ordinary `LocalCommands` remains `InvokerThreadOnly` under ADR 0002. Its existing ability to queue arbitrary non-`Send` captured state is preserved; it is not silently tightened merely to enable workers.
+The predecessor local recorder, now named `LocalCommands`, remains `InvokerThreadOnly` under ADR 0002. Its ability to queue arbitrary non-`Send` captured state is preserved; it is not silently tightened merely to enable workers.
 
-RunenECS introduces a distinct transferable deferred-command system parameter, semantically named `Commands`.
+This decision introduced a distinct transferable deferred-command system parameter, now named `Commands`.
 
 `Commands` has the same ECS ownership purpose—record structural/deferred World effects for later publication—but its recorded erased effects must themselves be movable back to the invoker/publication executor. At minimum, arbitrary queued closures require `Send + 'static` in addition to the existing callable/result contract. Convenience operations such as deferred spawn/insert derive whatever `Send` bounds their captured payload actually requires.
 
 The live recorder façade is invocation-local. It is constructed, used, and finalized on the thread executing that system invocation and does not directly mutate World structure. It therefore does not need a blanket `Send` requirement merely because the completed deferred work is transferable. What must preserve the movement proof is every erased effect stored by the transferable recorder and the finalized transferable buffer representation that may move back to the invoker/publication executor after the invocation. Implementations must not introduce synchronization merely to make an active recorder handle cross-thread when no accepted boundary moves that handle.
 
-A system parameter graph uses exactly one deferred recorder capability class. It may contain multiple ordinary `LocalCommands` handles/fields, or multiple `Commands` handles/fields, provided same-class handles contribute to one logical per-system invocation buffer and preserve actual enqueue order. Ordinary `LocalCommands` and `Commands` must not coexist in one direct or nested system parameter graph. That mixed capability is invalid and is rejected before execution rather than defining a new cross-buffer ordering protocol.
+A system parameter graph uses exactly one deferred recorder capability class. It may contain multiple `LocalCommands` handles/fields, or multiple `Commands` handles/fields, provided same-class handles contribute to one logical per-system invocation buffer and preserve actual enqueue order. `LocalCommands` and `Commands` must not coexist in one direct or nested system parameter graph. That mixed capability is invalid and is rejected before execution rather than defining a new cross-buffer ordering protocol.
 
 Deferred-capability exclusivity is a parameter-validity fact. It does not create semantic precedence, access incompatibility, a publication frontier, execution stage, cohort identity, or worker-policy fact.
 
-`Commands` is a new capability, not a compatibility alias for `LocalCommands`. There is no safe conversion between ordinary and transferable deferred effects/buffers, and it is eligible for the ADR 0002 transferable `SystemParam` proof when its implementation satisfies that proof.
+The transfer-safe `Commands` capability is distinct, not a compatibility alias for `LocalCommands`. There is no safe conversion between ordinary and transferable deferred effects/buffers, and it is eligible for the ADR 0002 transferable `SystemParam` proof when its implementation satisfies that proof.
 
 ### 9. Deferred buffers are task-local and publication-ordered
 
 A system invocation that uses deferred structural recording owns one logical buffer for its selected deferred capability class. Multiple same-class recorder handles within that invocation contribute to that buffer in actual enqueue order; no active recorder handle independently publishes or finalizes it. Systems that do not use deferred recording need no such buffer.
 
-A successful invocation finalizes its logical buffer only after the system result is known. The finalized `Commands` buffer structurally preserves `Send` after erasure; ordinary `LocalCommands` buffers remain invoker-thread-only. A failed/panicking invocation's own unpublished buffer is abandoned, and unpublished deferred work must not survive as persistent parameter state into a later invocation.
+A successful invocation finalizes its logical buffer only after the system result is known. The finalized `Commands` buffer structurally preserves `Send` after erasure; `LocalCommands` buffers remain invoker-thread-only. A failed/panicking invocation's own unpublished buffer is abandoned, and unpublished deferred work must not survive as persistent parameter state into a later invocation.
 
 Successful task buffers remain unpublished until the accepted semantic publication frontier. When a frontier is reached, pending successful buffers are merged/applied in serial reference-rank order, preserving each system buffer's internal command order. Completion order, worker ID, queue address, and steal order never determine publication.
 
@@ -213,7 +213,7 @@ Any exposed boundary descriptor/index is the schedule-local semantic publication
 
 An `InvokerThreadOnly` system is executed on the thread that invoked the schedule.
 
-The baseline executor drains the active worker cohort before invoking such a system and does not overlap worker execution across it. This is intentionally conservative and keeps thread-bound effects, whole-World access, and ordinary `LocalCommands` easy to reason about.
+The baseline executor drains the active worker cohort before invoking such a system and does not overlap worker execution across it. This is intentionally conservative and keeps thread-bound effects, whole-World access, and `LocalCommands` easy to reason about.
 
 Invoker-thread affinity does not itself create semantic ordering. A future executor may overlap compatible worker work around a thread-bound system only under a separately accepted proof that all public semantics in this ADR remain unchanged.
 
@@ -319,8 +319,8 @@ At minimum conformance covers:
 - explicit predecessor/successor visibility;
 - deterministic merge of multiple systems' `Commands` buffers;
 - multiple same-class deferred recorder handles within one system preserving one logical per-system enqueue order;
-- direct and nested system parameter graphs mixing ordinary `LocalCommands` with `Commands` being rejected before execution rather than assigned cross-buffer order;
-- ordinary `LocalCommands` / `WorldMut` systems executing on the invoking thread;
+- direct and nested system parameter graphs mixing `LocalCommands` with `Commands` being rejected before execution rather than assigned cross-buffer order;
+- `LocalCommands` / `WorldMut` systems executing on the invoking thread;
 - ordinary user panic/error cohort draining, deterministic lowest-reference-rank user-failure selection, and command abandonment;
 - a higher-reference-rank framework invariant occurring alongside a lower-reference-rank ordinary `Err` or user panic still propagating as the framework invariant rather than being hidden by user-failure ranking;
 - deterministic lowest-reference-rank selection among multiple safely captured rank-associated framework invariant panics;

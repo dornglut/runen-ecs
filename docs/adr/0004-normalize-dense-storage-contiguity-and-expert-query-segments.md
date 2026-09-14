@@ -16,7 +16,7 @@ truthfully exposing a contiguous typed component slice.
 
 The current query runtime already relies on a stronger and more relevant lifetime rule:
 ordinary query capabilities are valid only while structural mutation is frozen for the
-invocation, `LocalCommands` publishes structural work later, and the exclusive `WorldMut`
+invocation, deferred command recorders publish structural work later, and the exclusive `WorldMut`
 parameter cannot coexist with sibling query capabilities. Direct `World`/`QueryState`
 access is protected by ordinary Rust borrows. Component payload addresses therefore do
 not need to remain stable across arbitrary future structural mutation; they need to
