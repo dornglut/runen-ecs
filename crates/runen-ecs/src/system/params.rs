@@ -248,7 +248,7 @@ unsafe impl<'param> SystemParam for LocalCommands<'param> {
         _: &'state mut Self::State,
         context: SystemParamContext<'world>,
     ) -> Result<Self::Item<'world, 'state>, SystemParamError> {
-        Ok(context.commands())
+        Ok(context.local_commands())
     }
 }
 
@@ -276,7 +276,7 @@ unsafe impl<'param> SystemParam for Commands<'param> {
         _: &'state mut Self::State,
         context: SystemParamContext<'world>,
     ) -> Result<Self::Item<'world, 'state>, SystemParamError> {
-        Ok(context.transferable_commands())
+        Ok(context.commands())
     }
 }
 

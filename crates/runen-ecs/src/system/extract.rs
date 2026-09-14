@@ -87,8 +87,8 @@ impl std::fmt::Display for DeferredRecorderConflict {
 pub struct SystemParamContext<'world> {
     authority: WorldAuthority<'world>,
     mutation_journal: NonNull<MutationJournal>,
-    commands: Option<NonNull<LocalCommands<'static>>>,
-    transferable_commands: Option<NonNull<Commands<'static>>>,
+    local_commands: Option<NonNull<LocalCommands<'static>>>,
+    commands: Option<NonNull<Commands<'static>>>,
     _marker: PhantomData<&'world mut World>,
 }
 
@@ -96,14 +96,14 @@ impl<'world> SystemParamContext<'world> {
     pub(crate) fn new(
         world: &'world mut World,
         mutation_journal: &'world mut MutationJournal,
-        commands: Option<&'world mut LocalCommands<'static>>,
-        transferable_commands: Option<&'world mut Commands<'static>>,
+        local_commands: Option<&'world mut LocalCommands<'static>>,
+        commands: Option<&'world mut Commands<'static>>,
     ) -> Self {
         Self {
             authority: WorldAuthority::new(world),
             mutation_journal: NonNull::from(mutation_journal),
+            local_commands: local_commands.map(NonNull::from),
             commands: commands.map(NonNull::from),
-            transferable_commands: transferable_commands.map(NonNull::from),
             _marker: PhantomData,
         }
     }
@@ -131,13 +131,13 @@ impl<'world> SystemParamContext<'world> {
         unsafe { self.authority.world_mut() }
     }
 
-    pub(crate) fn commands(self) -> LocalCommands<'world> {
+    pub(crate) fn local_commands(self) -> LocalCommands<'world> {
         // Safety: the runtime constructs this pointer from the live command
         // owner and keeps it valid until extraction finishes. Only a shared
         // owner read is needed to clone its external queue; no mutable owner
         // reference is manufactured from the copied context.
         let queue = unsafe {
-            self.commands
+            self.local_commands
                 .expect("local command owner must be available for LocalCommands")
                 .as_ref()
                 .external_queue()
@@ -146,16 +146,16 @@ impl<'world> SystemParamContext<'world> {
         LocalCommands::from_external(queue)
     }
 
-    pub(crate) fn transferable_commands(self) -> Commands<'world> {
-        // Safety: the runtime constructs this pointer from the live transferable
+    pub(crate) fn commands(self) -> Commands<'world> {
+        // Safety: the runtime constructs this pointer from the live transfer-safe
         // command owner and keeps it valid until extraction finishes. Only a
         // shared owner read is needed to clone its external queue.
         let queue = unsafe {
-            self.transferable_commands
-                .expect("transferable command owner must be available for Commands")
+            self.commands
+                .expect("command owner must be available for Commands")
                 .as_ref()
                 .external_queue()
-                .expect("transferable command owner must provide an external queue")
+                .expect("command owner must provide an external queue")
         };
         Commands::from_external(queue)
     }
