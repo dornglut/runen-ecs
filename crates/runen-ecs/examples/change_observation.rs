@@ -26,6 +26,9 @@ impl SystemSet for Observe {
 }
 
 #[derive(Debug, runen_ecs::Component)]
+struct Actor;
+
+#[derive(Debug, runen_ecs::Component)]
 struct Health(i32);
 
 #[derive(Debug, runen_ecs::Resource)]
@@ -76,7 +79,7 @@ fn advance_phase(mut phase: ResMut<Phase>) {
 
 fn main() {
     let mut world = World::new();
-    let target = world.spawn(()).unwrap();
+    let target = world.spawn(Actor).unwrap();
     world.insert_resource(Target(target));
     world.insert_resource(Phase(0));
     world.insert_resource(Observations::default());
