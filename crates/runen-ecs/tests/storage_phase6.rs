@@ -1,3 +1,4 @@
+use runen_ecs::LocalCommands;
 use runen_ecs::prelude::*;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, runen_ecs::Component, runen_ecs::Resource)]
@@ -21,7 +22,7 @@ impl ScheduleLabel for Update {
     }
 }
 
-fn queue_spawn(mut commands: Commands) {
+fn queue_spawn(mut commands: LocalCommands) {
     commands.spawn(A(1));
 }
 

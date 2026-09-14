@@ -48,7 +48,7 @@ fn mutate(
     phase: Res<Phase>,
     target: Res<Target>,
     mut health: Query<&mut Health>,
-    mut commands: TransferableCommands,
+    mut commands: Commands,
 ) {
     match phase.0 {
         0 => commands.insert(target.0, Health(100)),

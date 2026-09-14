@@ -18,20 +18,20 @@ use std::panic::{AssertUnwindSafe, catch_unwind, resume_unwind};
 use std::rc::Rc;
 
 use crate::query::QueryAccess;
-use crate::{Commands, TransferableCommands, World};
+use crate::{Commands, LocalCommands, World};
 
 type Result<T> = std::result::Result<T, RuntimeError>;
 
 type DeferredCommands = Rc<RefCell<Vec<DeferredCommandBuffer>>>;
 
 pub(crate) enum DeferredCommandBuffer {
-    Local(Commands<'static>),
+    Local(LocalCommands<'static>),
     Transferable(TransferableCommandBuffer),
 }
 
 pub(crate) enum InvocationOutcome {
     None,
-    Local(Commands<'static>),
+    Local(LocalCommands<'static>),
     Transferable(TransferableCommandBuffer),
 }
 
@@ -652,15 +652,15 @@ macro_rules! build_registered_system {
             access,
             move |world| {
                 let mut mutation_journal = MutationJournal::new(&*world);
-                let mut transferable_commands = (deferred_recorder_class
+                let mut commands = (deferred_recorder_class
                     == DeferredRecorderClass::TransferableDeferred)
-                    .then(TransferableCommands::new_external_owner);
+                    .then(Commands::new_external_owner);
                 let invocation_result = {
                     let context = SystemParamContext::new(
                         world,
                         &mut mutation_journal,
                         None,
-                        transferable_commands.as_mut(),
+                        commands.as_mut(),
                     );
                     $(
                         let $param = unsafe { <$param as SystemParamState>::extract(&mut states.$index, context)? };
@@ -679,8 +679,8 @@ macro_rules! build_registered_system {
                         let staged_commands = match deferred_recorder_class {
                             DeferredRecorderClass::None => None,
                             DeferredRecorderClass::TransferableDeferred => Some(
-                                transferable_commands
-                                    .expect("transferable command owner must exist for transferable recorder")
+                                commands
+                                    .expect("command owner must exist for transferable recorder")
                                     .finalize_external_owner(),
                             ),
                             DeferredRecorderClass::LocalDeferred => unreachable!(
@@ -742,18 +742,18 @@ macro_rules! build_registered_system {
             access,
             move |world| {
                 let mut mutation_journal = MutationJournal::new(&*world);
-                let mut commands = (deferred_recorder_class
+                let mut local_commands = (deferred_recorder_class
                     == DeferredRecorderClass::LocalDeferred)
-                    .then(Commands::new_external_owner);
-                let mut transferable_commands = (deferred_recorder_class
+                    .then(LocalCommands::new_external_owner);
+                let mut commands = (deferred_recorder_class
                     == DeferredRecorderClass::TransferableDeferred)
-                    .then(TransferableCommands::new_external_owner);
+                    .then(Commands::new_external_owner);
                 let invocation_result = {
                     let context = SystemParamContext::new(
                         world,
                         &mut mutation_journal,
+                        local_commands.as_mut(),
                         commands.as_mut(),
-                        transferable_commands.as_mut(),
                     );
                     $(
                         let $param = unsafe { <$param as SystemParamState>::extract(&mut states.$index, context)? };
@@ -772,14 +772,14 @@ macro_rules! build_registered_system {
                         let staged_commands = match deferred_recorder_class {
                             DeferredRecorderClass::None => None,
                             DeferredRecorderClass::LocalDeferred => Some(DeferredCommandBuffer::Local(
-                                commands
+                                local_commands
                                     .expect("local command owner must exist for local recorder")
                                     .finalize_external_owner(),
                             )),
                             DeferredRecorderClass::TransferableDeferred => Some(
                                 DeferredCommandBuffer::Transferable(
-                                    transferable_commands
-                                        .expect("transferable command owner must exist for transferable recorder")
+                                    commands
+                                        .expect("command owner must exist for transferable recorder")
                                         .finalize_external_owner(),
                                 ),
                             ),

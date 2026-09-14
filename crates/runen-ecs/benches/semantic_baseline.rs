@@ -97,10 +97,7 @@ fn bench_deferred_command_application(c: &mut Criterion) {
     let mut world = World::new();
     world.insert_resource(Count::default());
     let mut runtime = Runtime::new();
-    runtime.add_systems::<Update, _, _>(
-        &mut world,
-        (queue_spawn.on_invoker_thread(), count_entities),
-    );
+    runtime.add_systems::<Update, _, _>(&mut world, (queue_spawn, count_entities));
     c.bench_function("deferred_command_application", |b| {
         b.iter(|| runtime.run_schedule::<Update>(&mut world).unwrap());
     });

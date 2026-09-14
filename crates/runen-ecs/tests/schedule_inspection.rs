@@ -1,3 +1,4 @@
+use runen_ecs::LocalCommands;
 use runen_ecs::prelude::*;
 use runen_ecs::system::{
     OrderingDirection, OrderingPresence, ScheduleAccessConflictKind, ScheduleOrderingCycle,
@@ -47,8 +48,8 @@ fn write_left(mut shared: ResMut<Shared>) {
 fn write_right(mut shared: ResMut<Shared>) {
     shared.0 = shared.0.saturating_add(1);
 }
-fn deferred_producer(_commands: Commands) {}
-fn unrelated_deferred(_commands: Commands) {}
+fn deferred_producer(_commands: LocalCommands) {}
+fn unrelated_deferred(_commands: LocalCommands) {}
 
 fn descriptor(
     inspection: &runen_ecs::ScheduleInspection,

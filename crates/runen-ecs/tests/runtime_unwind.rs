@@ -1,3 +1,4 @@
+use runen_ecs::LocalCommands;
 use runen_ecs::prelude::*;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
@@ -40,7 +41,7 @@ fn marker_count(world: &mut World) -> usize {
 
 #[test]
 fn panicked_schedule_discards_unpublished_deferred_work_before_runtime_reuse() {
-    fn enqueue(mut commands: Commands) {
+    fn enqueue(mut commands: LocalCommands) {
         commands.spawn(Marker(1));
     }
 
@@ -74,11 +75,11 @@ fn panicked_schedule_discards_unpublished_deferred_work_before_runtime_reuse() {
 
 #[test]
 fn panicked_later_system_preserves_committed_frontier_and_discards_only_unpublished_work() {
-    fn enqueue_committed(mut commands: Commands) {
+    fn enqueue_committed(mut commands: LocalCommands) {
         commands.spawn(Marker(1));
     }
 
-    fn enqueue_aborted(mut commands: Commands) {
+    fn enqueue_aborted(mut commands: LocalCommands) {
         commands.spawn(Marker(2));
     }
 

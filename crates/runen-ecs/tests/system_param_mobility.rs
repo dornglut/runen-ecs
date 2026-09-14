@@ -176,6 +176,6 @@ fn mobility_negatives_are_rejected_by_trybuild() {
     cases.compile_fail("tests/ui/mobility_commands.rs");
     cases.compile_fail("tests/ui/mobility_derive_local.rs");
     cases.compile_fail("tests/ui/mobility_safe_forgery.rs");
-    cases.compile_fail("tests/ui/transferable_commands_non_send.rs");
-    cases.compile_fail("tests/ui/transferable_spawn_non_send.rs");
+    cases.compile_fail("tests/ui/commands_non_send.rs");
+    cases.compile_fail("tests/ui/commands_spawn_non_send.rs");
 }

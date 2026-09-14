@@ -1,16 +1,12 @@
-use super::queue::CommandQueue;
+use super::queue::TransferableCommandQueue;
 use crate::bundle::Bundle;
 use crate::entity::Entity;
 use crate::errors::CommandError;
 use crate::world::World;
 
-/// Ordered group of deferred commands.
-///
-/// A batch is not a transaction: commands completed before the first error stay
-/// committed, the failing command is responsible for its own atomicity, and
-/// later commands are not executed.
+/// Ordered group of transfer-safe deferred commands.
 pub struct BatchCommands {
-    queue: CommandQueue,
+    queue: TransferableCommandQueue,
 }
 
 impl BatchCommands {
@@ -20,12 +16,12 @@ impl BatchCommands {
 
     pub fn queue<F>(&mut self, command: F)
     where
-        F: FnOnce(&mut World) -> Result<(), CommandError> + 'static,
+        F: FnOnce(&mut World) -> Result<(), CommandError> + Send + 'static,
     {
         self.queue.push(Box::new(command));
     }
 
-    pub fn spawn<B: Bundle + 'static>(&mut self, bundle: B) {
+    pub fn spawn<B: Bundle + Send + 'static>(&mut self, bundle: B) {
         self.queue(move |world: &mut World| {
             let _ = world.spawn(bundle)?;
             Ok(())
@@ -39,7 +35,7 @@ impl BatchCommands {
         });
     }
 
-    pub fn insert<B: Bundle + 'static>(&mut self, entity: Entity, bundle: B) {
+    pub fn insert<B: Bundle + Send + 'static>(&mut self, entity: Entity, bundle: B) {
         self.queue(move |world: &mut World| {
             world.insert(entity, bundle)?;
             Ok(())
@@ -53,12 +49,7 @@ impl BatchCommands {
         });
     }
 
-    /// Applies commands in insertion order and stops on the first error.
-    ///
-    /// Successfully completed commands remain committed. The failing command
-    /// follows its own operation-level atomicity contract, and commands after it
-    /// are not executed. Consuming the batch prevents replay of attempted work.
-    pub fn apply(self, world: &mut World) -> Result<(), CommandError> {
+    pub(crate) fn apply(self, world: &mut World) -> Result<(), CommandError> {
         for command in self.queue {
             command.apply_erased(world)?;
         }

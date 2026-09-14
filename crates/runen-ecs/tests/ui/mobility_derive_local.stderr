@@ -1,8 +1,8 @@
-error[E0277]: the trait bound `Commands<'_>: runen_ecs::TransferableSystemParam` is not satisfied
+error[E0277]: the trait bound `LocalCommands<'_>: runen_ecs::TransferableSystemParam` is not satisfied
   --> tests/ui/mobility_derive_local.rs:13:27
    |
 13 |     assert_transferable::<LocalGroup<'static>>();
-   |                           ^^^^^^^^^^^^^^^^^^^ the trait `runen_ecs::TransferableSystemParam` is not implemented for `Commands<'_>`
+   |                           ^^^^^^^^^^^^^^^^^^^ the trait `runen_ecs::TransferableSystemParam` is not implemented for `LocalCommands<'_>`
    |
    = help: the following other types implement trait `runen_ecs::TransferableSystemParam`:
              (A, B)
@@ -12,7 +12,7 @@ error[E0277]: the trait bound `Commands<'_>: runen_ecs::TransferableSystemParam`
              (A, B, C, D, E, F)
              (A, B, C, D, E, F, G)
              (A, B, C, D, E, F, G, H)
-             LocalGroup<'w>
+             Commands<'param>
            and $N others
 note: required for `LocalGroup<'static>` to implement `runen_ecs::TransferableSystemParam`
   --> tests/ui/mobility_derive_local.rs:2:8

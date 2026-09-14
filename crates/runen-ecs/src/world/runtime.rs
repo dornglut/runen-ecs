@@ -1,12 +1,16 @@
 // Owner: RunenECS World - Runtime and Query Entry APIs
 use super::{ChangeCursor, World};
-use crate::commands::Commands;
+use crate::commands::{Commands, LocalCommands};
 use crate::errors::ChangeCursorError;
 use crate::query::{QueryFilter, QuerySpec, QueryState, RemovedState};
 
 impl World {
     pub fn commands(&self) -> Commands<'static> {
         Commands::new()
+    }
+
+    pub fn local_commands(&self) -> LocalCommands<'static> {
+        LocalCommands::new()
     }
 
     pub fn query_state<Q: QuerySpec, F: QueryFilter>(&self) -> QueryState<Q, F> {

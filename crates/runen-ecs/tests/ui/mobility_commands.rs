@@ -1,9 +1,13 @@
-fn assert_transferable<P: runen_ecs::TransferableSystemParam>()
-where
-    P::State: Send,
-{
-}
+use runen_ecs::{LocalCommands, Runtime, World};
+
+#[derive(Copy, Clone)]
+struct Update;
+impl runen_ecs::ScheduleLabel for Update {}
+
+fn local_system(_: LocalCommands<'_>) {}
 
 fn main() {
-    assert_transferable::<runen_ecs::Commands<'static>>();
+    let mut world = World::new();
+    let mut runtime = Runtime::new();
+    runtime.add_systems::<Update, _, _>(&mut world, local_system);
 }

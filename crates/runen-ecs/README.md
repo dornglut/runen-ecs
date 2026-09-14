@@ -58,6 +58,12 @@ Ordinary system registration is the proven-transferable path. Use
 invokes its schedule. Transferable eligibility is not a promise that a system
 currently runs on a worker or runs in parallel.
 
+`Commands` is the normal deferred structural-mutation recorder and accepts only
+transfer-safe deferred work. Code that genuinely needs arbitrary local /
+`!Send` deferred work imports `LocalCommands` explicitly and pairs that system
+with `.on_invoker_thread()`. `BatchCommands` and `LocalBatchCommands` follow
+the same default-versus-explicit-local distinction.
+
 Ordinary query iteration order is not a public semantic contract. Likewise,
 physical executor grouping such as worker cohorts or stages is not part of the
 schedule API: explicit ordering expresses semantic precedence.

@@ -49,7 +49,7 @@ struct SpawnedCount(usize);
 #[derive(Debug, Resource)]
 struct Frame(usize);
 
-fn queue_arrival(mut commands: TransferableCommands) {
+fn queue_arrival(mut commands: Commands) {
     commands.spawn((Position(10), Velocity(2), NewArrival));
 }
 

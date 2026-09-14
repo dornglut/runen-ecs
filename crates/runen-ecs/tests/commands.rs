@@ -1,8 +1,10 @@
 use runen_ecs::{
-    Commands, DeferredRecorderClass, ResMut, Runtime, SystemMobilityExt, SystemParam,
-    SystemParamContext, SystemParamError, TransferableBatchCommands, TransferableCommands, World,
+    BatchCommands, Commands, DeferredRecorderClass, LocalCommands, ResMut, Runtime,
+    SystemMobilityExt, SystemParam, SystemParamContext, SystemParamError, World,
 };
+use std::cell::Cell;
 use std::panic::{AssertUnwindSafe, catch_unwind};
+use std::rc::Rc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 #[derive(Copy, Clone)]
@@ -10,7 +12,7 @@ struct Update;
 
 impl runen_ecs::ScheduleLabel for Update {
     fn name() -> &'static str {
-        "TransferableCommandsUpdate"
+        "CommandsUpdate"
     }
 }
 
@@ -22,8 +24,8 @@ struct Gate(bool);
 
 #[derive(runen_ecs::SystemParam)]
 struct TransferableGroup<'w> {
-    first: TransferableCommands<'w>,
-    second: TransferableCommands<'w>,
+    first: Commands<'w>,
+    second: Commands<'w>,
 }
 
 #[derive(runen_ecs::SystemParam)]
@@ -90,7 +92,7 @@ fn recorder_classes_have_one_structured_fallible_composition() {
         DeferredRecorderClass::TransferableDeferred
     );
     assert!(
-        <(Commands<'static>, TransferableCommands<'static>) as SystemParam>::deferred_recorder_class()
+        <(LocalCommands<'static>, Commands<'static>) as SystemParam>::deferred_recorder_class()
             .is_err()
     );
     assert!(<NestedTransferableGroup<'static> as SystemParam>::deferred_recorder_class().is_ok());
@@ -104,7 +106,7 @@ fn recorder_classes_have_one_structured_fallible_composition() {
 fn same_class_handles_share_one_ordered_transferable_buffer() {
     fn record(mut group: TransferableGroup<'_>) {
         group.first.queue(|world: &mut World| event(world, "first"));
-        group.second.batch(|batch: &mut TransferableBatchCommands| {
+        group.second.batch(|batch: &mut BatchCommands| {
             batch.queue(|world: &mut World| event(world, "second"));
             batch.queue(|world: &mut World| event(world, "third"));
         });
@@ -139,10 +141,7 @@ fn same_class_handles_share_one_ordered_transferable_buffer() {
 
 #[test]
 fn transfer_buffer_is_discarded_on_error_and_panic() {
-    fn failing(
-        mut gate: ResMut<Gate>,
-        mut commands: TransferableCommands<'_>,
-    ) -> Result<(), std::io::Error> {
+    fn failing(mut gate: ResMut<Gate>, mut commands: Commands<'_>) -> Result<(), std::io::Error> {
         if gate.0 {
             gate.0 = false;
             commands.queue(|world: &mut World| event(world, "error-leak"));
@@ -163,7 +162,7 @@ fn transfer_buffer_is_discarded_on_error_and_panic() {
     runtime.run_schedule::<Update>(&mut world).unwrap();
     assert_eq!(world.resource::<Events>().unwrap().0, ["after-error"]);
 
-    fn panicking(mut gate: ResMut<Gate>, mut commands: TransferableCommands<'_>) {
+    fn panicking(mut gate: ResMut<Gate>, mut commands: Commands<'_>) {
         if gate.0 {
             gate.0 = false;
             commands.queue(|world: &mut World| event(world, "panic-leak"));
@@ -189,7 +188,7 @@ fn transfer_buffer_is_discarded_on_error_and_panic() {
 #[test]
 fn mixed_recorder_graph_is_rejected_before_state_initialization() {
     TRANSFER_PROBE_INIT.store(0, Ordering::Relaxed);
-    fn mixed(_: Commands<'_>, _: TransferProbe) {}
+    fn mixed(_: LocalCommands<'_>, _: TransferProbe) {}
 
     let mut world = World::new();
     let mut runtime = Runtime::new();
@@ -207,5 +206,47 @@ fn mixed_recorder_graph_is_rejected_before_state_initialization() {
 #[test]
 fn transfer_batch_is_send_after_erased_effects_are_recorded() {
     fn assert_send<T: Send>() {}
-    assert_send::<TransferableBatchCommands>();
+    assert_send::<BatchCommands>();
+}
+
+#[test]
+fn world_entrypoints_make_transfer_safe_commands_the_default() {
+    let mut world = World::new();
+    world.insert_resource(Events(Vec::new()));
+
+    let mut commands = world.commands();
+    commands.queue(|world: &mut World| event(world, "default"));
+    commands.apply(&mut world).unwrap();
+    assert_eq!(world.resource::<Events>().unwrap().0, ["default"]);
+
+    let local_ran = Rc::new(Cell::new(false));
+    let captured = Rc::clone(&local_ran);
+    let mut local_commands = world.local_commands();
+    local_commands.queue(move |_world: &mut World| {
+        captured.set(true);
+        Ok(())
+    });
+    local_commands.apply(&mut world).unwrap();
+    assert!(local_ran.get());
+}
+
+#[test]
+fn local_commands_succeed_with_explicit_invoker_thread_registration() {
+    let mut world = World::new();
+    let local_ran = Rc::new(Cell::new(false));
+    let captured = Rc::clone(&local_ran);
+    let mut runtime = Runtime::new();
+    runtime.add_systems::<Update, _, _>(
+        &mut world,
+        (move |mut commands: LocalCommands<'_>| {
+            let deferred_capture = Rc::clone(&captured);
+            commands.queue(move |_world: &mut World| {
+                deferred_capture.set(true);
+                Ok(())
+            });
+        })
+        .on_invoker_thread(),
+    );
+    runtime.run_schedule::<Update>(&mut world).unwrap();
+    assert!(local_ran.get());
 }

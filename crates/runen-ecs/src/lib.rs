@@ -15,7 +15,7 @@ mod world;
 pub use bundle::Bundle;
 #[doc(hidden)]
 pub use bundle::{BundleComponentDescriptor, BundleComponents};
-pub use commands::{BatchCommands, Commands, TransferableBatchCommands, TransferableCommands};
+pub use commands::{BatchCommands, Commands, LocalBatchCommands, LocalCommands};
 pub use component::{Component, Resource};
 pub use entity::Entity;
 pub use errors::{

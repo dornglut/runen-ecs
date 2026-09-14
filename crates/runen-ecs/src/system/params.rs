@@ -10,7 +10,7 @@ use crate::query::{
 };
 use crate::scheduler::system::ParamSlotDescriptor;
 use crate::world::{ResourceCapability, ResourceMutationCapability};
-use crate::{Commands, TransferableCommands};
+use crate::{Commands, LocalCommands};
 use std::marker::PhantomData;
 use std::ops::{Deref, DerefMut};
 use std::ptr::NonNull;
@@ -225,9 +225,9 @@ unsafe impl<'param, T: Resource + 'static> SystemParam for ResMut<'param, T> {
 
 unsafe impl<'param, T: Resource + Send + 'static> TransferableSystemParam for ResMut<'param, T> {}
 
-unsafe impl<'param> SystemParam for Commands<'param> {
+unsafe impl<'param> SystemParam for LocalCommands<'param> {
     type State = ();
-    type Item<'world, 'state> = Commands<'world>;
+    type Item<'world, 'state> = LocalCommands<'world>;
     fn init_state(_: &mut World) -> Result<Self::State, SystemParamError> {
         Ok(())
     }
@@ -238,19 +238,23 @@ unsafe impl<'param> SystemParam for Commands<'param> {
         QueryAccess::structural_mutation()
     }
     fn slot_descriptor() -> ParamSlotDescriptor {
-        ParamSlotDescriptor::leaf("commands", "Commands", std::any::type_name::<Self>())
+        ParamSlotDescriptor::leaf(
+            "local_commands",
+            "LocalCommands",
+            std::any::type_name::<Self>(),
+        )
     }
     unsafe fn extract<'world, 'state>(
         _: &'state mut Self::State,
         context: SystemParamContext<'world>,
     ) -> Result<Self::Item<'world, 'state>, SystemParamError> {
-        Ok(context.commands())
+        Ok(context.local_commands())
     }
 }
 
-unsafe impl<'param> SystemParam for TransferableCommands<'param> {
+unsafe impl<'param> SystemParam for Commands<'param> {
     type State = ();
-    type Item<'world, 'state> = TransferableCommands<'world>;
+    type Item<'world, 'state> = Commands<'world>;
 
     fn init_state(_: &mut World) -> Result<Self::State, SystemParamError> {
         Ok(())
@@ -265,22 +269,18 @@ unsafe impl<'param> SystemParam for TransferableCommands<'param> {
     }
 
     fn slot_descriptor() -> ParamSlotDescriptor {
-        ParamSlotDescriptor::leaf(
-            "transferable_commands",
-            "TransferableCommands",
-            std::any::type_name::<Self>(),
-        )
+        ParamSlotDescriptor::leaf("commands", "Commands", std::any::type_name::<Self>())
     }
 
     unsafe fn extract<'world, 'state>(
         _: &'state mut Self::State,
         context: SystemParamContext<'world>,
     ) -> Result<Self::Item<'world, 'state>, SystemParamError> {
-        Ok(context.transferable_commands())
+        Ok(context.commands())
     }
 }
 
-unsafe impl<'param> TransferableSystemParam for TransferableCommands<'param> {}
+unsafe impl<'param> TransferableSystemParam for Commands<'param> {}
 
 macro_rules! impl_tuple_system_param {
     ($(($index:tt, $param:ident)),+ $(,)?) => {

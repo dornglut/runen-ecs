@@ -33,7 +33,7 @@ fn stage_changes(
     target: Res<Target>,
     mut ready: Query<&Position, With<Ready>>,
     mut spawned: Query<&Position, With<Spawned>>,
-    mut commands: TransferableCommands,
+    mut commands: Commands,
     mut visibility: ResMut<Visibility>,
 ) {
     visibility.ready_before = ready.iter().count();

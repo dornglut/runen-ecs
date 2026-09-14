@@ -1,6 +1,6 @@
 #[derive(runen_ecs::SystemParam)]
 struct LocalGroup<'w> {
-    commands: runen_ecs::Commands<'w>,
+    commands: runen_ecs::LocalCommands<'w>,
 }
 
 fn assert_transferable<P: runen_ecs::TransferableSystemParam>()

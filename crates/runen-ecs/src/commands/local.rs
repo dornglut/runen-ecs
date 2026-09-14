@@ -1,4 +1,4 @@
-use super::batch::BatchCommands;
+use super::local_batch::LocalBatchCommands;
 use super::queue::CommandQueue;
 use crate::bundle::Bundle;
 use crate::entity::Entity;
@@ -8,7 +8,11 @@ use std::cell::{Cell, RefCell};
 use std::marker::PhantomData;
 use std::rc::Rc;
 
-pub struct Commands<'world> {
+/// Explicit invoker-thread-local recorder for deferred structural effects.
+///
+/// Unlike [`crate::Commands`], this capability may queue arbitrary `!Send`
+/// work. Systems using it must therefore opt into `.on_invoker_thread()`.
+pub struct LocalCommands<'world> {
     queue: CommandQueueStorage,
     _marker: PhantomData<&'world mut World>,
 }
@@ -36,7 +40,7 @@ impl ExternalCommandQueue {
     fn assert_active(&self) {
         assert!(
             self.active.get(),
-            "commands param escaped its system execution scope"
+            "local commands param escaped its system execution scope"
         );
     }
 
@@ -45,7 +49,7 @@ impl ExternalCommandQueue {
     }
 }
 
-impl Commands<'static> {
+impl LocalCommands<'static> {
     pub fn new() -> Self {
         Self {
             queue: CommandQueueStorage::Owned(Vec::new()),
@@ -60,8 +64,8 @@ impl Commands<'static> {
         }
     }
 
-    pub(crate) fn from_external<'world>(queue: ExternalCommandQueue) -> Commands<'world> {
-        Commands {
+    pub(crate) fn from_external<'world>(queue: ExternalCommandQueue) -> LocalCommands<'world> {
+        LocalCommands {
             queue: CommandQueueStorage::ExternalBorrowed(queue),
             _marker: PhantomData,
         }
@@ -75,20 +79,20 @@ impl Commands<'static> {
         }
     }
 
-    pub(crate) fn finalize_external_owner(&mut self) -> Commands<'static> {
+    pub(crate) fn finalize_external_owner(&mut self) -> LocalCommands<'static> {
         let CommandQueueStorage::ExternalOwner(queue) = &self.queue else {
             panic!("external command owner finalization requires runtime command owner");
         };
         queue.active.set(false);
         let staged_queue = queue.drain();
-        Commands {
+        LocalCommands {
             queue: CommandQueueStorage::Owned(staged_queue),
             _marker: PhantomData,
         }
     }
 }
 
-impl<'world> Commands<'world> {
+impl<'world> LocalCommands<'world> {
     fn push_erased(&mut self, command: Box<dyn super::deferred::ErasedDeferredCommand>) {
         match &mut self.queue {
             CommandQueueStorage::Owned(queue) => queue.push(command),
@@ -120,9 +124,9 @@ impl<'world> Commands<'world> {
 
     pub fn batch<F>(&mut self, build: F)
     where
-        F: FnOnce(&mut BatchCommands),
+        F: FnOnce(&mut LocalBatchCommands),
     {
-        let mut batch = BatchCommands::new();
+        let mut batch = LocalBatchCommands::new();
         build(&mut batch);
         self.queue(move |world| batch.apply(world));
     }
@@ -163,7 +167,7 @@ impl<'world> Commands<'world> {
     }
 }
 
-impl Default for Commands<'static> {
+impl Default for LocalCommands<'static> {
     fn default() -> Self {
         Self::new()
     }

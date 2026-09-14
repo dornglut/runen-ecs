@@ -1,3 +1,4 @@
+use runen_ecs::LocalCommands;
 use runen_ecs::prelude::*;
 
 #[derive(Copy, Clone)]
@@ -78,7 +79,7 @@ struct WindowSnapshot {
 
 #[test]
 fn explicit_remove_is_not_visible_before_publication_and_visible_after_publication() {
-    fn queue_remove_once(mut gate: ResMut<Gate>, target: Res<Target>, mut commands: Commands) {
+    fn queue_remove_once(mut gate: ResMut<Gate>, target: Res<Target>, mut commands: LocalCommands) {
         if gate.0 {
             return;
         }
@@ -126,7 +127,11 @@ fn explicit_remove_is_not_visible_before_publication_and_visible_after_publicati
 
 #[test]
 fn despawn_with_component_is_visible_after_publication() {
-    fn queue_despawn_once(mut gate: ResMut<Gate>, target: Res<Target>, mut commands: Commands) {
+    fn queue_despawn_once(
+        mut gate: ResMut<Gate>,
+        target: Res<Target>,
+        mut commands: LocalCommands,
+    ) {
         if gate.0 {
             return;
         }
@@ -165,7 +170,7 @@ fn despawn_with_component_is_visible_after_publication() {
 
 #[test]
 fn removed_records_remain_visible_until_the_next_publication_frontier() {
-    fn queue_remove_once(mut gate: ResMut<Gate>, target: Res<Target>, mut commands: Commands) {
+    fn queue_remove_once(mut gate: ResMut<Gate>, target: Res<Target>, mut commands: LocalCommands) {
         if gate.0 {
             return;
         }
@@ -221,7 +226,7 @@ fn multiple_removals_in_one_publication_window_are_reported() {
     fn queue_remove_pair_once(
         mut gate: ResMut<Gate>,
         targets: Res<TargetPair>,
-        mut commands: Commands,
+        mut commands: LocalCommands,
     ) {
         if gate.0 {
             return;
@@ -269,7 +274,7 @@ fn query_removed_is_component_type_isolated() {
     fn queue_type_specific_removes_once(
         mut gate: ResMut<Gate>,
         targets: Res<TargetPair>,
-        mut commands: Commands,
+        mut commands: LocalCommands,
     ) {
         if gate.0 {
             return;
@@ -316,7 +321,7 @@ fn query_removed_is_component_type_isolated() {
 
 #[test]
 fn removed_entries_do_not_repeat_across_later_runs() {
-    fn queue_remove_once(mut gate: ResMut<Gate>, target: Res<Target>, mut commands: Commands) {
+    fn queue_remove_once(mut gate: ResMut<Gate>, target: Res<Target>, mut commands: LocalCommands) {
         if gate.0 {
             return;
         }
@@ -356,7 +361,7 @@ fn removed_entries_do_not_repeat_across_later_runs() {
 
 #[test]
 fn repeated_iter_calls_return_same_window_snapshot() {
-    fn queue_remove_once(mut gate: ResMut<Gate>, target: Res<Target>, mut commands: Commands) {
+    fn queue_remove_once(mut gate: ResMut<Gate>, target: Res<Target>, mut commands: LocalCommands) {
         if gate.0 {
             return;
         }
@@ -395,7 +400,7 @@ fn remove_then_reinsert_in_one_publication_still_reports_removed_removal() {
     fn queue_remove_then_reinsert_once(
         mut gate: ResMut<Gate>,
         target: Res<Target>,
-        mut commands: Commands,
+        mut commands: LocalCommands,
     ) {
         if gate.0 {
             return;
@@ -442,7 +447,7 @@ fn remove_then_reinsert_in_one_publication_still_reports_removed_removal() {
 
 #[test]
 fn previous_run_removed_window_is_visible_in_next_run_first_frontier_only() {
-    fn queue_remove_once(mut gate: ResMut<Gate>, target: Res<Target>, mut commands: Commands) {
+    fn queue_remove_once(mut gate: ResMut<Gate>, target: Res<Target>, mut commands: LocalCommands) {
         if gate.0 {
             return;
         }
@@ -513,7 +518,11 @@ fn query_removed_does_not_conflict_with_live_mut_query_access() {
 
 #[test]
 fn batch_remove_and_despawn_preserve_removed_publication_window_semantics() {
-    fn queue_batch_once(mut gate: ResMut<Gate>, targets: Res<TargetPair>, mut commands: Commands) {
+    fn queue_batch_once(
+        mut gate: ResMut<Gate>,
+        targets: Res<TargetPair>,
+        mut commands: LocalCommands,
+    ) {
         if gate.0 {
             return;
         }
