@@ -9,14 +9,18 @@ use crate::system::OrderingDirection;
 use crate::system::runtime::{DeferredCommandBuffer, InvocationOutcome};
 use std::num::NonZeroU64;
 
+type TransferableRunnerFn =
+    Box<dyn FnMut(&mut World) -> Result<Option<TransferableCommandBuffer>, RuntimeError> + Send>;
+
+type InvokerThreadRunnerFn =
+    Box<dyn FnMut(&mut World) -> Result<Option<DeferredCommandBuffer>, RuntimeError>>;
+
 pub(crate) struct TransferableSystemRunner {
-    run: Box<
-        dyn FnMut(&mut World) -> Result<Option<TransferableCommandBuffer>, RuntimeError> + Send,
-    >,
+    run: TransferableRunnerFn,
 }
 
 pub(crate) struct InvokerThreadSystemRunner {
-    run: Box<dyn FnMut(&mut World) -> Result<Option<DeferredCommandBuffer>, RuntimeError>>,
+    run: InvokerThreadRunnerFn,
 }
 
 pub(crate) enum RegisteredSystemRunner {
