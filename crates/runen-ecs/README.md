@@ -12,10 +12,20 @@ second current implementation authority.
 ## Quick start
 
 A normal RunenECS system is an ordinary Rust function whose parameters describe
-its ECS access:
+its ECS access. Register it on a schedule, then run that schedule against a
+`World`:
 
 ```rust
 use runen_ecs::prelude::*;
+
+#[derive(Copy, Clone)]
+struct Update;
+
+impl ScheduleLabel for Update {
+    fn name() -> &'static str {
+        "Update"
+    }
+}
 
 #[derive(Component)]
 struct Position(f32);
@@ -30,6 +40,16 @@ fn integrate(mut bodies: Query<(&mut Position, &Velocity)>, dt: Res<DeltaTime>) 
     for (position, velocity) in bodies.iter() {
         position.0 += velocity.0 * dt.0;
     }
+}
+
+fn main() {
+    let mut world = World::new();
+    world.spawn((Position(0.0), Velocity(4.0))).unwrap();
+    world.insert_resource(DeltaTime(0.5));
+
+    let mut runtime = Runtime::new();
+    runtime.add_systems::<Update, _, _>(&mut world, integrate);
+    runtime.run_schedule::<Update>(&mut world).unwrap();
 }
 ```
 
