@@ -1,6 +1,5 @@
 use std::any::TypeId;
 use std::cell::{Cell, RefCell};
-use std::marker::PhantomData;
 use std::rc::Rc;
 use std::sync::MutexGuard;
 
@@ -14,7 +13,8 @@ use runen_ecs::{
 struct SendButNotSync(Cell<u32>);
 
 #[derive(Component)]
-struct SyncButNotSend(PhantomData<MutexGuard<'static, ()>>);
+#[allow(dead_code)]
+struct SyncButNotSend(MutexGuard<'static, ()>);
 
 #[allow(dead_code)]
 #[derive(Component)]
@@ -25,7 +25,8 @@ struct ThreadBound(Rc<()>);
 struct SendResource(Cell<u32>);
 
 #[derive(Resource)]
-struct SyncResource(PhantomData<MutexGuard<'static, ()>>);
+#[allow(dead_code)]
+struct SyncResource(MutexGuard<'static, ()>);
 
 #[derive(runen_ecs::SystemParam)]
 struct TransferableGroup<'w, 's> {
@@ -121,8 +122,14 @@ fn metadata_change_filters_keep_scheduler_component_read_access() {
 #[test]
 fn query_state_scratch_can_be_reused_after_early_drop_and_with_live_iterators() {
     let mut world = World::new();
-    world.spawn(SyncButNotSend(PhantomData)).unwrap();
-    world.spawn(SyncButNotSend(PhantomData)).unwrap();
+    let guard = Box::leak(Box::new(std::sync::Mutex::new(())))
+        .lock()
+        .unwrap();
+    world.spawn(SyncButNotSend(guard)).unwrap();
+    let guard = Box::leak(Box::new(std::sync::Mutex::new(())))
+        .lock()
+        .unwrap();
+    world.spawn(SyncButNotSend(guard)).unwrap();
 
     let query = world.query_state::<&SyncButNotSend, ()>();
     let mut first = query.iter(&world);

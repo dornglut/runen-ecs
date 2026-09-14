@@ -1,8 +1,7 @@
-use std::marker::PhantomData;
 use std::sync::MutexGuard;
 
 #[derive(runen_ecs::Component)]
-struct SyncButNotSend(PhantomData<MutexGuard<'static, ()>>);
+struct SyncButNotSend(MutexGuard<'static, ()>);
 
 fn assert_transferable<P: runen_ecs::TransferableSystemParam>()
 where
