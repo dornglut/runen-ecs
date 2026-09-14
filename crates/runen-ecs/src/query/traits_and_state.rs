@@ -9,7 +9,6 @@ use std::any::TypeId;
 use std::cell::{Cell, RefCell};
 use std::marker::PhantomData;
 use std::ptr::NonNull;
-use std::rc::Rc;
 
 pub trait QueryData {
     type Item<'w>;
@@ -121,6 +120,16 @@ pub trait QuerySpec: sealed::QuerySpecSealed {
         cache: &mut QueryFastCache,
     ) -> Option<Self::Item<'w>>;
 }
+
+/// Framework-controlled query-shape proof used by transferable system
+/// parameters. It is crate-private so downstream code cannot add a safe
+/// transfer claim for a custom query implementation.
+///
+/// # Safety
+///
+/// Implementations must encode the exact `Send`/`Sync` requirements of every
+/// payload access yielded by the query shape.
+pub(crate) unsafe trait TransferableQueryData: QuerySpec {}
 
 /// Framework-owned classification for query shapes that only yield shared
 /// component references (or entity identity). This is intentionally sealed;
@@ -247,12 +256,12 @@ pub struct QueryState<Q, F = ()> {
     excluded: Vec<TypeId>,
     access: QueryAccess,
     last_run_tick: Cell<ChangeCursor>,
-    scratch_pool: Rc<RefCell<Vec<Vec<Entity>>>>,
-    archetype_row_scratch_pool: Rc<RefCell<Vec<Vec<QueryArchetypeRow>>>>,
+    scratch_pool: RefCell<Vec<Vec<Entity>>>,
+    archetype_row_scratch_pool: RefCell<Vec<Vec<QueryArchetypeRow>>>,
     fast_fetch_enabled: bool,
     archetype_execution_enabled: bool,
     fast_cache: RefCell<QueryFastCache>,
-    _marker: PhantomData<(Q, F)>,
+    _marker: PhantomData<fn() -> (Q, F)>,
 }
 
 impl<Q: QuerySpec, F: QueryFilter> QueryState<Q, F> {
@@ -285,7 +294,7 @@ impl<Q: QuerySpec, F: QueryFilter> QueryState<Q, F> {
         self
     }
 
-    pub fn iter<'w, W>(&self, world: W) -> impl Iterator<Item = Q::Item<'w>> + 'w
+    pub fn iter<'w, W>(&'w self, world: W) -> impl Iterator<Item = Q::Item<'w>> + 'w
     where
         Q: 'w,
         F: 'w,
@@ -311,7 +320,10 @@ impl<Q: QuerySpec, F: QueryFilter> QueryState<Q, F> {
         self.single_capability(world.into_query_capability())
     }
 
-    fn iter_capability<'w, 'state>(&self, world: QueryCapability<'w>) -> QueryIter<'w, 'state, Q, F>
+    fn iter_capability<'w, 'state>(
+        &'state self,
+        world: QueryCapability<'w>,
+    ) -> QueryIter<'w, 'state, Q, F>
     where
         Q: 'w,
     {
@@ -336,8 +348,8 @@ impl<Q: QuerySpec, F: QueryFilter> QueryState<Q, F> {
                     world,
                     entities: None,
                     archetype_rows: Some(rows),
-                    scratch_pool: Rc::clone(&self.scratch_pool),
-                    archetype_row_scratch_pool: Rc::clone(&self.archetype_row_scratch_pool),
+                    scratch_pool: &self.scratch_pool,
+                    archetype_row_scratch_pool: &self.archetype_row_scratch_pool,
                     use_fast_fetch,
                     fast_cache,
                     index: 0,
@@ -355,8 +367,8 @@ impl<Q: QuerySpec, F: QueryFilter> QueryState<Q, F> {
             world,
             entities: Some(entities),
             archetype_rows: None,
-            scratch_pool: Rc::clone(&self.scratch_pool),
-            archetype_row_scratch_pool: Rc::clone(&self.archetype_row_scratch_pool),
+            scratch_pool: &self.scratch_pool,
+            archetype_row_scratch_pool: &self.archetype_row_scratch_pool,
             use_fast_fetch,
             fast_cache,
             index: 0,
@@ -429,8 +441,8 @@ impl<Q: QuerySpec, F: QueryFilter> QueryState<Q, F> {
             excluded,
             access,
             last_run_tick: Cell::new(ChangeCursor::origin(world_scope)),
-            scratch_pool: Rc::new(RefCell::new(Vec::new())),
-            archetype_row_scratch_pool: Rc::new(RefCell::new(Vec::new())),
+            scratch_pool: RefCell::new(Vec::new()),
+            archetype_row_scratch_pool: RefCell::new(Vec::new()),
             fast_fetch_enabled: Q::supports_fast_path(),
             archetype_execution_enabled: Q::supports_archetype_execution(),
             fast_cache: RefCell::new(QueryFastCache::default()),
@@ -500,6 +512,9 @@ impl<Q: QuerySpec, F: QueryFilter> QueryState<Q, F> {
     }
 }
 
+type QueryIterMarker<'w, 'state, Q, F> =
+    (&'state QueryState<Q, F>, fn() -> <Q as QuerySpec>::Item<'w>);
+
 pub struct Query<'world, 'state, Q, F = ()> {
     world: QueryCapability<'world>,
     state: NonNull<QueryState<Q, F>>,
@@ -551,12 +566,12 @@ struct QueryIter<'w, 'state, Q: QuerySpec, F> {
     world: QueryCapability<'w>,
     entities: Option<Vec<Entity>>,
     archetype_rows: Option<Vec<QueryArchetypeRow>>,
-    scratch_pool: Rc<RefCell<Vec<Vec<Entity>>>>,
-    archetype_row_scratch_pool: Rc<RefCell<Vec<Vec<QueryArchetypeRow>>>>,
+    scratch_pool: &'state RefCell<Vec<Vec<Entity>>>,
+    archetype_row_scratch_pool: &'state RefCell<Vec<Vec<QueryArchetypeRow>>>,
     use_fast_fetch: bool,
     fast_cache: QueryFastCache,
     index: usize,
-    _marker: PhantomData<(&'state mut QueryState<Q, F>, Q::Item<'w>)>,
+    _marker: PhantomData<QueryIterMarker<'w, 'state, Q, F>>,
 }
 
 impl<'w, 'state, Q: QuerySpec, F> QueryIter<'w, 'state, Q, F> {

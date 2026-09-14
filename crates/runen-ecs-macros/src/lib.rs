@@ -92,6 +92,21 @@ pub fn system_param_derive(input: TokenStream) -> TokenStream {
     let field_types = fields.iter().map(|field| &field.ty).collect::<Vec<_>>();
     let state_indices = (0..fields.len()).map(syn::Index::from).collect::<Vec<_>>();
 
+    let mut transferable_generics = generics.clone();
+    {
+        let where_clause = transferable_generics.make_where_clause();
+        for field_type in &field_types {
+            where_clause
+                .predicates
+                .push(parse_quote!(#field_type: #ecs::TransferableSystemParam));
+            where_clause.predicates.push(parse_quote!(
+                <#field_type as #ecs::SystemParam>::State: ::std::marker::Send
+            ));
+        }
+    }
+    let (transferable_impl_generics, _, transferable_where_clause) =
+        transferable_generics.split_for_impl();
+
     let impl_generics = generics.clone();
     let (impl_generics, _, where_clause) = impl_generics.split_for_impl();
     let item_args = generics
@@ -182,6 +197,9 @@ pub fn system_param_derive(input: TokenStream) -> TokenStream {
                 })
             }
         }
+
+        unsafe impl #transferable_impl_generics
+            #ecs::TransferableSystemParam for #name #ty_generics #transferable_where_clause {}
     })
 }
 

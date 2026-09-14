@@ -1,0 +1,33 @@
+error[E0277]: `std::sync::MutexGuard<'static, ()>` cannot be sent between threads safely
+  --> tests/ui/mobility_mut_missing_send.rs:14:27
+   |
+14 |     assert_transferable::<runen_ecs::Query<'static, 'static, &mut SyncButNotSend>>();
+   |                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `std::sync::MutexGuard<'static, ()>` cannot be sent between threads safely
+   |
+   = help: within `SyncButNotSend`, the trait `Send` is not implemented for `std::sync::MutexGuard<'static, ()>`
+help: the trait `runen_ecs::TransferableSystemParam` is conditionally implemented for `Query<'_, '_, Q, F>`
+  --> src/system/params.rs
+   |
+   | / unsafe impl<'param, 'cached, Q, F> TransferableSystemParam for Query<'param, 'cached, Q, F>
+   | | where
+   | |     Q: QuerySpec + TransferableQueryData + 'static,
+   | |                    --------------------- unsatisfied requirement introduced here: `&mut SyncButNotSend: query::traits_and_state::TransferableQueryData`
+   | |     F: QueryFilter + TransferableQueryFilter + 'static,
+   | |_______________________________________________________^
+note: required because it appears within the type `PhantomData<std::sync::MutexGuard<'static, ()>>`
+  --> $RUST/core/src/marker.rs
+   |
+   | pub struct PhantomData<T: PointeeSized>;
+   |            ^^^^^^^^^^^
+note: required because it appears within the type `SyncButNotSend`
+  --> tests/ui/mobility_mut_missing_send.rs:5:8
+   |
+ 5 | struct SyncButNotSend(PhantomData<MutexGuard<'static, ()>>);
+   |        ^^^^^^^^^^^^^^
+   = note: required for `&mut SyncButNotSend` to implement `query::traits_and_state::TransferableQueryData`
+   = note: required for `Query<'static, 'static, &mut SyncButNotSend>` to implement `runen_ecs::TransferableSystemParam`
+note: required by a bound in `assert_transferable`
+  --> tests/ui/mobility_mut_missing_send.rs:7:27
+   |
+ 7 | fn assert_transferable<P: runen_ecs::TransferableSystemParam>()
+   |                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `assert_transferable`

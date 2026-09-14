@@ -1,6 +1,8 @@
 // Owner: RunenECS - Query Runtime
 use super::access_and_filters::QueryAccess;
-use super::traits_and_state::{QueryArchetypeRow, QueryData, QueryFastCache};
+use super::traits_and_state::{
+    QueryArchetypeRow, QueryData, QueryFastCache, TransferableQueryData,
+};
 use crate::component::Component;
 use crate::entity::Entity;
 use crate::storage::ArchetypeExecutionBinding;
@@ -725,4 +727,44 @@ impl<A: Component, B: Component, C: Component> QueryData for (&mut A, &mut B, &C
         // Safety: mutable/read tuple query access requires distinct component types.
         Some(unsafe { (&mut *a, &mut *b, &*c) })
     }
+}
+
+unsafe impl<T: Component + Sync> TransferableQueryData for &T {}
+unsafe impl<T: Component + Send> TransferableQueryData for &mut T {}
+unsafe impl<T: Component + Sync> TransferableQueryData for (Entity, &T) {}
+unsafe impl<T: Component + Send> TransferableQueryData for (Entity, &mut T) {}
+
+unsafe impl<A: Component + Sync, B: Component + Sync> TransferableQueryData for (&A, &B) {}
+unsafe impl<A: Component + Send, B: Component + Sync> TransferableQueryData for (&mut A, &B) {}
+unsafe impl<A: Component + Sync, B: Component + Send> TransferableQueryData for (&A, &mut B) {}
+unsafe impl<A: Component + Send, B: Component + Send> TransferableQueryData for (&mut A, &mut B) {}
+
+unsafe impl<T: Component + Sync> TransferableQueryData for Option<&T> {}
+unsafe impl<T: Component + Send> TransferableQueryData for Option<&mut T> {}
+unsafe impl<A: Component + Send, B: Component + Sync> TransferableQueryData
+    for (&mut A, Option<&B>)
+{
+}
+unsafe impl<A: Component + Sync, B: Component + Sync> TransferableQueryData for (&A, Option<&B>) {}
+unsafe impl<A: Component + Sync, B: Component + Send> TransferableQueryData
+    for (&A, Option<&mut B>)
+{
+}
+unsafe impl<A: Component + Send, B: Component + Send> TransferableQueryData
+    for (&mut A, Option<&mut B>)
+{
+}
+unsafe impl<T: Component + Sync> TransferableQueryData for (Entity, Option<&T>) {}
+
+unsafe impl<A: Component + Sync, B: Component + Sync, C: Component + Sync> TransferableQueryData
+    for (&A, &B, &C)
+{
+}
+unsafe impl<A: Component + Send, B: Component + Sync, C: Component + Sync> TransferableQueryData
+    for (&mut A, &B, &C)
+{
+}
+unsafe impl<A: Component + Send, B: Component + Send, C: Component + Sync> TransferableQueryData
+    for (&mut A, &mut B, &C)
+{
 }

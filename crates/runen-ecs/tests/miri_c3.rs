@@ -89,6 +89,21 @@ fn query_item_and_resource_mutation_can_be_live_together() {
 }
 
 #[test]
+fn query_scratch_is_recycled_after_early_drop_with_live_direct_iterators() {
+    let world = world_with_two_entities();
+    let query = world.query_state::<&A, ()>();
+
+    let mut first = query.iter(&world);
+    let mut second = query.iter(&world);
+    assert_eq!(first.next().unwrap().0, 1);
+    assert_eq!(second.next().unwrap().0, 1);
+    drop(first);
+    drop(second);
+
+    assert_eq!(query.iter(&world).count(), 2);
+}
+
+#[test]
 fn resource_payloads_survive_other_resource_mutation_bookkeeping() {
     fn system(mut first: ResMut<ResourceA>, mut second: ResMut<ResourceB>) {
         let first_value: &mut ResourceA = &mut first;
