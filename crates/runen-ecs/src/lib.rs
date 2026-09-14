@@ -1,3 +1,5 @@
+extern crate self as runen_ecs;
+
 mod bundle;
 mod commands;
 mod component;
