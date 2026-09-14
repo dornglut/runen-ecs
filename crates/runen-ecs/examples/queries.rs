@@ -23,9 +23,7 @@ fn main() {
     let player = world
         .spawn((Position(0), Velocity(2), Name("player"), Active, Player))
         .unwrap();
-    let enemy = world
-        .spawn((Position(10), Velocity(-1), Active))
-        .unwrap();
+    let enemy = world.spawn((Position(10), Velocity(-1), Active)).unwrap();
     let sleeping = world
         .spawn((Position(20), Velocity(5), Active, Sleeping))
         .unwrap();
