@@ -1,3 +1,9 @@
+// The parallel selector remains private until #40 completes failure/permutation
+// acceptance. Its internal entry points are exercised by this crate's conformance
+// tests before they become a supported runtime selection surface.
+#[allow(dead_code)]
+mod parallel_executor;
+
 use super::OrderingDirection;
 use super::extract::{
     DeferredRecorderClass, DeferredRecorderConflict, SystemParam, SystemParamContext,

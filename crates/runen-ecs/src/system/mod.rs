@@ -2,6 +2,7 @@ mod concurrent;
 mod extract;
 mod params;
 pub(crate) mod runtime;
+mod worker_cohort;
 
 use std::fmt;
 

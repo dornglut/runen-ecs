@@ -177,19 +177,8 @@ impl ControlledWorkerSystem {
         &self.access
     }
 
-    pub(crate) fn prepare_worker<'world>(
-        &self,
-        lease: &ParallelWorldLease<'world>,
-    ) -> Result<PreparedWorkerWorld<'world>, RuntimeError> {
-        self.runner.prepare_worker(lease)
-    }
-
-    pub(crate) fn run_worker(
-        &mut self,
-        prepared: &mut PreparedWorkerWorld<'_>,
-        capacity: ConcurrentMutationCapacity,
-    ) -> WorkerInvocationReport {
-        self.runner.run_worker(prepared, capacity)
+    pub(crate) fn runner_mut(&mut self) -> &mut TransferableSystemRunner {
+        &mut self.runner
     }
 }
 
@@ -511,6 +500,25 @@ impl RegisteredSystem {
         match &self.run {
             RegisteredSystemRunner::Transferable(_) => ExecutionMobility::Transferable,
             RegisteredSystemRunner::InvokerThreadOnly(_) => ExecutionMobility::InvokerThreadOnly,
+        }
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn worker_capable(&self) -> bool {
+        matches!(
+            &self.run,
+            RegisteredSystemRunner::Transferable(runner) if runner.is_worker_capable()
+        )
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn transferable_runner_mut(&mut self) -> Option<&mut TransferableSystemRunner> {
+        match &mut self.run {
+            RegisteredSystemRunner::Transferable(runner) if runner.is_worker_capable() => {
+                Some(runner)
+            }
+            RegisteredSystemRunner::Transferable(_)
+            | RegisteredSystemRunner::InvokerThreadOnly(_) => None,
         }
     }
 

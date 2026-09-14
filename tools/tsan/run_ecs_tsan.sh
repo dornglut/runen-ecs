@@ -18,3 +18,8 @@ cargo +"$toolchain" test \
   -Zbuild-std \
   --target "$target" \
   -p runen-ecs --lib system::concurrent::tests --locked -- --nocapture
+
+cargo +"$toolchain" test \
+  -Zbuild-std \
+  --target "$target" \
+  -p runen-ecs --lib system::runtime::parallel_executor::tests --locked -- --nocapture

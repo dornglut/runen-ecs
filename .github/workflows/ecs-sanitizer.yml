@@ -86,3 +86,7 @@ jobs:
             -Zbuild-std \
             --target x86_64-unknown-linux-gnu \
             -p runen-ecs --lib system::concurrent::tests --locked -- --nocapture
+          cargo +nightly-2026-08-25 test \
+            -Zbuild-std \
+            --target x86_64-unknown-linux-gnu \
+            -p runen-ecs --lib system::runtime::parallel_executor::tests --locked -- --nocapture
