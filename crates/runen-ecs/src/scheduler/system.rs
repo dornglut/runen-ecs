@@ -7,16 +7,150 @@ use crate::system::DeferredRecorderClass;
 use crate::system::ExecutionMobility;
 use crate::system::OrderingDirection;
 use crate::system::runtime::{DeferredCommandBuffer, InvocationOutcome};
+use crate::world::{
+    ConcurrentMutationCapacity, MutationJournal, ParallelWorldLease, PreparedWorkerWorld,
+};
+use std::any::Any;
 use std::num::NonZeroU64;
 
-type TransferableRunnerFn =
-    Box<dyn FnMut(&mut World) -> Result<Option<TransferableCommandBuffer>, RuntimeError> + Send>;
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub(crate) enum WorkerPanicPhase {
+    Framework,
+    User,
+}
 
+pub(crate) enum WorkerInvocationOutcome {
+    Success(Option<TransferableCommandBuffer>),
+    Error(RuntimeError),
+    Panic {
+        payload: Box<dyn Any + Send>,
+        phase: WorkerPanicPhase,
+    },
+}
+
+pub(crate) struct WorkerInvocationReport {
+    pub(crate) journal: MutationJournal,
+    pub(crate) outcome: WorkerInvocationOutcome,
+}
+
+type ErasedTransferableState = Box<dyn Any + Send>;
+type SerialRunnerFn = Box<
+    dyn FnMut(
+            &mut (dyn Any + Send),
+            &mut World,
+        ) -> Result<Option<TransferableCommandBuffer>, RuntimeError>
+        + Send,
+>;
+type WorkerPrepareFn = Box<
+    dyn for<'world> Fn(
+            &(dyn Any + Send),
+            &ParallelWorldLease<'world>,
+        ) -> Result<PreparedWorkerWorld<'world>, RuntimeError>
+        + Send,
+>;
+type WorkerRunnerFn = Box<
+    dyn for<'world> FnMut(
+            &mut (dyn Any + Send),
+            &mut PreparedWorkerWorld<'world>,
+            ConcurrentMutationCapacity,
+        ) -> WorkerInvocationReport
+        + Send,
+>;
 type InvokerThreadRunnerFn =
     Box<dyn FnMut(&mut World) -> Result<Option<DeferredCommandBuffer>, RuntimeError>>;
 
 pub(crate) struct TransferableSystemRunner {
-    run: TransferableRunnerFn,
+    state: ErasedTransferableState,
+    serial_run: SerialRunnerFn,
+    prepare_worker: Option<WorkerPrepareFn>,
+    worker_run: Option<WorkerRunnerFn>,
+}
+
+impl TransferableSystemRunner {
+    fn worker_capable<State>(
+        state: State,
+        mut serial_run: impl FnMut(
+            &mut State,
+            &mut World,
+        ) -> Result<Option<TransferableCommandBuffer>, RuntimeError>
+        + Send
+        + 'static,
+        prepare_worker: impl for<'world> Fn(
+            &State,
+            &ParallelWorldLease<'world>,
+        )
+            -> Result<PreparedWorkerWorld<'world>, RuntimeError>
+        + Send
+        + 'static,
+        mut worker_run: impl for<'world> FnMut(
+            &mut State,
+            &mut PreparedWorkerWorld<'world>,
+            ConcurrentMutationCapacity,
+        ) -> WorkerInvocationReport
+        + Send
+        + 'static,
+    ) -> Self
+    where
+        State: Any + Send + 'static,
+    {
+        Self {
+            state: Box::new(state),
+            serial_run: Box::new(move |state, world| {
+                let state = state
+                    .downcast_mut::<State>()
+                    .expect("transferable runner state type must remain stable");
+                serial_run(state, world)
+            }),
+            prepare_worker: Some(Box::new(move |state, lease| {
+                let state = state
+                    .downcast_ref::<State>()
+                    .expect("transferable runner state type must remain stable");
+                prepare_worker(state, lease)
+            })),
+            worker_run: Some(Box::new(move |state, prepared, capacity| {
+                let state = state
+                    .downcast_mut::<State>()
+                    .expect("transferable runner state type must remain stable");
+                worker_run(state, prepared, capacity)
+            })),
+        }
+    }
+
+    fn run_serial(
+        &mut self,
+        world: &mut World,
+    ) -> Result<Option<TransferableCommandBuffer>, RuntimeError> {
+        (self.serial_run)(self.state.as_mut(), world)
+    }
+
+    pub(crate) fn is_worker_capable(&self) -> bool {
+        self.prepare_worker.is_some() && self.worker_run.is_some()
+    }
+
+    pub(crate) fn prepare_worker<'world>(
+        &self,
+        lease: &ParallelWorldLease<'world>,
+    ) -> Result<PreparedWorkerWorld<'world>, RuntimeError> {
+        let prepare = self
+            .prepare_worker
+            .as_ref()
+            .ok_or_else(|| RuntimeError::Setup {
+                message: "transferable system runner has no worker preparation proof".to_string(),
+            })?;
+        prepare(self.state.as_ref(), lease)
+    }
+
+    pub(crate) fn run_worker(
+        &mut self,
+        prepared: &mut PreparedWorkerWorld<'_>,
+        capacity: ConcurrentMutationCapacity,
+    ) -> WorkerInvocationReport {
+        let run = self
+            .worker_run
+            .as_mut()
+            .expect("worker-capable runner must retain its worker invocation function");
+        run(self.state.as_mut(), prepared, capacity)
+    }
 }
 
 pub(crate) struct InvokerThreadSystemRunner {
@@ -28,9 +162,42 @@ pub(crate) enum RegisteredSystemRunner {
     InvokerThreadOnly(InvokerThreadSystemRunner),
 }
 
+pub(crate) struct ControlledWorkerSystem {
+    name: String,
+    access: SystemAccess,
+    runner: TransferableSystemRunner,
+}
+
+impl ControlledWorkerSystem {
+    pub(crate) fn name(&self) -> &str {
+        &self.name
+    }
+
+    pub(crate) fn access(&self) -> &SystemAccess {
+        &self.access
+    }
+
+    pub(crate) fn prepare_worker<'world>(
+        &self,
+        lease: &ParallelWorldLease<'world>,
+    ) -> Result<PreparedWorkerWorld<'world>, RuntimeError> {
+        self.runner.prepare_worker(lease)
+    }
+
+    pub(crate) fn run_worker(
+        &mut self,
+        prepared: &mut PreparedWorkerWorld<'_>,
+        capacity: ConcurrentMutationCapacity,
+    ) -> WorkerInvocationReport {
+        self.runner.run_worker(prepared, capacity)
+    }
+}
+
 const _: fn() = || {
     fn assert_send<T: Send>() {}
     assert_send::<TransferableSystemRunner>();
+    assert_send::<ControlledWorkerSystem>();
+    assert_send::<WorkerInvocationReport>();
 };
 
 #[allow(dead_code)]
@@ -183,15 +350,34 @@ impl RegisteredSystem {
         Self::new_invoker_thread_only::<L>(name, access, move |world| run(world).map(|()| None))
     }
 
-    pub(crate) fn new_transferable<L>(
+    pub(crate) fn new_transferable_worker_capable<L, State>(
         name: impl Into<String>,
         access: SystemAccess,
-        run: impl FnMut(&mut World) -> Result<Option<TransferableCommandBuffer>, RuntimeError>
+        state: State,
+        serial_run: impl FnMut(
+            &mut State,
+            &mut World,
+        ) -> Result<Option<TransferableCommandBuffer>, RuntimeError>
+        + Send
+        + 'static,
+        prepare_worker: impl for<'world> Fn(
+            &State,
+            &ParallelWorldLease<'world>,
+        )
+            -> Result<PreparedWorkerWorld<'world>, RuntimeError>
+        + Send
+        + 'static,
+        worker_run: impl for<'world> FnMut(
+            &mut State,
+            &mut PreparedWorkerWorld<'world>,
+            ConcurrentMutationCapacity,
+        ) -> WorkerInvocationReport
         + Send
         + 'static,
     ) -> Result<Self, RuntimeError>
     where
         L: ScheduleLabel,
+        State: Any + Send + 'static,
     {
         let name = name.into();
         access
@@ -206,9 +392,12 @@ impl RegisteredSystem {
             param_slots: Vec::new(),
             access,
             deferred_recorder_class: DeferredRecorderClass::None,
-            run: RegisteredSystemRunner::Transferable(TransferableSystemRunner {
-                run: Box::new(run),
-            }),
+            run: RegisteredSystemRunner::Transferable(TransferableSystemRunner::worker_capable(
+                state,
+                serial_run,
+                prepare_worker,
+                worker_run,
+            )),
         })
     }
 
@@ -328,7 +517,7 @@ impl RegisteredSystem {
     pub(crate) fn run(&mut self, world: &mut World) -> Result<InvocationOutcome, RuntimeError> {
         match &mut self.run {
             RegisteredSystemRunner::Transferable(runner) => {
-                runner.run.as_mut()(world).map(|buffer| {
+                runner.run_serial(world).map(|buffer| {
                     buffer
                         .map(InvocationOutcome::Transferable)
                         .unwrap_or(InvocationOutcome::None)
@@ -345,6 +534,29 @@ impl RegisteredSystem {
                     None => InvocationOutcome::None,
                 })
             }
+        }
+    }
+
+    pub(crate) fn into_controlled_worker(self) -> Result<ControlledWorkerSystem, RuntimeError> {
+        let Self {
+            name, access, run, ..
+        } = self;
+        match run {
+            RegisteredSystemRunner::Transferable(runner) if runner.is_worker_capable() => {
+                Ok(ControlledWorkerSystem {
+                    name,
+                    access,
+                    runner,
+                })
+            }
+            RegisteredSystemRunner::Transferable(_) => Err(RuntimeError::Setup {
+                message: format!("system '{name}' has no worker projection preparation proof"),
+            }),
+            RegisteredSystemRunner::InvokerThreadOnly(_) => Err(RuntimeError::Setup {
+                message: format!(
+                    "system '{name}' is invoker-thread-only and cannot enter the controlled worker harness"
+                ),
+            }),
         }
     }
 

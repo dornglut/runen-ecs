@@ -1,12 +1,12 @@
 use super::extract::{
     DeferredRecorderClass, DeferredRecorderConflict, SystemParam, SystemParamContext,
-    SystemParamError, TransferableSystemParam,
+    SystemParamError, TransferableSystemParam, WorkerPrepareContext,
 };
 use crate::World;
 use crate::component::{Component, Resource};
 use crate::query::{
     Query, QueryAccess, QueryFilter, QuerySpec, QueryState, RemovedQuery, RemovedState,
-    TransferableQueryData, TransferableQueryFilter,
+    TransferableQueryData, TransferableQueryFilter, prepare_query,
 };
 use crate::scheduler::system::ParamSlotDescriptor;
 use crate::world::{ResourceCapability, ResourceMutationCapability};
@@ -146,6 +146,13 @@ where
     Q: QuerySpec + TransferableQueryData + 'static,
     F: QueryFilter + TransferableQueryFilter + 'static,
 {
+    fn prepare_worker(
+        _state: &Self::State,
+        context: &mut WorkerPrepareContext<'_>,
+    ) -> Result<(), SystemParamError> {
+        prepare_query::<Q, F>(context.builder());
+        Ok(())
+    }
 }
 
 unsafe impl<'param, 'cached, T: Component + 'static> SystemParam
@@ -177,6 +184,13 @@ unsafe impl<'param, 'cached, T: Component + 'static> SystemParam
 unsafe impl<'param, 'cached, T: Component + 'static> TransferableSystemParam
     for RemovedQuery<'param, 'cached, T>
 {
+    fn prepare_worker(
+        _state: &Self::State,
+        context: &mut WorkerPrepareContext<'_>,
+    ) -> Result<(), SystemParamError> {
+        context.builder().prepare_removed::<T>();
+        Ok(())
+    }
 }
 
 unsafe impl<'param, T: Resource + 'static> SystemParam for Res<'param, T> {
@@ -200,7 +214,15 @@ unsafe impl<'param, T: Resource + 'static> SystemParam for Res<'param, T> {
     }
 }
 
-unsafe impl<'param, T: Resource + Sync + 'static> TransferableSystemParam for Res<'param, T> {}
+unsafe impl<'param, T: Resource + Sync + 'static> TransferableSystemParam for Res<'param, T> {
+    fn prepare_worker(
+        _state: &Self::State,
+        context: &mut WorkerPrepareContext<'_>,
+    ) -> Result<(), SystemParamError> {
+        context.builder().prepare_resource_read::<T>()?;
+        Ok(())
+    }
+}
 
 unsafe impl<'param, T: Resource + 'static> SystemParam for ResMut<'param, T> {
     type State = ();
@@ -223,7 +245,15 @@ unsafe impl<'param, T: Resource + 'static> SystemParam for ResMut<'param, T> {
     }
 }
 
-unsafe impl<'param, T: Resource + Send + 'static> TransferableSystemParam for ResMut<'param, T> {}
+unsafe impl<'param, T: Resource + Send + 'static> TransferableSystemParam for ResMut<'param, T> {
+    fn prepare_worker(
+        _state: &Self::State,
+        context: &mut WorkerPrepareContext<'_>,
+    ) -> Result<(), SystemParamError> {
+        context.builder().prepare_resource_write::<T>()?;
+        Ok(())
+    }
+}
 
 unsafe impl<'param> SystemParam for LocalCommands<'param> {
     type State = ();
@@ -280,7 +310,14 @@ unsafe impl<'param> SystemParam for Commands<'param> {
     }
 }
 
-unsafe impl<'param> TransferableSystemParam for Commands<'param> {}
+unsafe impl<'param> TransferableSystemParam for Commands<'param> {
+    fn prepare_worker(
+        _state: &Self::State,
+        _context: &mut WorkerPrepareContext<'_>,
+    ) -> Result<(), SystemParamError> {
+        Ok(())
+    }
+}
 
 macro_rules! impl_tuple_system_param {
     ($(($index:tt, $param:ident)),+ $(,)?) => {
@@ -324,6 +361,15 @@ macro_rules! impl_tuple_system_param {
         where
             $($param::State: Send,)+
         {
+            fn prepare_worker(
+                state: &Self::State,
+                context: &mut WorkerPrepareContext<'_>,
+            ) -> Result<(), SystemParamError> {
+                $(
+                    $param::prepare_worker(&state.$index, context)?;
+                )+
+                Ok(())
+            }
         }
     };
 }

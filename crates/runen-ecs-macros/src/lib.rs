@@ -202,7 +202,20 @@ pub fn system_param_derive(input: TokenStream) -> TokenStream {
         }
 
         unsafe impl #transferable_impl_generics
-            #ecs::TransferableSystemParam for #name #ty_generics #transferable_where_clause {}
+            #ecs::TransferableSystemParam for #name #ty_generics #transferable_where_clause {
+            fn prepare_worker(
+                state: &Self::State,
+                context: &mut #ecs::WorkerPrepareContext<'_>,
+            ) -> Result<(), #ecs::SystemParamError> {
+                #(
+                    <#field_types as #ecs::TransferableSystemParam>::prepare_worker(
+                        &state.#state_indices,
+                        context,
+                    )?;
+                )*
+                Ok(())
+            }
+        }
     })
 }
 

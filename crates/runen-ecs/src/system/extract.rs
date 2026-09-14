@@ -1,8 +1,10 @@
 use crate::query::QueryAccess;
 use crate::scheduler::system::ParamSlotDescriptor;
-use crate::world::{MutationJournal, WorldAuthority};
+use crate::world::{
+    MutationJournal, ParallelWorldLease, PreparedWorkerWorld, WorkerWorldAuthority,
+    WorkerWorldBuilder, WorldAuthority,
+};
 use crate::{Commands, LocalCommands, ResourceError, World};
-use std::marker::PhantomData;
 use std::ptr::NonNull;
 use thiserror::Error;
 
@@ -77,19 +79,55 @@ impl std::fmt::Display for DeferredRecorderConflict {
     }
 }
 
+/// Invoker-side type-directed preparation context for one future worker
+/// invocation. It owns no user-facing World handle and is consumed before the
+/// prepared package can move to a worker.
+#[doc(hidden)]
+pub struct WorkerPrepareContext<'world> {
+    builder: WorkerWorldBuilder<'world>,
+}
+
+impl<'world> WorkerPrepareContext<'world> {
+    pub(crate) fn new(lease: &ParallelWorldLease<'world>) -> Self {
+        Self {
+            builder: lease.builder(),
+        }
+    }
+
+    pub(crate) fn builder(&mut self) -> &mut WorkerWorldBuilder<'world> {
+        &mut self.builder
+    }
+
+    pub(crate) fn finish(self) -> PreparedWorkerWorld<'world> {
+        self.builder.finish()
+    }
+}
+
+#[derive(Copy, Clone)]
+enum SystemParamContextBacking<'world> {
+    Serial {
+        authority: WorldAuthority<'world>,
+        mutation_journal: NonNull<MutationJournal>,
+        local_commands: Option<NonNull<LocalCommands<'static>>>,
+        commands: Option<NonNull<Commands<'static>>>,
+    },
+    Worker {
+        authority: WorkerWorldAuthority<'world>,
+        mutation_journal: NonNull<MutationJournal>,
+        commands: Option<NonNull<Commands<'static>>>,
+    },
+}
+
 /// Invocation-scoped extraction context owned by the RunenECS runtime.
 ///
-/// Safe system code never constructs this value. It is public only because the
-/// low-level [`SystemParam`] contract must remain reachable by downstream derive
-/// expansion and the maintained engine-owned exclusive-world parameter.
+/// Safe system code never constructs this value. Serial extraction contains the
+/// serial World authority. Worker extraction is a distinct backing created only
+/// from a prepared worker package and cannot reconstruct `&mut World` or
+/// `LocalCommands`.
 #[doc(hidden)]
 #[derive(Copy, Clone)]
 pub struct SystemParamContext<'world> {
-    authority: WorldAuthority<'world>,
-    mutation_journal: NonNull<MutationJournal>,
-    local_commands: Option<NonNull<LocalCommands<'static>>>,
-    commands: Option<NonNull<Commands<'static>>>,
-    _marker: PhantomData<&'world mut World>,
+    backing: SystemParamContextBacking<'world>,
 }
 
 impl<'world> SystemParamContext<'world> {
@@ -100,44 +138,92 @@ impl<'world> SystemParamContext<'world> {
         commands: Option<&'world mut Commands<'static>>,
     ) -> Self {
         Self {
-            authority: WorldAuthority::new(world),
-            mutation_journal: NonNull::from(mutation_journal),
-            local_commands: local_commands.map(NonNull::from),
-            commands: commands.map(NonNull::from),
-            _marker: PhantomData,
+            backing: SystemParamContextBacking::Serial {
+                authority: WorldAuthority::new(world),
+                mutation_journal: NonNull::from(mutation_journal),
+                local_commands: local_commands.map(NonNull::from),
+                commands: commands.map(NonNull::from),
+            },
+        }
+    }
+
+    pub(crate) fn new_worker(
+        authority: WorkerWorldAuthority<'world>,
+        mutation_journal: &'world mut MutationJournal,
+        commands: Option<&'world mut Commands<'static>>,
+    ) -> Self {
+        Self {
+            backing: SystemParamContextBacking::Worker {
+                authority,
+                mutation_journal: NonNull::from(mutation_journal),
+                commands: commands.map(NonNull::from),
+            },
         }
     }
 
     pub(crate) fn query(self) -> crate::world::QueryCapability<'world> {
-        self.authority.query_with_journal(self.mutation_journal)
+        match self.backing {
+            SystemParamContextBacking::Serial {
+                authority,
+                mutation_journal,
+                ..
+            } => authority.query_with_journal(mutation_journal),
+            SystemParamContextBacking::Worker {
+                authority,
+                mutation_journal,
+                ..
+            } => authority.query_with_journal(mutation_journal),
+        }
     }
 
     pub(crate) fn resource<T: crate::Resource>(
         self,
     ) -> Result<crate::world::ResourceCapability<'world, T>, SystemParamError> {
-        Ok(self.authority.resource::<T>()?)
+        match self.backing {
+            SystemParamContextBacking::Serial { authority, .. } => Ok(authority.resource::<T>()?),
+            SystemParamContextBacking::Worker { authority, .. } => Ok(authority.resource::<T>()?),
+        }
     }
 
     pub(crate) fn resource_mut<T: crate::Resource>(
         self,
     ) -> Result<crate::world::ResourceCapability<'world, T>, SystemParamError> {
-        Ok(self.authority.resource_mut::<T>(self.mutation_journal)?)
+        match self.backing {
+            SystemParamContextBacking::Serial {
+                authority,
+                mutation_journal,
+                ..
+            } => Ok(authority.resource_mut::<T>(mutation_journal)?),
+            SystemParamContextBacking::Worker {
+                authority,
+                mutation_journal,
+                ..
+            } => Ok(authority.resource_mut::<T>(mutation_journal)?),
+        }
     }
 
     /// # Safety
     /// The caller must have declared exclusive-world access and must not retain
-    /// any sibling world capability.
+    /// any sibling world capability. Worker contexts can never satisfy this
+    /// contract and therefore reject the operation.
     pub unsafe fn world_mut(self) -> &'world mut World {
-        unsafe { self.authority.world_mut() }
+        match self.backing {
+            SystemParamContextBacking::Serial { authority, .. } => unsafe { authority.world_mut() },
+            SystemParamContextBacking::Worker { .. } => {
+                panic!("prepared worker context cannot yield exclusive World access")
+            }
+        }
     }
 
     pub(crate) fn local_commands(self) -> LocalCommands<'world> {
+        let SystemParamContextBacking::Serial { local_commands, .. } = self.backing else {
+            panic!("prepared worker context cannot yield LocalCommands");
+        };
         // Safety: the runtime constructs this pointer from the live command
         // owner and keeps it valid until extraction finishes. Only a shared
-        // owner read is needed to clone its external queue; no mutable owner
-        // reference is manufactured from the copied context.
+        // owner read is needed to clone its external queue.
         let queue = unsafe {
-            self.local_commands
+            local_commands
                 .expect("local command owner must be available for LocalCommands")
                 .as_ref()
                 .external_queue()
@@ -147,11 +233,15 @@ impl<'world> SystemParamContext<'world> {
     }
 
     pub(crate) fn commands(self) -> Commands<'world> {
-        // Safety: the runtime constructs this pointer from the live transfer-safe
-        // command owner and keeps it valid until extraction finishes. Only a
-        // shared owner read is needed to clone its external queue.
+        let commands = match self.backing {
+            SystemParamContextBacking::Serial { commands, .. }
+            | SystemParamContextBacking::Worker { commands, .. } => commands,
+        };
+        // Safety: the runtime constructs this pointer from a live command owner
+        // on the current invocation thread and keeps it valid until extraction
+        // finishes. Worker owners are constructed on the worker itself.
         let queue = unsafe {
-            self.commands
+            commands
                 .expect("command owner must be available for Commands")
                 .as_ref()
                 .external_queue()
@@ -200,23 +290,32 @@ pub unsafe trait SystemParam: Sized {
     ) -> Result<Self::Item<'world, 'state>, SystemParamError>;
 }
 
-/// Framework-owned proof that a system parameter's cached state and access
-/// shape are eligible for a future worker-safe invocation.
+/// Framework-owned proof that a system parameter's cached state and concrete
+/// payload/metadata access shape can be prepared for worker execution.
 ///
-/// This is deliberately separate from [`SystemParam`]: the serial extraction
-/// context remains invoker-thread-local, and this proof does not authorize
-/// moving that context or executing a system on a worker today.
+/// The preparation hook runs on the invoker under the structural-freeze lease
+/// while the concrete parameter type is still known. It must place only narrow
+/// worker-safe projections into `context`; scheduler `QueryAccess` metadata by
+/// itself is never sufficient to implement this proof.
 ///
 /// # Safety
 ///
-/// An implementation must ensure that the parameter's cached [`SystemParam::State`]
-/// can be moved to another thread and that every value reachable through its
-/// declared access shape satisfies the exact `Send`/`Sync` requirements of the
-/// maintained parameter form. It must not use this proof to widen the
-/// parameter's access metadata or to transfer invocation-scoped references.
+/// Implementations must preserve the exact `Send`/`Sync` requirements of every
+/// payload reachable through the parameter and prepare every metadata domain
+/// later consulted by normal `SystemParam::extract` on the worker. They must not
+/// move the serial `SystemParamContext`, World authority, LocalCommands, or a
+/// live invoker-created Commands owner to the worker.
 #[doc(hidden)]
 pub unsafe trait TransferableSystemParam: SystemParam
 where
     Self::State: Send,
 {
+    fn prepare_worker(
+        _state: &Self::State,
+        _context: &mut WorkerPrepareContext<'_>,
+    ) -> Result<(), SystemParamError> {
+        Err(SystemParamError::RuntimeContext(
+            "transferable system param has no worker preparation proof",
+        ))
+    }
 }

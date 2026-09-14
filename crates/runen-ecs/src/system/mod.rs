@@ -1,3 +1,4 @@
+mod concurrent;
 mod extract;
 mod params;
 pub(crate) mod runtime;
@@ -183,7 +184,7 @@ pub use crate::scheduler::system::OrderingPresence;
 pub use crate::scheduler::system::ParamSlotDescriptor;
 pub use extract::{
     DeferredRecorderClass, DeferredRecorderConflict, SystemParam, SystemParamContext,
-    SystemParamError, TransferableSystemParam,
+    SystemParamError, TransferableSystemParam, WorkerPrepareContext,
 };
 pub use params::{Res, ResMut, WorldMut};
 pub use runtime::{

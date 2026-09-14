@@ -1,7 +1,7 @@
 // Owner: RunenECS - Query Runtime
 use crate::component::{Component, Resource};
 use crate::entity::Entity;
-use crate::world::{ChangeCursor, QueryCapability};
+use crate::world::{ChangeCursor, QueryCapability, WorkerWorldBuilder};
 use std::any::TypeId;
 use std::marker::PhantomData;
 
@@ -295,7 +295,9 @@ pub trait QueryFilter: sealed::QueryFilterSealed {
 /// Implementations must describe only filter forms whose execution touches no
 /// component payload requiring a `Send` or `Sync` bound beyond the filter's
 /// own cached state.
-pub(crate) unsafe trait TransferableQueryFilter: QueryFilter {}
+pub(crate) unsafe trait TransferableQueryFilter: QueryFilter {
+    fn prepare_worker(builder: &mut WorkerWorldBuilder<'_>);
+}
 
 impl QueryFilter for () {
     fn configure(_required: &mut Vec<TypeId>, _excluded: &mut Vec<TypeId>) {}
@@ -431,14 +433,37 @@ macro_rules! impl_query_filter_tuple {
 
 impl_query_filter_tuple!((A, B, C), (A, B, C, D), (A, B, C, D, E), (A, B, C, D, E, F));
 
-unsafe impl TransferableQueryFilter for () {}
-unsafe impl<T: Component> TransferableQueryFilter for With<T> {}
-unsafe impl<T: Component> TransferableQueryFilter for Without<T> {}
-unsafe impl<T: Component> TransferableQueryFilter for Changed<T> {}
-unsafe impl<T: Component> TransferableQueryFilter for Added<T> {}
+unsafe impl TransferableQueryFilter for () {
+    fn prepare_worker(_builder: &mut WorkerWorldBuilder<'_>) {}
+}
+
+unsafe impl<T: Component> TransferableQueryFilter for With<T> {
+    fn prepare_worker(_builder: &mut WorkerWorldBuilder<'_>) {}
+}
+
+unsafe impl<T: Component> TransferableQueryFilter for Without<T> {
+    fn prepare_worker(_builder: &mut WorkerWorldBuilder<'_>) {}
+}
+
+unsafe impl<T: Component> TransferableQueryFilter for Changed<T> {
+    fn prepare_worker(builder: &mut WorkerWorldBuilder<'_>) {
+        builder.prepare_component_metadata::<T>();
+    }
+}
+
+unsafe impl<T: Component> TransferableQueryFilter for Added<T> {
+    fn prepare_worker(builder: &mut WorkerWorldBuilder<'_>) {
+        builder.prepare_component_metadata::<T>();
+    }
+}
+
 unsafe impl<A: TransferableQueryFilter, B: TransferableQueryFilter> TransferableQueryFilter
     for (A, B)
 {
+    fn prepare_worker(builder: &mut WorkerWorldBuilder<'_>) {
+        A::prepare_worker(builder);
+        B::prepare_worker(builder);
+    }
 }
 
 macro_rules! impl_transferable_query_filter_tuple {
@@ -447,6 +472,9 @@ macro_rules! impl_transferable_query_filter_tuple {
             unsafe impl<$($name: TransferableQueryFilter,)+> TransferableQueryFilter
                 for ($($name,)+)
             {
+                fn prepare_worker(builder: &mut WorkerWorldBuilder<'_>) {
+                    $($name::prepare_worker(builder);)+
+                }
             }
         )+
     };

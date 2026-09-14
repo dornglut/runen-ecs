@@ -6,3 +6,4 @@ toolchain="nightly-2026-08-25"
 
 cd "$repo_root"
 cargo +"$toolchain" miri test -p runen-ecs --test miri_c3 --locked -- --nocapture
+cargo +"$toolchain" miri test -p runen-ecs --lib system::concurrent::tests --locked -- --nocapture
