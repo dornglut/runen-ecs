@@ -1,21 +1,28 @@
-error[E0277]: the trait bound `Commands<'static>: runen_ecs::TransferableSystemParam` is not satisfied
- --> tests/ui/mobility_commands.rs:8:27
-  |
-8 |     assert_transferable::<runen_ecs::Commands<'static>>();
-  |                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ the trait `runen_ecs::TransferableSystemParam` is not implemented for `Commands<'static>`
-  |
-  = help: the following other types implement trait `runen_ecs::TransferableSystemParam`:
-            (A, B)
-            (A, B, C)
-            (A, B, C, D)
-            (A, B, C, D, E)
-            (A, B, C, D, E, F)
-            (A, B, C, D, E, F, G)
-            (A, B, C, D, E, F, G, H)
-            Query<'param, 'cached, Q, F>
-          and $N others
-note: required by a bound in `assert_transferable`
- --> tests/ui/mobility_commands.rs:1:27
-  |
-1 | fn assert_transferable<P: runen_ecs::TransferableSystemParam>()
-  |                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `assert_transferable`
+error[E0277]: the trait bound `for<'a> fn(LocalCommands<'a>) {local_system}: IntoSystemConfigs<_>` is not satisfied
+  --> tests/ui/mobility_commands.rs:12:35
+   |
+12 |     runtime.add_systems::<Update, _, _>(&mut world, local_system);
+   |             -----------           ^ the trait `IntoSystem<_>` is not implemented for fn item `for<'a> fn(LocalCommands<'a>) {local_system}`
+   |             |
+   |             required by a bound introduced by this call
+   |
+   = help: the following other types implement trait `IntoSystem<Marker>`:
+             `ConfiguredSystem<S, Marker>` implements `IntoSystem<Marker>`
+             `InvokerThreadSystem<Func>` implements `IntoSystem<fn() -> R>`
+             `InvokerThreadSystem<Func>` implements `IntoSystem<fn(A) -> R>`
+             `InvokerThreadSystem<Func>` implements `IntoSystem<fn(A, B) -> R>`
+             `InvokerThreadSystem<Func>` implements `IntoSystem<fn(A, B, C) -> R>`
+             `InvokerThreadSystem<Func>` implements `IntoSystem<fn(A, B, C, D) -> R>`
+             `InvokerThreadSystem<Func>` implements `IntoSystem<fn(A, B, C, D, E) -> R>`
+             `InvokerThreadSystem<Func>` implements `IntoSystem<fn(A, B, C, D, E, F) -> R>`
+           and $N others
+   = note: required for `for<'a> fn(LocalCommands<'a>) {local_system}` to implement `system::runtime::system_configs_sealed::RegisterSystemConfigs<_>`
+   = note: required for `for<'a> fn(LocalCommands<'a>) {local_system}` to implement `IntoSystemConfigs<_>`
+note: required by a bound in `Runtime::add_systems`
+  --> src/system/runtime.rs
+   |
+   |     pub fn add_systems<L, S, Marker>(&mut self, world: &mut World, systems: S) -> &mut Self
+   |            ----------- required by a bound in this associated function
+...
+   |         S: IntoSystemConfigs<Marker>,
+   |            ^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `Runtime::add_systems`

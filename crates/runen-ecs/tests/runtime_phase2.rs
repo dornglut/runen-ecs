@@ -1,3 +1,4 @@
+use runen_ecs::LocalCommands;
 use runen_ecs::prelude::*;
 use runen_ecs::{QueryAccess, SystemParam, SystemParamError};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -62,7 +63,7 @@ fn runtime_executes_1_2_and_8_param_systems() {
         dt: Res<DeltaTime>,
         mut frame: ResMut<Frame>,
         mut score: ResMut<Score>,
-        mut commands: Commands,
+        mut commands: LocalCommands,
         bonus: Res<Bonus>,
         scale: Res<Scale>,
         extra_score: Res<ExtraScore>,
@@ -205,7 +206,7 @@ fn res_provides_read_only_resource_access() {
 
 #[test]
 fn commands_publish_at_frontier_not_between_unordered_systems() {
-    fn enqueue_spawn(mut commands: Commands) {
+    fn enqueue_spawn(mut commands: LocalCommands) {
         commands.spawn(Marker);
     }
 

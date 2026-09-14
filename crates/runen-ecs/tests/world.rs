@@ -1,4 +1,5 @@
 use runen_ecs::EntityError;
+use runen_ecs::LocalCommands;
 use runen_ecs::prelude::*;
 use runen_ecs::{QueryTypeAccess, SystemParam};
 use std::any::TypeId;
@@ -212,7 +213,7 @@ fn commands_apply_spawn_insert_and_despawn() {
         .spawn(Position { x: 99.0, y: 99.0 })
         .expect("spawn should succeed");
 
-    let mut commands = world.commands();
+    let mut commands = world.local_commands();
     commands.spawn((Position { x: 3.0, y: 4.0 }, Velocity { x: 0.0, y: 1.0 }));
     commands.insert(existing, Velocity { x: 5.0, y: 6.0 });
     commands.despawn(doomed);
@@ -796,7 +797,7 @@ fn component_index_rebuild_remains_correct_under_churn() {
 
 #[test]
 fn command_queued_spawn_is_visible_after_publication_and_not_readded_next_run() {
-    fn queue_spawn_once(mut gate: ResMut<SpawnGate>, mut commands: Commands) {
+    fn queue_spawn_once(mut gate: ResMut<SpawnGate>, mut commands: LocalCommands) {
         if gate.0 {
             return;
         }
@@ -878,7 +879,7 @@ fn world_for_param_access_checks() {
         TypeId::of::<Frame>()
     ));
 
-    let commands_access = <Commands<'static> as SystemParam>::access(&());
+    let commands_access = <LocalCommands<'static> as SystemParam>::access(&());
     assert!(commands_access.deferred_structural_mutation());
 }
 

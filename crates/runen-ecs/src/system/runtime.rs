@@ -18,20 +18,20 @@ use std::panic::{AssertUnwindSafe, catch_unwind, resume_unwind};
 use std::rc::Rc;
 
 use crate::query::QueryAccess;
-use crate::{Commands, TransferableCommands, World};
+use crate::{Commands, LocalCommands, World};
 
 type Result<T> = std::result::Result<T, RuntimeError>;
 
 type DeferredCommands = Rc<RefCell<Vec<DeferredCommandBuffer>>>;
 
 pub(crate) enum DeferredCommandBuffer {
-    Local(Commands<'static>),
+    Local(LocalCommands<'static>),
     Transferable(TransferableCommandBuffer),
 }
 
 pub(crate) enum InvocationOutcome {
     None,
-    Local(Commands<'static>),
+    Local(LocalCommands<'static>),
     Transferable(TransferableCommandBuffer),
 }
 
@@ -654,7 +654,7 @@ macro_rules! build_registered_system {
                 let mut mutation_journal = MutationJournal::new(&*world);
                 let mut transferable_commands = (deferred_recorder_class
                     == DeferredRecorderClass::TransferableDeferred)
-                    .then(TransferableCommands::new_external_owner);
+                    .then(Commands::new_external_owner);
                 let invocation_result = {
                     let context = SystemParamContext::new(
                         world,
@@ -744,10 +744,10 @@ macro_rules! build_registered_system {
                 let mut mutation_journal = MutationJournal::new(&*world);
                 let mut commands = (deferred_recorder_class
                     == DeferredRecorderClass::LocalDeferred)
-                    .then(Commands::new_external_owner);
+                    .then(LocalCommands::new_external_owner);
                 let mut transferable_commands = (deferred_recorder_class
                     == DeferredRecorderClass::TransferableDeferred)
-                    .then(TransferableCommands::new_external_owner);
+                    .then(Commands::new_external_owner);
                 let invocation_result = {
                     let context = SystemParamContext::new(
                         world,

@@ -1,3 +1,4 @@
+use runen_ecs::LocalCommands;
 use runen_ecs::prelude::*;
 use runen_ecs::{DeferredRecorderClass, QueryAccess, RuntimeError, SystemParam, SystemParamError};
 use std::marker::PhantomData;
@@ -91,7 +92,7 @@ struct LifetimeCollisionParamGroup<'w> {
 #[derive(runen_ecs::SystemParam)]
 #[allow(dead_code)]
 struct DerivedLocal<'w> {
-    commands: Commands<'w>,
+    commands: LocalCommands<'w>,
 }
 
 #[derive(runen_ecs::SystemParam)]
@@ -240,11 +241,11 @@ fn grouped_conflicting_resource_borrows_are_rejected() {
 
 #[test]
 fn unordered_command_systems_merge_deterministically_without_visibility() {
-    fn enqueue_first(mut commands: Commands) {
+    fn enqueue_first(mut commands: LocalCommands) {
         commands.spawn(Marker(1));
     }
 
-    fn enqueue_second(mut commands: Commands) {
+    fn enqueue_second(mut commands: LocalCommands) {
         commands.spawn(Marker(2));
     }
 
@@ -278,7 +279,7 @@ fn unordered_command_systems_merge_deterministically_without_visibility() {
 
 #[test]
 fn deferred_commands_publish_before_semantic_frontier_callback() {
-    fn enqueue_producer(mut commands: Commands) {
+    fn enqueue_producer(mut commands: LocalCommands) {
         commands.spawn(Marker(7));
     }
 
@@ -318,7 +319,7 @@ fn deferred_commands_publish_before_semantic_frontier_callback() {
 #[test]
 fn deferred_recorder_class_is_composed_structurally() {
     assert_eq!(
-        <Commands<'static> as SystemParam>::deferred_recorder_class().unwrap(),
+        <LocalCommands<'static> as SystemParam>::deferred_recorder_class().unwrap(),
         DeferredRecorderClass::LocalDeferred
     );
     assert_eq!(
@@ -330,20 +331,22 @@ fn deferred_recorder_class_is_composed_structurally() {
         DeferredRecorderClass::LocalDeferred
     );
     assert_eq!(
-        <(DerivedLocal<'static>, Commands<'static>) as SystemParam>::deferred_recorder_class()
+        <(DerivedLocal<'static>, LocalCommands<'static>) as SystemParam>::deferred_recorder_class()
             .unwrap(),
         DeferredRecorderClass::LocalDeferred
     );
     assert_eq!(
         <(
-            (Commands<'static>, Res<'static, SeenCount>),
+            (LocalCommands<'static>, Res<'static, SeenCount>),
             DerivedLocal<'static>
         ) as SystemParam>::deferred_recorder_class()
         .unwrap(),
         DeferredRecorderClass::LocalDeferred
     );
     assert_eq!(
-        <(Commands<'static>, Commands<'static>) as SystemParam>::deferred_recorder_class().unwrap(),
+        <(LocalCommands<'static>, LocalCommands<'static>) as SystemParam>::deferred_recorder_class(
+        )
+        .unwrap(),
         DeferredRecorderClass::LocalDeferred
     );
     assert_eq!(
@@ -396,7 +399,7 @@ fn schedule_without_deferred_parameters_has_no_frontier_callback() {
 
 #[test]
 fn empty_deferred_buffer_still_reaches_its_structural_frontier() {
-    fn empty_commands(_commands: Commands) {}
+    fn empty_commands(_commands: LocalCommands) {}
 
     let mut world = World::new();
     let mut runtime = Runtime::new();
@@ -418,7 +421,7 @@ fn empty_deferred_buffer_still_reaches_its_structural_frontier() {
 
 #[test]
 fn queue_empty_and_nonempty_runs_share_the_same_frontier_sequence() {
-    fn conditional_producer(emit: Res<EmitCommands>, mut commands: Commands) {
+    fn conditional_producer(emit: Res<EmitCommands>, mut commands: LocalCommands) {
         if emit.0 {
             commands.spawn(Marker(7));
         }
@@ -463,7 +466,7 @@ fn queue_empty_and_nonempty_runs_share_the_same_frontier_sequence() {
 
 #[test]
 fn frontier_callback_error_keeps_publication_and_stops_later_systems() {
-    fn producer(mut commands: Commands) {
+    fn producer(mut commands: LocalCommands) {
         commands.spawn(Marker(11));
     }
     fn later(mut seen: ResMut<SeenCount>) {
@@ -492,7 +495,7 @@ fn frontier_callback_error_keeps_publication_and_stops_later_systems() {
 
 #[test]
 fn frontier_callback_panic_preserves_publication_and_runtime_reuse() {
-    fn producer(mut commands: Commands) {
+    fn producer(mut commands: LocalCommands) {
         commands.spawn(Marker(12));
     }
     fn later(mut seen: ResMut<SeenCount>) {
@@ -528,7 +531,7 @@ fn system_error_before_unreached_frontier_skips_callback_and_later_systems() {
     fn fail() -> Result<(), std::io::Error> {
         Err(std::io::Error::other("intentional system error"))
     }
-    fn producer(mut commands: Commands) {
+    fn producer(mut commands: LocalCommands) {
         commands.spawn(Marker(18));
     }
     fn later(mut seen: ResMut<SeenCount>) {
@@ -565,7 +568,7 @@ fn system_error_before_unreached_frontier_skips_callback_and_later_systems() {
 
 #[test]
 fn deferred_application_error_is_fail_stop_after_prior_commands() {
-    fn producer(target: Res<TargetEntity>, mut commands: Commands) {
+    fn producer(target: Res<TargetEntity>, mut commands: LocalCommands) {
         let entity = target.0;
         commands.queue(move |world| {
             world.despawn(entity)?;
@@ -607,7 +610,7 @@ fn deferred_application_error_is_fail_stop_after_prior_commands() {
 
 #[test]
 fn deferred_application_panic_is_fail_stop_without_leaking_later_commands() {
-    fn producer(mut gate: ResMut<SpawnGate>, mut commands: Commands) {
+    fn producer(mut gate: ResMut<SpawnGate>, mut commands: LocalCommands) {
         commands.spawn(Marker(14));
         if !gate.0 {
             gate.0 = true;
@@ -648,7 +651,7 @@ fn deferred_application_panic_is_fail_stop_without_leaking_later_commands() {
 
 #[test]
 fn frontier_callback_runs_on_invoking_thread_with_exclusive_world() {
-    fn producer(mut commands: Commands) {
+    fn producer(mut commands: LocalCommands) {
         commands.spawn(Marker(17));
     }
 
@@ -674,10 +677,10 @@ fn frontier_callback_runs_on_invoking_thread_with_exclusive_world() {
 
 #[test]
 fn canonical_frontiers_are_multiple_and_later_frontier_may_be_empty() {
-    fn first_producer(mut commands: Commands) {
+    fn first_producer(mut commands: LocalCommands) {
         commands.spawn(Marker(1));
     }
-    fn second_producer(_commands: Commands) {}
+    fn second_producer(_commands: LocalCommands) {}
     fn prepare() {}
     fn first_successor(mut seen: ResMut<SeenCount>, mut query: Query<&Marker>) {
         seen.0 = query.iter().count() as u32;
@@ -723,7 +726,7 @@ fn canonical_frontiers_are_multiple_and_later_frontier_may_be_empty() {
 #[test]
 fn closure_commands_queue_api_remains_functional() {
     let mut world = World::new();
-    let mut commands = world.commands();
+    let mut commands = world.local_commands();
     commands.queue(|world| {
         let _ = world.spawn(Marker(33))?;
         Ok(())
@@ -743,7 +746,7 @@ fn closure_commands_queue_api_remains_functional() {
 #[test]
 fn typed_deferred_commands_apply_correctly() {
     let mut world = World::new();
-    let mut commands = world.commands();
+    let mut commands = world.local_commands();
     commands.queue(|world| {
         let _ = world.spawn(Marker(77))?;
         Ok(())
@@ -763,7 +766,7 @@ fn typed_deferred_commands_apply_correctly() {
 #[test]
 fn mixed_closure_and_typed_commands_apply_in_deterministic_order() {
     let mut world = World::new();
-    let mut commands = world.commands();
+    let mut commands = world.local_commands();
     commands.spawn(Marker(1));
     commands.queue(|world| {
         let _ = world.spawn(Marker(2))?;
@@ -791,7 +794,7 @@ fn mixed_closure_and_typed_commands_apply_in_deterministic_order() {
 #[test]
 fn batch_commands_apply_in_deterministic_insertion_order() {
     let mut world = World::new();
-    let mut commands = world.commands();
+    let mut commands = world.local_commands();
     commands.batch(|batch| {
         batch.spawn(Marker(1));
         batch.queue(|world| {
@@ -816,7 +819,7 @@ fn batch_commands_apply_in_deterministic_insertion_order() {
 
 #[test]
 fn batch_commands_do_not_mutate_before_publication() {
-    fn enqueue_batch(mut commands: Commands) {
+    fn enqueue_batch(mut commands: LocalCommands) {
         commands.batch(|batch| {
             batch.spawn(Marker(9));
         });
@@ -843,7 +846,7 @@ fn batch_commands_do_not_mutate_before_publication() {
 #[test]
 fn batch_and_non_batch_commands_share_queue_order_deterministically() {
     let mut world = World::new();
-    let mut commands = world.commands();
+    let mut commands = world.local_commands();
     commands.spawn(Marker(1));
     commands.batch(|batch| {
         batch.spawn(Marker(2));
@@ -873,7 +876,7 @@ fn batch_and_non_batch_commands_share_queue_order_deterministically() {
 fn batch_supports_mixed_command_kinds() {
     let mut world = World::new();
     let entity = world.spawn(Marker(1)).expect("spawn should succeed");
-    let mut commands = world.commands();
+    let mut commands = world.local_commands();
     commands.batch(|batch| {
         batch.queue(move |world| {
             world.insert(entity, Extra(5))?;
@@ -894,7 +897,7 @@ fn batch_supports_mixed_command_kinds() {
 fn batch_stops_on_first_error_and_keeps_earlier_mutations() {
     let mut world = World::new();
     let target = world.spawn(Marker(0)).expect("spawn should succeed");
-    let mut commands = world.commands();
+    let mut commands = world.local_commands();
     commands.batch(|batch| {
         batch.spawn(Marker(10));
         batch.remove::<Extra>(target);
@@ -919,14 +922,14 @@ fn batch_stops_on_first_error_and_keeps_earlier_mutations() {
 
 #[test]
 fn multiple_batches_in_one_schedule_keep_deterministic_system_order() {
-    fn enqueue_batch_a(mut commands: Commands) {
+    fn enqueue_batch_a(mut commands: LocalCommands) {
         commands.batch(|batch| {
             batch.spawn(Marker(1));
             batch.spawn(Marker(2));
         });
     }
 
-    fn enqueue_batch_b(mut commands: Commands) {
+    fn enqueue_batch_b(mut commands: LocalCommands) {
         commands.batch(|batch| {
             batch.spawn(Marker(3));
         });
@@ -953,7 +956,7 @@ fn multiple_batches_in_one_schedule_keep_deterministic_system_order() {
 
 #[test]
 fn typed_commands_do_not_mutate_before_publication() {
-    fn enqueue_typed(mut commands: Commands) {
+    fn enqueue_typed(mut commands: LocalCommands) {
         commands.queue(|world| {
             let _ = world.spawn(Marker(9))?;
             Ok(())
@@ -980,7 +983,7 @@ fn typed_commands_do_not_mutate_before_publication() {
 
 #[test]
 fn typed_commands_follow_semantic_frontier_visibility_contract() {
-    fn enqueue_typed_producer(target: Res<TargetEntity>, mut commands: Commands) {
+    fn enqueue_typed_producer(target: Res<TargetEntity>, mut commands: LocalCommands) {
         let entity = target.0;
         commands.queue(move |world| {
             world.insert(entity, Extra(17))?;
@@ -1019,12 +1022,12 @@ static NEXT_MARKER_ID: AtomicU32 = AtomicU32::new(0);
 
 #[test]
 fn borrowed_command_owner_is_stable_across_repeated_runs() {
-    fn enqueue_a(mut commands: Commands) {
+    fn enqueue_a(mut commands: LocalCommands) {
         let id = NEXT_MARKER_ID.fetch_add(1, Ordering::SeqCst);
         commands.spawn(Marker(id));
     }
 
-    fn enqueue_b(mut commands: Commands) {
+    fn enqueue_b(mut commands: LocalCommands) {
         let id = NEXT_MARKER_ID.fetch_add(1, Ordering::SeqCst);
         commands.spawn(Marker(id));
     }
@@ -1056,7 +1059,7 @@ fn borrowed_command_owner_is_stable_across_repeated_runs() {
 fn failed_schedule_drops_unpublished_deferred_commands_instead_of_replaying_next_run() {
     fn enqueue_then_fail_once(
         mut gate: ResMut<SpawnGate>,
-        mut commands: Commands,
+        mut commands: LocalCommands,
     ) -> Result<(), std::io::Error> {
         if gate.0 {
             return Ok(());
@@ -1139,7 +1142,11 @@ fn cached_system_param_state_reuse_is_stable_over_many_runs() {
 
 #[test]
 fn publication_structural_migration_is_visible_in_semantic_successor() {
-    fn queue_migration(mut step: ResMut<Step>, target: Res<TargetEntity>, mut commands: Commands) {
+    fn queue_migration(
+        mut step: ResMut<Step>,
+        target: Res<TargetEntity>,
+        mut commands: LocalCommands,
+    ) {
         match step.0 {
             0 => commands.insert(target.0, Extra(7)),
             1 => commands.remove::<Extra>(target.0),
@@ -1184,7 +1191,7 @@ fn publication_structural_migration_is_visible_in_semantic_successor() {
 
 #[test]
 fn system_order_controls_added_and_changed_visibility() {
-    fn queue_spawn_once(mut gate: ResMut<SpawnGate>, mut commands: Commands) {
+    fn queue_spawn_once(mut gate: ResMut<SpawnGate>, mut commands: LocalCommands) {
         if gate.0 {
             return;
         }
@@ -1242,7 +1249,7 @@ fn deferred_commands_keep_secondary_indexes_correct_after_apply() {
     fn queue_index_updates(
         mut step: ResMut<Step>,
         target: Res<TargetEntity>,
-        mut commands: Commands,
+        mut commands: LocalCommands,
     ) {
         match step.0 {
             0 => commands.insert(target.0, IndexedName("renamed".to_string())),

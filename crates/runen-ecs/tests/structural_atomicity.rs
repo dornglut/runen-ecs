@@ -1,4 +1,4 @@
-use runen_ecs::{BatchCommands, CommandError, Commands, EntityError, World};
+use runen_ecs::{CommandError, EntityError, LocalBatchCommands, LocalCommands, World};
 use std::any::TypeId;
 
 #[derive(Debug, PartialEq, Eq, runen_ecs::Component)]
@@ -203,7 +203,7 @@ fn component_observation_tick_matches_committed_storage_tick() {
 fn commands_fail_stop_without_rolling_back_prior_success_or_partially_applying_failure() {
     let mut world = World::new();
     let entity = world.spawn(A(1)).expect("spawn should succeed");
-    let mut commands = Commands::new();
+    let mut commands = LocalCommands::new();
     commands.insert(entity, C(2));
     commands.remove::<(A, B)>(entity);
     commands.insert(entity, D(3));
@@ -235,7 +235,7 @@ fn commands_fail_stop_without_rolling_back_prior_success_or_partially_applying_f
 fn batch_commands_share_non_transactional_fail_stop_semantics() {
     let mut world = World::new();
     let entity = world.spawn(A(1)).expect("spawn should succeed");
-    let mut batch = BatchCommands::new();
+    let mut batch = LocalBatchCommands::new();
     batch.insert(entity, C(2));
     batch.remove::<(A, B)>(entity);
     batch.insert(entity, D(3));

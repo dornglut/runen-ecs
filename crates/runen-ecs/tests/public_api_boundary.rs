@@ -24,6 +24,9 @@ fn prelude_remains_gameplay_focused() {
     assert!(!PRELUDE_RS.contains("ResView"));
     assert!(PRELUDE_RS.contains("ResMut"));
     assert!(PRELUDE_RS.contains("Commands"));
+    assert!(PRELUDE_RS.contains("BatchCommands"));
+    assert!(!PRELUDE_RS.contains("LocalCommands"));
+    assert!(!PRELUDE_RS.contains("LocalBatchCommands"));
     assert!(PRELUDE_RS.contains("Runtime"));
 
     assert!(!PRELUDE_RS.contains("QueryAccess"));

@@ -1,3 +1,4 @@
+use runen_ecs::LocalCommands;
 use runen_ecs::prelude::*;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, runen_ecs::Component, runen_ecs::Resource)]
@@ -746,7 +747,7 @@ fn changed_filter_tracks_get_mut_using_archetype_metadata_ticks() {
 
 #[test]
 fn added_filter_respects_command_publication_frontier() {
-    fn queue_spawn_once(mut gate: ResMut<QuerySpawnGate>, mut commands: Commands) {
+    fn queue_spawn_once(mut gate: ResMut<QuerySpawnGate>, mut commands: LocalCommands) {
         if gate.0 {
             return;
         }

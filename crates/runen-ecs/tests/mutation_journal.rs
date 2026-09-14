@@ -1,3 +1,4 @@
+use runen_ecs::LocalCommands;
 use runen_ecs::RuntimeError;
 use runen_ecs::prelude::*;
 use std::error::Error;
@@ -116,7 +117,7 @@ fn journal_reconciles_before_resuming_original_user_panic() {
     let mut runtime = Runtime::new();
     runtime.add_systems::<Update, _, _>(
         &mut world,
-        (move |mut query: Query<&mut A>, mut commands: Commands| -> () {
+        (move |mut query: Query<&mut A>, mut commands: LocalCommands| -> () {
             query.get(entity).expect("component should exist").0 = 7;
             commands.spawn(Marker);
             std::panic::panic_any(PanicPayload(7));

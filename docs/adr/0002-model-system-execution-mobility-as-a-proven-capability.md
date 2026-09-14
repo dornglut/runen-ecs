@@ -6,6 +6,12 @@
 >
 > **Decision date:** 2026-09-11
 
+> **Current command terminology (2026-09-14):** Later accepted deferred-command
+> work added the transfer-safe recorder, and issue #69 normalized public names so
+> `Commands` is that normal transfer-safe capability while `LocalCommands` is the
+> explicit invoker-thread-only capability. This updates terminology only; the
+> mobility proof and local-capability decision below are unchanged.
+
 ## Context
 
 RunenECS intentionally permits `Component` and `Resource` types that are only
@@ -21,7 +27,7 @@ representation is invoker-thread-local:
 - system parameter state may itself be non-`Send`;
 - `QueryState` currently uses `Rc<RefCell<...>>` scratch ownership;
 - the runtime deferred-command owner uses `Rc<RefCell<...>>`;
-- `Commands::queue` accepts arbitrary `'static` closures without a `Send`
+- `LocalCommands::queue` accepts arbitrary `'static` closures without a `Send`
   bound, so a queued effect may capture thread-bound state;
 - `WorldMut` exposes the complete World, which may contain `!Send` / `!Sync`
   data.
@@ -175,7 +181,7 @@ The transferable proof for built-in parameters follows these rules.
 | `ResMut<T>` | `T: Resource + Send` |
 | `RemovedQuery<T>` | transfer-safe cached state when only removal metadata is read |
 | `WorldMut` | never transferable |
-| current ordinary `Commands` | never transferable |
+| current ordinary `LocalCommands` | never transferable |
 
 The table describes semantic proof requirements, not the current storage
 implementation. If incidental runtime state is non-`Send`, implementation must
@@ -225,28 +231,20 @@ The first prevents conflicting concurrent World access. The second fixes the
 invocation to the invoker thread. Neither fact should be inferred from the
 other in the general model.
 
-### 8. Current ordinary Commands are invoker-thread-only
+### 8. Deferred command capabilities preserve mobility explicitly
 
-The existing `Commands` contract remains ordered fail-stop deferred work and
-continues to accept arbitrary `'static` queued closures.
+`Commands` is the normal transfer-safe deferred recorder. Its queued effects carry the
+required transfer bound, and normal systems using it may satisfy the transferable proof
+when their other callable/parameter facts do as well.
 
-Because those closures may capture `!Send` state, and because the current queue
-ownership itself uses `Rc` / `RefCell`, ordinary `Commands` cannot participate
-in the transferable proof.
+`LocalCommands` is the explicit invoker-thread-only recorder. It continues to accept
+arbitrary `'static` queued closures that may capture `!Send` state, so it cannot
+participate in the transferable proof and must be used through explicit
+`system.on_invoker_thread()` registration.
 
-RunenECS will not silently tighten `Commands::queue` to require `Send`, because
-that would remove valid invoker-thread behavior from an existing semantic
-surface.
-
-A future worker-safe deferred-command recorder, if justified by the parallel
-executor design, must be an explicit distinct capability whose queued effects
-have the required transfer bound and whose deterministic publication semantics
-are defined by that executor work. ADR 0002 does not name or implement that
-future API.
-
-Deferred structural mutation as a semantic concept is not inherently
-invoker-thread-only; the current `Commands` capability is.
-
+Both capabilities retain the same semantic deferred-mutation model: ordered fail-stop
+application and schedule-derived publication visibility. The distinction is execution
+mobility of the deferred work, not whether structural mutation is conceptually local.
 ### 9. Callable and parameter proofs must survive type erasure
 
 The registered-system representation must preserve the distinction structurally.
@@ -261,7 +259,7 @@ through a safe API as a transferable runner.
 
 The current runtime captures an `Rc<RefCell<...>>` deferred-command owner in
 every generated runner. That incidental capture must not survive in a runner
-classified transferable. Because current ordinary `Commands` is itself
+classified transferable. Because current ordinary `LocalCommands` is itself
 invoker-thread-only, transfer-capable runners can be separated from that local
 deferred owner until a future transfer-safe deferred capability is accepted.
 
@@ -332,7 +330,7 @@ without imposing global thread-safety bounds. Transfer safety becomes an
 explicit proof attached to the exact access mode that needs it.
 
 Normal system registration becomes future-parallel-ready by construction.
-Systems that use `WorldMut`, current `Commands`, non-transfer-safe data, custom
+Systems that use `WorldMut`, current `LocalCommands`, non-transfer-safe data, custom
 thread-bound state, or non-`Send` closure captures remain usable through an
 explicit invoker-thread wrapper. Existing consumers may therefore require a
 source migration when this design is implemented; that migration is preferable
