@@ -18,7 +18,21 @@ jobs:
 
       - name: Apply command vocabulary cut
         run: |
-          python3 -c 'from pathlib import Path; p=Path("tools/issue69_apply.py"); lines=p.read_text().splitlines(); q=chr(39); repl="needle = "+q+"    assert!(PRELUDE_RS.contains(\"LocalCommands\"));\\n"+q; p.write_text("\n".join(repl if line.startswith("needle = ") else line for line in lines)+"\n")'
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("tools/issue69_apply.py")
+          s = p.read_text()
+          # Avoid commands::commands module inception while keeping Commands as the public type.
+          s = s.replace("crates/runen-ecs/src/commands/commands.rs", "crates/runen-ecs/src/commands/default.rs")
+          s = s.replace('"mod commands;\\n"', '"mod default;\\n"')
+          s = s.replace('"pub use commands::Commands;\\n"', '"pub use default::Commands;\\n"')
+          # The mechanical symbol cut updates this string before the boundary patch runs.
+          lines = s.splitlines()
+          q = chr(39)
+          repl = "needle = " + q + '    assert!(PRELUDE_RS.contains("LocalCommands"));\\n' + q
+          s = "\n".join(repl if line.startswith("needle = ") else line for line in lines) + "\n"
+          p.write_text(s)
+          PY
           python3 tools/issue69_apply.py
 
       - name: Format candidate
@@ -34,7 +48,7 @@ jobs:
           set -euo pipefail
           cargo fmt --all
           rm .github/workflows/issue-69-apply.yml tools/issue69_apply.py
-          if rg -n '\b(TransferableCommands|TransferableBatchCommands)\b' crates/runen-ecs conformance docs; then
+          if grep -R -n -E 'TransferableCommands|TransferableBatchCommands' crates/runen-ecs conformance docs; then
             echo 'obsolete public command names remain' >&2
             exit 1
           fi
