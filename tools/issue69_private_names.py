@@ -10,6 +10,15 @@ def replace_exact(path: str, old: str, new: str) -> None:
     p.write_text(text.replace(old, new, 1))
 
 
+def replace_count(path: str, old: str, new: str, expected: int) -> None:
+    p = Path(path)
+    text = p.read_text()
+    count = text.count(old)
+    if count != expected:
+        raise SystemExit(f"{path}: expected {expected} occurrences of {old!r}, found {count}")
+    p.write_text(text.replace(old, new))
+
+
 extract = "crates/runen-ecs/src/system/extract.rs"
 replacements = [
     ("    commands: Option<NonNull<LocalCommands<'static>>>,\n    transferable_commands: Option<NonNull<Commands<'static>>>,",
@@ -35,27 +44,37 @@ for old, new in replacements:
     replace_exact(extract, old, new)
 
 params = "crates/runen-ecs/src/system/params.rs"
-replace_exact(params, "        Ok(context.commands())\n    }\n}\n\nunsafe impl<'param> SystemParam for Commands<'param>", "        Ok(context.local_commands())\n    }\n}\n\nunsafe impl<'param> SystemParam for Commands<'param>")
+replace_exact(
+    params,
+    "        Ok(context.commands())\n    }\n}\n\nunsafe impl<'param> SystemParam for Commands<'param>",
+    "        Ok(context.local_commands())\n    }\n}\n\nunsafe impl<'param> SystemParam for Commands<'param>",
+)
 replace_exact(params, "        Ok(context.transferable_commands())", "        Ok(context.commands())")
 
 runtime = "crates/runen-ecs/src/system/runtime.rs"
-replacements = [
-    ("                let mut transferable_commands = (deferred_recorder_class\n                    == DeferredRecorderClass::TransferableDeferred)\n                    .then(Commands::new_external_owner);",
-     "                let mut commands = (deferred_recorder_class\n                    == DeferredRecorderClass::TransferableDeferred)\n                    .then(Commands::new_external_owner);"),
-    ("                        transferable_commands.as_mut(),",
-     "                        commands.as_mut(),"),
-    ("                                transferable_commands\n                                    .expect(\"transferable command owner must exist for transferable recorder\")",
-     "                                commands\n                                    .expect(\"command owner must exist for transferable recorder\")"),
-    ("                let mut commands = (deferred_recorder_class\n                    == DeferredRecorderClass::LocalDeferred)\n                    .then(LocalCommands::new_external_owner);",
-     "                let mut local_commands = (deferred_recorder_class\n                    == DeferredRecorderClass::LocalDeferred)\n                    .then(LocalCommands::new_external_owner);"),
-    ("                let mut transferable_commands = (deferred_recorder_class\n                    == DeferredRecorderClass::TransferableDeferred)\n                    .then(Commands::new_external_owner);",
-     "                let mut commands = (deferred_recorder_class\n                    == DeferredRecorderClass::TransferableDeferred)\n                    .then(Commands::new_external_owner);"),
-    ("                        commands.as_mut(),\n                        transferable_commands.as_mut(),",
-     "                        local_commands.as_mut(),\n                        commands.as_mut(),"),
-    ("                                commands\n                                    .expect(\"local command owner must exist for local recorder\")",
-     "                                local_commands\n                                    .expect(\"local command owner must exist for local recorder\")"),
-    ("                                    transferable_commands\n                                        .expect(\"transferable command owner must exist for transferable recorder\")",
-     "                                    commands\n                                        .expect(\"command owner must exist for transferable recorder\")"),
-]
-for old, new in replacements:
-    replace_exact(runtime, old, new)
+# Rename the genuinely local owner first, including its local-branch references.
+replace_exact(
+    runtime,
+    "                let mut commands = (deferred_recorder_class\n                    == DeferredRecorderClass::LocalDeferred)\n                    .then(LocalCommands::new_external_owner);",
+    "                let mut local_commands = (deferred_recorder_class\n                    == DeferredRecorderClass::LocalDeferred)\n                    .then(LocalCommands::new_external_owner);",
+)
+replace_exact(
+    runtime,
+    "                        commands.as_mut(),\n                        transferable_commands.as_mut(),",
+    "                        local_commands.as_mut(),\n                        transferable_commands.as_mut(),",
+)
+replace_exact(
+    runtime,
+    "                                commands\n                                    .expect(\"local command owner must exist for local recorder\")",
+    "                                local_commands\n                                    .expect(\"local command owner must exist for local recorder\")",
+)
+
+# Both registration paths use the same transfer-safe owner; after the local owner
+# is disambiguated, normalize that private variable to the ordinary public name.
+replace_count(runtime, "transferable_commands", "commands", 6)
+replace_count(
+    runtime,
+    "transferable command owner must exist for transferable recorder",
+    "command owner must exist for transferable recorder",
+    2,
+)
