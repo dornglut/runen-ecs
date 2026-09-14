@@ -1,0 +1,28 @@
+error[E0277]: `Rc<()>` cannot be sent between threads safely
+  --> tests/ui/transferable_commands_non_send.rs:7:20
+   |
+ 7 |       commands.queue(move |_: &mut World| {
+   |                ----- ^-------------------
+   |                |     |
+   |  ______________|_____within this `{closure@$DIR/tests/ui/transferable_commands_non_send.rs:7:20: 7:40}`
+   | |              |
+   | |              required by a bound introduced by this call
+ 8 | |         let _ = Rc::strong_count(&local);
+ 9 | |         Ok::<(), CommandError>(())
+10 | |     });
+   | |_____^ `Rc<()>` cannot be sent between threads safely
+   |
+   = help: within `{closure@$DIR/tests/ui/transferable_commands_non_send.rs:7:20: 7:40}`, the trait `Send` is not implemented for `Rc<()>`
+note: required because it's used within this closure
+  --> tests/ui/transferable_commands_non_send.rs:7:20
+   |
+ 7 |     commands.queue(move |_: &mut World| {
+   |                    ^^^^^^^^^^^^^^^^^^^^
+note: required by a bound in `TransferableCommands::<'world>::queue`
+  --> src/commands/transferable.rs
+   |
+   |     pub fn queue<F>(&mut self, command: F)
+   |            ----- required by a bound in this associated function
+   |     where
+   |         F: FnOnce(&mut World) -> Result<(), CommandError> + Send + 'static,
+   |                                                             ^^^^ required by this bound in `TransferableCommands::<'world>::queue`

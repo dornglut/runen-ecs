@@ -315,34 +315,36 @@ fn deferred_commands_publish_before_semantic_frontier_callback() {
 #[test]
 fn deferred_recorder_class_is_composed_structurally() {
     assert_eq!(
-        <Commands<'static> as SystemParam>::deferred_recorder_class(),
+        <Commands<'static> as SystemParam>::deferred_recorder_class().unwrap(),
         DeferredRecorderClass::LocalDeferred
     );
     assert_eq!(
-        <DerivedLocal<'static> as SystemParam>::deferred_recorder_class(),
+        <DerivedLocal<'static> as SystemParam>::deferred_recorder_class().unwrap(),
         DeferredRecorderClass::LocalDeferred
     );
     assert_eq!(
-        <NestedDerivedLocal<'static> as SystemParam>::deferred_recorder_class(),
+        <NestedDerivedLocal<'static> as SystemParam>::deferred_recorder_class().unwrap(),
         DeferredRecorderClass::LocalDeferred
     );
     assert_eq!(
-        <(DerivedLocal<'static>, Commands<'static>) as SystemParam>::deferred_recorder_class(),
+        <(DerivedLocal<'static>, Commands<'static>) as SystemParam>::deferred_recorder_class()
+            .unwrap(),
         DeferredRecorderClass::LocalDeferred
     );
     assert_eq!(
         <(
             (Commands<'static>, Res<'static, SeenCount>),
             DerivedLocal<'static>
-        ) as SystemParam>::deferred_recorder_class(),
+        ) as SystemParam>::deferred_recorder_class()
+        .unwrap(),
         DeferredRecorderClass::LocalDeferred
     );
     assert_eq!(
-        <(Commands<'static>, Commands<'static>) as SystemParam>::deferred_recorder_class(),
+        <(Commands<'static>, Commands<'static>) as SystemParam>::deferred_recorder_class().unwrap(),
         DeferredRecorderClass::LocalDeferred
     );
     assert_eq!(
-        <Res<'static, SeenCount> as SystemParam>::deferred_recorder_class(),
+        <Res<'static, SeenCount> as SystemParam>::deferred_recorder_class().unwrap(),
         DeferredRecorderClass::None
     );
 }

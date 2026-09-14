@@ -12,3 +12,16 @@ where
         (*self)(world)
     }
 }
+
+pub(crate) trait ErasedTransferableDeferredCommand: Send {
+    fn apply_erased(self: Box<Self>, world: &mut World) -> Result<(), CommandError>;
+}
+
+impl<F> ErasedTransferableDeferredCommand for F
+where
+    F: FnOnce(&mut World) -> Result<(), CommandError> + Send + 'static,
+{
+    fn apply_erased(self: Box<Self>, world: &mut World) -> Result<(), CommandError> {
+        (*self)(world)
+    }
+}

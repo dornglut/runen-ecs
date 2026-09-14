@@ -1,7 +1,7 @@
 use crate::query::QueryAccess;
 use crate::scheduler::system::ParamSlotDescriptor;
 use crate::world::WorldAuthority;
-use crate::{Commands, ResourceError, World};
+use crate::{Commands, ResourceError, TransferableCommands, World};
 use std::marker::PhantomData;
 use std::ptr::NonNull;
 use thiserror::Error;
@@ -28,18 +28,52 @@ pub enum SystemParamError {
 pub enum DeferredRecorderClass {
     None,
     LocalDeferred,
+    TransferableDeferred,
+}
+
+#[doc(hidden)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub struct DeferredRecorderConflict {
+    local: DeferredRecorderClass,
+    transferable: DeferredRecorderClass,
 }
 
 impl DeferredRecorderClass {
-    pub const fn merge(self, other: Self) -> Self {
+    pub const fn merge(self, other: Self) -> Result<Self, DeferredRecorderConflict> {
         match (self, other) {
-            (Self::LocalDeferred, _) | (_, Self::LocalDeferred) => Self::LocalDeferred,
-            _ => Self::None,
+            (Self::None, other) | (other, Self::None) => Ok(other),
+            (Self::LocalDeferred, Self::LocalDeferred) => Ok(Self::LocalDeferred),
+            (Self::TransferableDeferred, Self::TransferableDeferred) => {
+                Ok(Self::TransferableDeferred)
+            }
+            (Self::LocalDeferred, Self::TransferableDeferred)
+            | (Self::TransferableDeferred, Self::LocalDeferred) => Err(DeferredRecorderConflict {
+                local: Self::LocalDeferred,
+                transferable: Self::TransferableDeferred,
+            }),
         }
     }
 
     pub const fn is_deferred_producing(self) -> bool {
-        matches!(self, Self::LocalDeferred)
+        !matches!(self, Self::None)
+    }
+}
+
+impl DeferredRecorderConflict {
+    pub const fn local(self) -> DeferredRecorderClass {
+        self.local
+    }
+
+    pub const fn transferable(self) -> DeferredRecorderClass {
+        self.transferable
+    }
+}
+
+impl std::fmt::Display for DeferredRecorderConflict {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(
+            "LocalDeferred and TransferableDeferred deferred recorder capabilities cannot be mixed",
+        )
     }
 }
 
@@ -52,15 +86,21 @@ impl DeferredRecorderClass {
 #[derive(Copy, Clone)]
 pub struct SystemParamContext<'world> {
     authority: WorldAuthority<'world>,
-    commands: NonNull<Commands<'static>>,
+    commands: Option<NonNull<Commands<'static>>>,
+    transferable_commands: Option<NonNull<TransferableCommands<'static>>>,
     _marker: PhantomData<&'world mut World>,
 }
 
 impl<'world> SystemParamContext<'world> {
-    pub(crate) fn new(world: &'world mut World, commands: &'world mut Commands<'static>) -> Self {
+    pub(crate) fn new(
+        world: &'world mut World,
+        commands: Option<&'world mut Commands<'static>>,
+        transferable_commands: Option<&'world mut TransferableCommands<'static>>,
+    ) -> Self {
         Self {
             authority: WorldAuthority::new(world),
-            commands: NonNull::from(commands),
+            commands: commands.map(NonNull::from),
+            transferable_commands: transferable_commands.map(NonNull::from),
             _marker: PhantomData,
         }
     }
@@ -95,11 +135,26 @@ impl<'world> SystemParamContext<'world> {
         // reference is manufactured from the copied context.
         let queue = unsafe {
             self.commands
+                .expect("local command owner must be available for Commands")
                 .as_ref()
                 .external_queue()
                 .expect("command owner must provide an external queue")
         };
         Commands::from_external(queue)
+    }
+
+    pub(crate) fn transferable_commands(self) -> TransferableCommands<'world> {
+        // Safety: the runtime constructs this pointer from the live transferable
+        // command owner and keeps it valid until extraction finishes. Only a
+        // shared owner read is needed to clone its external queue.
+        let queue = unsafe {
+            self.transferable_commands
+                .expect("transferable command owner must be available for TransferableCommands")
+                .as_ref()
+                .external_queue()
+                .expect("transferable command owner must provide an external queue")
+        };
+        TransferableCommands::from_external(queue)
     }
 }
 
@@ -121,8 +176,8 @@ pub unsafe trait SystemParam: Sized {
     type Item<'world, 'state>;
 
     fn init_state(world: &mut World) -> Result<Self::State, SystemParamError>;
-    fn deferred_recorder_class() -> DeferredRecorderClass {
-        DeferredRecorderClass::None
+    fn deferred_recorder_class() -> Result<DeferredRecorderClass, DeferredRecorderConflict> {
+        Ok(DeferredRecorderClass::None)
     }
     fn access(state: &Self::State) -> QueryAccess;
     fn slot_descriptor() -> ParamSlotDescriptor {

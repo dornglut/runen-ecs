@@ -151,10 +151,13 @@ pub fn system_param_derive(input: TokenStream) -> TokenStream {
                 ))
             }
 
-            fn deferred_recorder_class() -> #ecs::DeferredRecorderClass {
+            fn deferred_recorder_class() -> ::std::result::Result<
+                #ecs::DeferredRecorderClass,
+                #ecs::DeferredRecorderConflict,
+            > {
                 let mut class = #ecs::DeferredRecorderClass::None;
-                #(class = class.merge(<#field_types as #ecs::SystemParam>::deferred_recorder_class());)*
-                class
+                #(class = class.merge(<#field_types as #ecs::SystemParam>::deferred_recorder_class()?)?;)*
+                Ok(class)
             }
 
             fn access(state: &Self::State) -> #ecs::QueryAccess {

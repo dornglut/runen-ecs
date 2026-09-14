@@ -13,7 +13,7 @@ mod world;
 pub use bundle::Bundle;
 #[doc(hidden)]
 pub use bundle::{BundleComponentDescriptor, BundleComponents};
-pub use commands::{BatchCommands, Commands};
+pub use commands::{BatchCommands, Commands, TransferableBatchCommands, TransferableCommands};
 pub use component::{Component, Resource};
 pub use entity::Entity;
 pub use errors::{
@@ -30,9 +30,9 @@ pub use reflect::{
 };
 pub use runen_ecs_macros::{Bundle, Component, Reflect, Resource, SystemParam};
 pub use system::{
-    ConfiguredSystem, DeferredPublicationFrontier, DeferredRecorderClass, IntoSystem,
-    IntoSystemConfigs, IntoSystemSetKey, OrderingPresence, ParamSlotDescriptor, Res, ResMut,
-    Runtime, ScheduleAccessAmbiguity, ScheduleAccessConflict, ScheduleAccessConflictKind,
+    ConfiguredSystem, DeferredPublicationFrontier, DeferredRecorderClass, DeferredRecorderConflict,
+    IntoSystem, IntoSystemConfigs, IntoSystemSetKey, OrderingPresence, ParamSlotDescriptor, Res,
+    ResMut, Runtime, ScheduleAccessAmbiguity, ScheduleAccessConflict, ScheduleAccessConflictKind,
     ScheduleAccessDomain, ScheduleInspection, ScheduleKey, ScheduleLabel, ScheduleOrderingCycle,
     ScheduleOrderingResolution, ScheduleOrderingResolutionKind,
     SchedulePairwiseConcurrencyAssessment, SchedulePrecedenceEdge, SchedulePrecedencePath,

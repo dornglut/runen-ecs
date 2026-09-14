@@ -175,8 +175,8 @@ pub use crate::scheduler::plan::ScheduleValidationError;
 pub use crate::scheduler::system::OrderingPresence;
 pub use crate::scheduler::system::ParamSlotDescriptor;
 pub use extract::{
-    DeferredRecorderClass, SystemParam, SystemParamContext, SystemParamError,
-    TransferableSystemParam,
+    DeferredRecorderClass, DeferredRecorderConflict, SystemParam, SystemParamContext,
+    SystemParamError, TransferableSystemParam,
 };
 pub use params::{Res, ResMut, WorldMut};
 pub use runtime::{

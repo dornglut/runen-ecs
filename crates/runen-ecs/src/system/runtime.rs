@@ -1,5 +1,9 @@
 use super::OrderingDirection;
-use super::extract::{DeferredRecorderClass, SystemParam, SystemParamContext, SystemParamError};
+use super::extract::{
+    DeferredRecorderClass, DeferredRecorderConflict, SystemParam, SystemParamContext,
+    SystemParamError,
+};
+use crate::commands::TransferableCommandBuffer;
 use crate::errors::RuntimeError;
 use crate::scheduler::access::{AccessKey, SystemAccess};
 use crate::scheduler::inspection::ScheduleInspection;
@@ -12,11 +16,16 @@ use std::marker::PhantomData;
 use std::rc::Rc;
 
 use crate::query::QueryAccess;
-use crate::{Commands, World};
+use crate::{Commands, TransferableCommands, World};
 
 type Result<T> = std::result::Result<T, RuntimeError>;
 
-type DeferredCommands = Rc<RefCell<Vec<Commands<'static>>>>;
+type DeferredCommands = Rc<RefCell<Vec<DeferredCommandBuffer>>>;
+
+pub enum DeferredCommandBuffer {
+    Local(Commands<'static>),
+    Transferable(TransferableCommandBuffer),
+}
 
 struct DeferredCommandsUnwindGuard {
     deferred_commands: DeferredCommands,
@@ -495,7 +504,8 @@ trait SystemParamState: Sized {
     type Item<'world, 'state>;
 
     fn init_state(world: &mut World) -> std::result::Result<Self::State, SystemParamError>;
-    fn deferred_recorder_class() -> DeferredRecorderClass;
+    fn deferred_recorder_class()
+    -> std::result::Result<DeferredRecorderClass, DeferredRecorderConflict>;
     fn access(state: &Self::State) -> QueryAccess;
     fn slot_descriptor() -> ParamSlotDescriptor;
 
@@ -516,7 +526,8 @@ where
         T::init_state(world)
     }
 
-    fn deferred_recorder_class() -> DeferredRecorderClass {
+    fn deferred_recorder_class()
+    -> std::result::Result<DeferredRecorderClass, DeferredRecorderConflict> {
         T::deferred_recorder_class()
     }
 
@@ -597,7 +608,20 @@ macro_rules! impl_into_system {
                 let mut deferred_recorder_class = DeferredRecorderClass::None;
                 $(
                     deferred_recorder_class = deferred_recorder_class
-                        .merge(<$param as SystemParamState>::deferred_recorder_class());
+                        .merge(<$param as SystemParamState>::deferred_recorder_class().map_err(
+                            |conflict| RuntimeError::Setup {
+                                message: format!(
+                                    "system '{}' has invalid deferred recorder metadata: {}",
+                                    system_name, conflict
+                                ),
+                            },
+                        )?)
+                        .map_err(|conflict| RuntimeError::Setup {
+                            message: format!(
+                                "system '{}' has mixed deferred recorder capabilities: {}",
+                                system_name, conflict
+                            ),
+                        })?;
                 )*
                 let mut states = (
                     $(
@@ -625,8 +649,17 @@ macro_rules! impl_into_system {
                 let system_name_for_run = system_name.clone();
 
                 let mut registered = RegisteredSystem::new::<Sched>(system_name, access, move |world| {
-                    let mut commands = Commands::new_external_owner();
-                    let context = SystemParamContext::new(world, &mut commands);
+                    let mut commands = (deferred_recorder_class
+                        == DeferredRecorderClass::LocalDeferred)
+                        .then(Commands::new_external_owner);
+                    let mut transferable_commands = (deferred_recorder_class
+                        == DeferredRecorderClass::TransferableDeferred)
+                        .then(TransferableCommands::new_external_owner);
+                    let context = SystemParamContext::new(
+                        world,
+                        commands.as_mut(),
+                        transferable_commands.as_mut(),
+                    );
                     $(
                         let $param = unsafe { <$param as SystemParamState>::extract(&mut states.$index, context)? };
                     )*
@@ -636,9 +669,25 @@ macro_rules! impl_into_system {
                             system: system_name_for_run.clone(),
                             source,
                         });
-                    let staged_commands = commands.finalize_external_owner();
-                    if result.is_ok() && deferred_recorder_class.is_deferred_producing() {
-                        deferred_commands_ref.borrow_mut().push(staged_commands);
+                    let staged_commands = match deferred_recorder_class {
+                        DeferredRecorderClass::None => None,
+                        DeferredRecorderClass::LocalDeferred => Some(DeferredCommandBuffer::Local(
+                            commands
+                                .expect("local command owner must exist for local recorder")
+                                .finalize_external_owner(),
+                        )),
+                        DeferredRecorderClass::TransferableDeferred => Some(
+                            DeferredCommandBuffer::Transferable(
+                                transferable_commands
+                                    .expect("transferable command owner must exist for transferable recorder")
+                                    .finalize_external_owner(),
+                            ),
+                        ),
+                    };
+                    if result.is_ok() {
+                        if let Some(staged_commands) = staged_commands {
+                            deferred_commands_ref.borrow_mut().push(staged_commands);
+                        }
                     }
                     result
                 })?;
@@ -921,7 +970,10 @@ impl Runtime {
         world.begin_deferred_publication();
         let pending_commands = std::mem::take(&mut *self.deferred_commands.borrow_mut());
         for commands in pending_commands {
-            commands.apply(world)?;
+            match commands {
+                DeferredCommandBuffer::Local(commands) => commands.apply(world)?,
+                DeferredCommandBuffer::Transferable(commands) => commands.apply(world)?,
+            }
         }
         Ok(())
     }
