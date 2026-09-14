@@ -1,5 +1,5 @@
-use runen_ecs::prelude::*;
 use runen_ecs::RuntimeError;
+use runen_ecs::prelude::*;
 
 #[derive(Copy, Clone)]
 struct Update;
@@ -97,6 +97,9 @@ fn main() -> Result<(), RuntimeError> {
     assert_eq!(world.resource::<SpawnedCount>().unwrap().0, 1);
     assert_eq!(world.resource::<Frame>().unwrap().0, 1);
 
-    println!("frame 1: one new arrival integrated to position {}", arrival.0);
+    println!(
+        "frame 1: one new arrival integrated to position {}",
+        arrival.0
+    );
     Ok(())
 }
