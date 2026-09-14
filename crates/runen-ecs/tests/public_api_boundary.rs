@@ -7,6 +7,7 @@ const SYSTEM_MOD_RS: &str = include_str!("../src/system/mod.rs");
 const SYSTEM_EXTRACT_RS: &str = include_str!("../src/system/extract.rs");
 const SYSTEM_PARAMS_RS: &str = include_str!("../src/system/params.rs");
 const SYSTEM_RUNTIME_RS: &str = include_str!("../src/system/runtime.rs");
+const SCHEDULER_SYSTEM_RS: &str = include_str!("../src/scheduler/system.rs");
 const WORLD_MOD_RS: &str = include_str!("../src/world/mod.rs");
 const WORLD_STATE_RS: &str = include_str!("../src/world/state.rs");
 const WORLD_CAPABILITY_RS: &str = include_str!("../src/world/capability.rs");
@@ -275,6 +276,44 @@ fn transferable_system_param_is_hidden_but_macro_reachable() {
     assert!(!PRELUDE_RS.contains("TransferableQueryData"));
     assert!(!PRELUDE_RS.contains("TransferableQueryFilter"));
     assert!(QUERY_MOD_RS.contains("pub(crate) use"));
+}
+
+#[test]
+fn execution_mobility_exposes_only_authoring_and_diagnostic_vocabulary() {
+    for public in [
+        "ExecutionMobility",
+        "SystemMobilityExt",
+        "InvokerThreadSystem",
+    ] {
+        assert!(LIB_RS.contains(public), "missing root export: {public}");
+        assert!(
+            SYSTEM_MOD_RS.contains(public),
+            "missing system export: {public}"
+        );
+    }
+    assert!(PRELUDE_RS.contains("SystemMobilityExt"));
+    assert!(!PRELUDE_RS.contains("ExecutionMobility"));
+
+    for private in [
+        "TransferableSystemRunner",
+        "InvokerThreadSystemRunner",
+        "RegisteredSystemRunner",
+        "InvocationOutcome",
+    ] {
+        assert!(
+            !LIB_RS.contains(private),
+            "private runner leaked at root: {private}"
+        );
+        assert!(
+            !has_identifier(SYSTEM_MOD_RS, private),
+            "private runner leaked through system module: {private}"
+        );
+    }
+    assert!(SCHEDULER_SYSTEM_RS.contains("TransferableSystemRunner"));
+    assert!(SCHEDULER_SYSTEM_RS.contains("+ Send"));
+    assert!(SYSTEM_RUNTIME_RS.contains("new_transferable"));
+    assert!(SYSTEM_RUNTIME_RS.contains("new_invoker_thread_only"));
+    assert!(!SYSTEM_RUNTIME_RS.contains("deferred_commands_ref"));
 }
 
 #[test]

@@ -816,7 +816,12 @@ fn command_queued_spawn_is_visible_after_publication_and_not_readded_next_run() 
     world.insert_resource(AddedHealthCounts(Vec::new()));
 
     let mut runtime = Runtime::new();
-    runtime.add_systems::<WorldUpdate, _, _>(&mut world, queue_spawn_once.in_set(SpawnProducerSet));
+    runtime.add_systems::<WorldUpdate, _, _>(
+        &mut world,
+        queue_spawn_once
+            .on_invoker_thread()
+            .in_set(SpawnProducerSet),
+    );
     runtime.add_systems::<WorldUpdate, _, _>(
         &mut world,
         observe_added

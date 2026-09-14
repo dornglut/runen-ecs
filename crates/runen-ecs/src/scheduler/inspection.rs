@@ -4,7 +4,7 @@ use crate::scheduler::plan::{
 };
 use crate::scheduler::system::{OrderingPresence, RegisteredSystem};
 use crate::system::{
-    OrderingDirection, ScheduleDiagnosticDescriptor, SystemDiagnosticDescriptor,
+    ExecutionMobility, OrderingDirection, ScheduleDiagnosticDescriptor, SystemDiagnosticDescriptor,
     SystemSetDiagnosticDescriptor,
 };
 use std::collections::VecDeque;
@@ -20,6 +20,7 @@ pub struct ScheduleInspection {
     access_ambiguities: Vec<ScheduleAccessAmbiguity>,
     scheduled_descriptors: Vec<SystemDiagnosticDescriptor>,
     accesses: Vec<SystemAccess>,
+    execution_mobility: Vec<ExecutionMobility>,
 }
 
 impl fmt::Debug for ScheduleInspection {
@@ -32,6 +33,7 @@ impl fmt::Debug for ScheduleInspection {
             .field("precedence_edges", &self.precedence_edges)
             .field("publication_frontiers", &self.publication_frontiers)
             .field("access_ambiguities", &self.access_ambiguities)
+            .field("execution_mobility", &self.execution_mobility)
             .finish()
     }
 }
@@ -147,6 +149,11 @@ impl ScheduleInspection {
                 .iter()
                 .map(|index| systems[*index].access().clone())
                 .collect(),
+            execution_mobility: plan
+                .scheduled_system_indices
+                .iter()
+                .map(|index| systems[*index].execution_mobility())
+                .collect(),
         };
         inspection.access_ambiguities = inspection
             .pair_indices()
@@ -207,6 +214,15 @@ impl ScheduleInspection {
 
     pub fn access_ambiguities(&self) -> &[ScheduleAccessAmbiguity] {
         &self.access_ambiguities
+    }
+
+    /// Returns the registered execution capability for a system in this snapshot.
+    pub fn execution_mobility(
+        &self,
+        system: &SystemDiagnosticDescriptor,
+    ) -> Option<ExecutionMobility> {
+        self.position(system)
+            .and_then(|position| self.execution_mobility.get(position).copied())
     }
 
     pub fn precedence_path(

@@ -31,13 +31,14 @@ pub use reflect::{
 pub use runen_ecs_macros::{Bundle, Component, Reflect, Resource, SystemParam};
 pub use system::{
     ConfiguredSystem, DeferredPublicationFrontier, DeferredRecorderClass, DeferredRecorderConflict,
-    IntoSystem, IntoSystemConfigs, IntoSystemSetKey, OrderingPresence, ParamSlotDescriptor, Res,
-    ResMut, Runtime, ScheduleAccessAmbiguity, ScheduleAccessConflict, ScheduleAccessConflictKind,
-    ScheduleAccessDomain, ScheduleInspection, ScheduleKey, ScheduleLabel, ScheduleOrderingCycle,
-    ScheduleOrderingResolution, ScheduleOrderingResolutionKind,
-    SchedulePairwiseConcurrencyAssessment, SchedulePrecedenceEdge, SchedulePrecedencePath,
-    SchedulePrecedenceReason, SchedulePublicationFrontier, SchedulePublicationObligation,
-    ScheduleValidationError, SystemConfigExt, SystemParam, SystemParamContext, SystemParamError,
-    SystemSet, SystemSetKey, TransferableSystemParam, WorldMut,
+    ExecutionMobility, IntoSystem, IntoSystemConfigs, IntoSystemSetKey, InvokerThreadSystem,
+    OrderingPresence, ParamSlotDescriptor, Res, ResMut, Runtime, ScheduleAccessAmbiguity,
+    ScheduleAccessConflict, ScheduleAccessConflictKind, ScheduleAccessDomain, ScheduleInspection,
+    ScheduleKey, ScheduleLabel, ScheduleOrderingCycle, ScheduleOrderingResolution,
+    ScheduleOrderingResolutionKind, SchedulePairwiseConcurrencyAssessment, SchedulePrecedenceEdge,
+    SchedulePrecedencePath, SchedulePrecedenceReason, SchedulePublicationFrontier,
+    SchedulePublicationObligation, ScheduleValidationError, SystemConfigExt, SystemMobilityExt,
+    SystemParam, SystemParamContext, SystemParamError, SystemSet, SystemSetKey,
+    TransferableSystemParam, WorldMut,
 };
 pub use world::{ChangeCursor, EntityMut, EntityRef, Mut, World};

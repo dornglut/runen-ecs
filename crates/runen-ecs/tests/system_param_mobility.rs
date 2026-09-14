@@ -5,7 +5,7 @@ use std::sync::MutexGuard;
 
 use runen_ecs::{
     Component, Entity, Query, QueryState, RemovedQuery, RemovedState, Res, ResMut, Resource,
-    Runtime, TransferableSystemParam, World,
+    Runtime, SystemMobilityExt, TransferableSystemParam, World,
 };
 
 #[allow(dead_code)]
@@ -142,7 +142,7 @@ fn query_state_scratch_can_be_reused_after_early_drop_and_with_live_iterators() 
 }
 
 #[test]
-fn ordinary_serial_registration_remains_permissive() {
+fn explicit_local_registration_remains_permissive() {
     #[derive(Copy, Clone)]
     struct Update;
 
@@ -156,9 +156,13 @@ fn ordinary_serial_registration_remains_permissive() {
     let ran = Rc::new(RefCell::new(false));
     let captured = Rc::clone(&ran);
     let mut runtime = Runtime::new();
-    runtime.add_systems::<Update, _, _>(&mut world, move || {
-        *captured.borrow_mut() = true;
-    });
+    runtime.add_systems::<Update, _, _>(
+        &mut world,
+        (move || {
+            *captured.borrow_mut() = true;
+        })
+        .on_invoker_thread(),
+    );
     runtime.run_schedule::<Update>(&mut world).unwrap();
     assert!(*ran.borrow());
 }
