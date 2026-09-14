@@ -1,0 +1,55 @@
+name: Issue 69 ADR terminology cleanup
+
+on:
+  push:
+    branches:
+      - issue-69-commands-default
+
+permissions:
+  contents: write
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Verify accepted base remains current
+        run: |
+          set -euo pipefail
+          git fetch origin main
+          test "$(git merge-base HEAD origin/main)" = "$(git rev-parse origin/main)"
+
+      - name: Apply ADR terminology cleanup
+        run: python3 tools/issue69_adr_cleanup.py
+
+      - name: Commit clean candidate
+        run: |
+          set -euo pipefail
+          rm .github/workflows/issue-69-adr-cleanup.yml tools/issue69_adr_cleanup.py
+          if grep -R -n -E 'TransferableCommands|TransferableBatchCommands' crates/runen-ecs conformance docs; then
+            echo 'obsolete public command names remain' >&2
+            exit 1
+          fi
+          if grep -n -E 'ordinary `LocalCommands`|future transfer-safe deferred capability' docs/adr/0002-model-system-execution-mobility-as-a-proven-capability.md docs/adr/0003-realize-deterministic-parallel-system-execution-from-serial-semantics.md; then
+            echo 'contradictory post-cut ADR terminology remains' >&2
+            exit 1
+          fi
+          cargo fmt --all
+          git diff --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'Reconcile command terminology in accepted ADRs (#69)'
+
+      - name: Validate clean committed candidate
+        run: |
+          set -euo pipefail
+          cargo validate
+          git diff HEAD^ --check
+          test -z "$(git status --porcelain)"
+
+      - name: Publish validated candidate
+        run: git push origin HEAD:issue-69-commands-default
