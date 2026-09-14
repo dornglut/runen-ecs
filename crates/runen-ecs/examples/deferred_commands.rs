@@ -65,14 +65,14 @@ fn main() {
 
     let ready_after_publish = world
         .query_state::<&Position, With<Ready>>()
-        .iter(&world)
-        .count();
+        .single(&world)
+        .expect("the target should become ready after publication");
     let spawned_after_publish = world
         .query_state::<&Position, With<Spawned>>()
-        .iter(&world)
-        .count();
-    assert_eq!(ready_after_publish, 1);
-    assert_eq!(spawned_after_publish, 1);
+        .single(&world)
+        .expect("the staged spawn should exist after publication");
+    assert_eq!(ready_after_publish.0, 1);
+    assert_eq!(spawned_after_publish.0, 99);
 
     println!("staged changes became visible after schedule publication");
 }
