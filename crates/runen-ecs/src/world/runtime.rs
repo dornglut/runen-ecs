@@ -45,6 +45,11 @@ impl World {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{Query, Runtime};
+    use std::sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    };
 
     #[derive(crate::Resource)]
     struct BoundaryResource;
@@ -80,5 +85,95 @@ mod tests {
 
         assert!(result.is_err());
         assert_eq!(world.current_change_cursor(), before);
+    }
+
+    #[derive(crate::Component)]
+    struct ExhaustionA;
+
+    #[derive(crate::Component)]
+    struct ExhaustionB;
+
+    #[derive(Copy, Clone)]
+    struct JournalExhaustion;
+
+    impl crate::ScheduleLabel for JournalExhaustion {}
+
+    #[test]
+    fn journal_rejects_first_event_before_mutable_reference_exposure() {
+        let mut world = World::new();
+        let entity = world.spawn(ExhaustionA).expect("spawn should succeed");
+        let body_ran = Arc::new(AtomicBool::new(false));
+        let body_ran_for_system = Arc::clone(&body_ran);
+        let mut runtime = Runtime::new();
+        runtime.add_systems::<JournalExhaustion, _, _>(
+            &mut world,
+            move |mut query: Query<&mut ExhaustionA>| {
+                let _ = query.get(entity).expect("component should exist");
+                body_ran_for_system.store(true, Ordering::Relaxed);
+            },
+        );
+
+        let scope = world.scope_id();
+        let exhausted = ChangeCursor::from_parts(scope, u64::MAX, u64::MAX);
+        world.set_change_cursor_for_test(exhausted);
+        let payload = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            runtime
+                .run_schedule::<JournalExhaustion>(&mut world)
+                .unwrap();
+        }))
+        .expect_err("cursor exhaustion must panic");
+
+        assert_eq!(
+            super::super::change_tracking::framework_invariant_kind(payload.as_ref()),
+            Some(super::super::change_tracking::FrameworkInvariantKind::ChangeCursorExhausted)
+        );
+        assert!(!body_ran.load(Ordering::Relaxed));
+        assert_eq!(world.current_change_cursor(), exhausted);
+    }
+
+    #[test]
+    fn journal_reconciles_admitted_prefix_before_later_event_exhaustion() {
+        let mut world = World::new();
+        let entity = world
+            .spawn((ExhaustionA, ExhaustionB))
+            .expect("spawn should succeed");
+        let body_ran = Arc::new(AtomicBool::new(false));
+        let body_ran_for_system = Arc::clone(&body_ran);
+        let mut runtime = Runtime::new();
+        runtime.add_systems::<JournalExhaustion, _, _>(
+            &mut world,
+            move |mut query: Query<(&mut ExhaustionA, &mut ExhaustionB)>| {
+                let _ = query.get(entity).expect("components should exist");
+                body_ran_for_system.store(true, Ordering::Relaxed);
+            },
+        );
+
+        let scope = world.scope_id();
+        let before = ChangeCursor::from_parts(scope, u64::MAX, u64::MAX - 1);
+        let exhausted = ChangeCursor::from_parts(scope, u64::MAX, u64::MAX);
+        world.set_change_cursor_for_test(before);
+        let payload = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            runtime
+                .run_schedule::<JournalExhaustion>(&mut world)
+                .unwrap();
+        }))
+        .expect_err("second tuple event must exhaust the cursor");
+
+        assert_eq!(
+            super::super::change_tracking::framework_invariant_kind(payload.as_ref()),
+            Some(super::super::change_tracking::FrameworkInvariantKind::ChangeCursorExhausted)
+        );
+        assert!(!body_ran.load(Ordering::Relaxed));
+        assert_eq!(world.current_change_cursor(), exhausted);
+        assert!(
+            world
+                .component_changed_since::<ExhaustionA>(before)
+                .unwrap()
+        );
+        assert!(
+            !world
+                .component_changed_since::<ExhaustionB>(before)
+                .unwrap()
+        );
     }
 }

@@ -2,6 +2,7 @@ mod capability;
 mod change_tracking;
 mod component_indexes;
 mod entity_handles;
+mod mutation_journal;
 mod reflection;
 mod runtime;
 mod state;
@@ -17,3 +18,4 @@ pub use state::World;
 pub(crate) use capability::{
     QueryCapability, ResourceCapability, ResourceMutationCapability, WorldAuthority,
 };
+pub(crate) use mutation_journal::MutationJournal;

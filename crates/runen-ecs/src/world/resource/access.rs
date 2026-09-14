@@ -1,6 +1,7 @@
 // Owner: RunenECS World Resource - Resource Access APIs
 use crate::component::Resource;
 use crate::errors::{ChangeCursorError, ResourceError};
+use crate::world::change_tracking::advance_change_cursor;
 use crate::world::{ChangeCursor, World};
 use std::any::{Any, TypeId, type_name};
 
@@ -80,11 +81,12 @@ impl World {
     }
 
     pub(crate) fn record_resource_change(&mut self, resource_type: TypeId) {
-        self.change_tick = self
-            .change_tick
-            .next()
-            .expect("ECS change cursor exhausted");
+        advance_change_cursor(&mut self.change_tick);
         self.resource_change_ticks
             .insert(resource_type, self.change_tick);
+    }
+
+    pub(crate) fn commit_resource_mutation_event(&mut self, resource_type: TypeId) {
+        self.record_resource_change(resource_type);
     }
 }

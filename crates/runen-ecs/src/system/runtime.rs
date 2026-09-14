@@ -10,9 +10,11 @@ use crate::scheduler::inspection::ScheduleInspection;
 use crate::scheduler::label::{ScheduleKey, ScheduleLabel, SystemSet, SystemSetKey};
 use crate::scheduler::plan::ScheduleRegistry;
 use crate::scheduler::system::{OrderingDeclaration, ParamSlotDescriptor, RegisteredSystem};
+use crate::world::MutationJournal;
 use std::cell::RefCell;
 use std::error::Error;
 use std::marker::PhantomData;
+use std::panic::{AssertUnwindSafe, catch_unwind, resume_unwind};
 use std::rc::Rc;
 
 use crate::query::QueryAccess;
@@ -649,35 +651,50 @@ macro_rules! build_registered_system {
             system_name,
             access,
             move |world| {
+                let mut mutation_journal = MutationJournal::new(&*world);
                 let mut transferable_commands = (deferred_recorder_class
                     == DeferredRecorderClass::TransferableDeferred)
                     .then(TransferableCommands::new_external_owner);
-                let context = SystemParamContext::new(
-                    world,
-                    None,
-                    transferable_commands.as_mut(),
-                );
-                $(
-                    let $param = unsafe { <$param as SystemParamState>::extract(&mut states.$index, context)? };
-                )*
-                let result = $func($($param),*)
-                    .into_result()
-                    .map_err(|source| RuntimeError::System {
-                        system: system_name_for_run.clone(),
-                        source,
-                    });
-                let staged_commands = match deferred_recorder_class {
-                    DeferredRecorderClass::None => None,
-                    DeferredRecorderClass::TransferableDeferred => Some(
-                        transferable_commands
-                            .expect("transferable command owner must exist for transferable recorder")
-                            .finalize_external_owner(),
-                    ),
-                    DeferredRecorderClass::LocalDeferred => unreachable!(
-                        "local deferred commands were rejected before registration"
-                    ),
+                let invocation_result = {
+                    let context = SystemParamContext::new(
+                        world,
+                        &mut mutation_journal,
+                        None,
+                        transferable_commands.as_mut(),
+                    );
+                    $(
+                        let $param = unsafe { <$param as SystemParamState>::extract(&mut states.$index, context)? };
+                    )*
+                    catch_unwind(AssertUnwindSafe(|| {
+                        $func($($param),*)
+                            .into_result()
+                            .map_err(|source| RuntimeError::System {
+                                system: system_name_for_run.clone(),
+                                source,
+                            })
+                    }))
                 };
-                result.map(|()| staged_commands)
+                match invocation_result {
+                    Ok(result) => {
+                        let staged_commands = match deferred_recorder_class {
+                            DeferredRecorderClass::None => None,
+                            DeferredRecorderClass::TransferableDeferred => Some(
+                                transferable_commands
+                                    .expect("transferable command owner must exist for transferable recorder")
+                                    .finalize_external_owner(),
+                            ),
+                            DeferredRecorderClass::LocalDeferred => unreachable!(
+                                "local deferred commands were rejected before registration"
+                            ),
+                        };
+                        mutation_journal.commit(world);
+                        result.map(|()| staged_commands)
+                    }
+                    Err(payload) => {
+                        mutation_journal.commit(world);
+                        resume_unwind(payload)
+                    }
+                }
             },
         )?;
         registered.set_deferred_recorder_class(deferred_recorder_class);
@@ -724,42 +741,57 @@ macro_rules! build_registered_system {
             system_name,
             access,
             move |world| {
+                let mut mutation_journal = MutationJournal::new(&*world);
                 let mut commands = (deferred_recorder_class
                     == DeferredRecorderClass::LocalDeferred)
                     .then(Commands::new_external_owner);
                 let mut transferable_commands = (deferred_recorder_class
                     == DeferredRecorderClass::TransferableDeferred)
                     .then(TransferableCommands::new_external_owner);
-                let context = SystemParamContext::new(
-                    world,
-                    commands.as_mut(),
-                    transferable_commands.as_mut(),
-                );
-                $(
-                    let $param = unsafe { <$param as SystemParamState>::extract(&mut states.$index, context)? };
-                )*
-                let result = $func($($param),*)
-                    .into_result()
-                    .map_err(|source| RuntimeError::System {
-                        system: system_name_for_run.clone(),
-                        source,
-                    });
-                let staged_commands = match deferred_recorder_class {
-                    DeferredRecorderClass::None => None,
-                    DeferredRecorderClass::LocalDeferred => Some(DeferredCommandBuffer::Local(
-                        commands
-                            .expect("local command owner must exist for local recorder")
-                            .finalize_external_owner(),
-                    )),
-                    DeferredRecorderClass::TransferableDeferred => Some(
-                        DeferredCommandBuffer::Transferable(
-                            transferable_commands
-                                .expect("transferable command owner must exist for transferable recorder")
-                                .finalize_external_owner(),
-                        ),
-                    ),
+                let invocation_result = {
+                    let context = SystemParamContext::new(
+                        world,
+                        &mut mutation_journal,
+                        commands.as_mut(),
+                        transferable_commands.as_mut(),
+                    );
+                    $(
+                        let $param = unsafe { <$param as SystemParamState>::extract(&mut states.$index, context)? };
+                    )*
+                    catch_unwind(AssertUnwindSafe(|| {
+                        $func($($param),*)
+                            .into_result()
+                            .map_err(|source| RuntimeError::System {
+                                system: system_name_for_run.clone(),
+                                source,
+                            })
+                    }))
                 };
-                result.map(|()| staged_commands)
+                match invocation_result {
+                    Ok(result) => {
+                        let staged_commands = match deferred_recorder_class {
+                            DeferredRecorderClass::None => None,
+                            DeferredRecorderClass::LocalDeferred => Some(DeferredCommandBuffer::Local(
+                                commands
+                                    .expect("local command owner must exist for local recorder")
+                                    .finalize_external_owner(),
+                            )),
+                            DeferredRecorderClass::TransferableDeferred => Some(
+                                DeferredCommandBuffer::Transferable(
+                                    transferable_commands
+                                        .expect("transferable command owner must exist for transferable recorder")
+                                        .finalize_external_owner(),
+                                ),
+                            ),
+                        };
+                        mutation_journal.commit(world);
+                        result.map(|()| staged_commands)
+                    }
+                    Err(payload) => {
+                        mutation_journal.commit(world);
+                        resume_unwind(payload)
+                    }
+                }
             },
         )?;
         registered.set_deferred_recorder_class(deferred_recorder_class);
