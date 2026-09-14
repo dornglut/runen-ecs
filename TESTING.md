@@ -26,7 +26,7 @@ The repository also maintains focused exact-head Miri, AddressSanitizer, and Thr
 
 These safety workflows supplement `cargo validate`; they do not replace the canonical baseline. Their focused scope remains owned by the corresponding checked-in workflow and safety harness.
 
-The Miri and AddressSanitizer lanes retain the established C3 alias/lifetime suite and additionally execute the controlled worker-projection test module. That suite exercises real scoped-thread execution over prepared disjoint World projections, exact shared/mutable payload bounds, metadata-only projections, deterministic mutation-journal reconciliation, failure handling, and worker-local deferred recording without making the serial scheduler parallel.
+The Miri and AddressSanitizer lanes retain the established C3 alias/lifetime suite, execute the controlled worker-projection test module, and execute the internal deterministic cohort-executor conformance module. Together those suites exercise real scoped-thread execution over prepared disjoint World projections, exact shared/mutable payload bounds, metadata-only projections, deterministic mutation-journal reconciliation, worker-local deferred recording, semantic cohort boundaries, canonical deferred publication, invoker-thread fences, and baseline parallel failure propagation. The public serial executor remains the independent correctness oracle; final supported parallel-selector and exhaustive failure/permutation acceptance remain owned by #40.
 
 The additional successor-acceptance gates recorded by completed issue #2 are transfer provenance. They do not remain a second ongoing merge-readiness baseline after the accepted source-authority handoff.
 
@@ -41,14 +41,15 @@ bash tools/tsan/run_ecs_tsan.sh
 ```
 
 The script pins `nightly-2026-08-25`, targets `x86_64-unknown-linux-gnu`,
-installs/uses `rust-src` through the workflow, and runs both the founding
-`tsan_smoke` target and the controlled worker-projection test module with
+installs/uses `rust-src` through the workflow, and runs the founding
+`tsan_smoke` target, the controlled worker-projection test module, and the
+internal deterministic cohort-executor conformance module with
 `RUSTFLAGS=-Zsanitizer=thread` and `-Zbuild-std`. The workflow verifies the
 exact pull-request head or accepted-main revision before running the proof.
-The founding smoke remains infrastructure evidence; the controlled worker suite
-is the maintained race-detection coverage for the actual concurrent World
-projection/structural-freeze harness introduced by #38. Production schedule
-parallelism remains outside that proof until its owning executor slice lands.
+The founding smoke remains infrastructure evidence; the worker suites are the
+maintained race-detection coverage for the concurrent World projection boundary
+and the baseline production executor mechanics. #40 still owns exhaustive
+failure/permutation hardening and final supported parallel-executor acceptance.
 
 ThreadSanitizer is race-detection evidence, not exhaustive interleaving
 exploration or a replacement for Rust's type/access proof, Miri, AddressSanitizer,

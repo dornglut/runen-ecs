@@ -1,12 +1,8 @@
 use crate::World;
 use crate::commands::TransferableCommandBuffer;
 use crate::errors::RuntimeError;
-use crate::scheduler::system::{
-    ControlledWorkerSystem, RegisteredSystem, WorkerInvocationOutcome, WorkerPanicPhase,
-};
-use crate::world::{FrameworkInvariantKind, ParallelWorldLease, framework_invariant_kind};
-use std::any::Any;
-use std::panic::resume_unwind;
+use crate::scheduler::system::{ControlledWorkerSystem, RegisteredSystem};
+use crate::system::worker_cohort::run_worker_cohort;
 
 /// Framework-owned concurrency harness for the #38 World-projection proof.
 ///
@@ -20,120 +16,19 @@ pub(crate) fn run_controlled_worker_harness(
     world: &mut World,
     systems: Vec<RegisteredSystem>,
 ) -> Result<Vec<Option<TransferableCommandBuffer>>, RuntimeError> {
-    let systems = systems
+    let mut systems = systems
         .into_iter()
         .map(RegisteredSystem::into_controlled_worker)
         .collect::<Result<Vec<_>, _>>()?;
 
     validate_pairwise_compatibility(&systems)?;
-
-    let mut lease = ParallelWorldLease::new(world);
-    let prepared = systems
-        .iter()
-        .map(|system| system.prepare_worker(&lease))
-        .collect::<Result<Vec<_>, _>>()?;
-    let capacity = lease.capacity();
-
-    let joined = std::thread::scope(|scope| {
-        let handles = systems
-            .into_iter()
-            .zip(prepared)
-            .enumerate()
-            .map(|(rank, (mut system, mut prepared))| {
-                let capacity = capacity.clone();
-                (
-                    rank,
-                    scope.spawn(move || system.run_worker(&mut prepared, capacity)),
-                )
-            })
-            .collect::<Vec<_>>();
-
-        handles
-            .into_iter()
-            .map(|(rank, handle)| (rank, handle.join()))
-            .collect::<Vec<_>>()
-    });
-
-    let mut reports = Vec::with_capacity(joined.len());
-    let mut unexpected_framework_panic: Option<(usize, Box<dyn Any + Send>)> = None;
-    for (rank, result) in joined {
-        match result {
-            Ok(report) => reports.push((rank, report)),
-            Err(payload) => {
-                if unexpected_framework_panic.is_none() {
-                    unexpected_framework_panic = Some((rank, payload));
-                }
-            }
-        }
-    }
-
-    // A panic escaping the runner means its journal report may have been lost.
-    // Join/drain is complete, but semantic reconciliation is no longer proven.
-    if let Some((_rank, payload)) = unexpected_framework_panic {
-        drop(lease);
-        resume_unwind(payload);
-    }
-
-    let mut journals = Vec::with_capacity(reports.len());
-    let mut outcomes = Vec::with_capacity(reports.len());
-    for (rank, report) in reports {
-        journals.push(report.journal);
-        outcomes.push((rank, report.outcome));
-    }
-
-    let framework_indices = outcomes
-        .iter()
+    let members = systems
+        .iter_mut()
         .enumerate()
-        .filter_map(|(index, (_rank, outcome))| is_framework_failure(outcome).then_some(index))
+        .map(|(rank, system)| (rank, system.runner_mut()))
         .collect::<Vec<_>>();
-
-    if let Some(&selected_index) = framework_indices.first() {
-        let every_framework_failure_is_cursor_exhaustion = framework_indices
-            .iter()
-            .all(|index| is_cursor_exhaustion(&outcomes[*index].1));
-
-        if every_framework_failure_is_cursor_exhaustion {
-            // Cursor exhaustion is the accepted invariant whose already-admitted
-            // journal prefix remains safe and required to reconcile.
-            for journal in journals {
-                lease.reconcile(journal);
-            }
-        }
-        drop(lease);
-
-        let selected = outcomes
-            .into_iter()
-            .nth(selected_index)
-            .expect("selected framework failure must still exist");
-        let WorkerInvocationOutcome::Panic { payload, .. } = selected.1 else {
-            unreachable!("worker framework failures are represented as panics")
-        };
-        resume_unwind(payload);
-    }
-
-    // Ordinary user/system failure still requires truthful canonical change
-    // bookkeeping for every admitted event from every launched worker.
-    for journal in journals {
-        lease.reconcile(journal);
-    }
-    drop(lease);
-
-    let mut buffers = Vec::with_capacity(outcomes.len());
-    for (_rank, outcome) in outcomes {
-        match outcome {
-            WorkerInvocationOutcome::Success(buffer) => buffers.push(buffer),
-            WorkerInvocationOutcome::Error(error) => return Err(error),
-            WorkerInvocationOutcome::Panic {
-                payload,
-                phase: WorkerPanicPhase::User,
-            } => resume_unwind(payload),
-            WorkerInvocationOutcome::Panic {
-                phase: WorkerPanicPhase::Framework,
-                ..
-            } => unreachable!("framework panic should have been selected before reconciliation"),
-        }
-    }
-    Ok(buffers)
+    run_worker_cohort(world, members)
+        .map(|buffers| buffers.into_iter().map(|(_rank, buffer)| buffer).collect())
 }
 
 fn validate_pairwise_compatibility(systems: &[ControlledWorkerSystem]) -> Result<(), RuntimeError> {
@@ -159,26 +54,6 @@ fn validate_pairwise_compatibility(systems: &[ControlledWorkerSystem]) -> Result
         }
     }
     Ok(())
-}
-
-fn is_framework_failure(outcome: &WorkerInvocationOutcome) -> bool {
-    match outcome {
-        WorkerInvocationOutcome::Panic { payload, phase } => {
-            *phase == WorkerPanicPhase::Framework
-                || framework_invariant_kind(payload.as_ref()).is_some()
-        }
-        WorkerInvocationOutcome::Success(_) | WorkerInvocationOutcome::Error(_) => false,
-    }
-}
-
-fn is_cursor_exhaustion(outcome: &WorkerInvocationOutcome) -> bool {
-    match outcome {
-        WorkerInvocationOutcome::Panic { payload, .. } => {
-            framework_invariant_kind(payload.as_ref())
-                == Some(FrameworkInvariantKind::ChangeCursorExhausted)
-        }
-        WorkerInvocationOutcome::Success(_) | WorkerInvocationOutcome::Error(_) => false,
-    }
 }
 
 #[cfg(test)]
