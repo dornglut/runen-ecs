@@ -83,6 +83,16 @@ replace_exact(
     "The baseline executor drains the active worker cohort before invoking such a system and does not overlap worker execution across it. This is intentionally conservative and keeps thread-bound effects, whole-World access, and ordinary `LocalCommands` easy to reason about.",
     "The baseline executor drains the active worker cohort before invoking such a system and does not overlap worker execution across it. This is intentionally conservative and keeps thread-bound effects, whole-World access, and `LocalCommands` easy to reason about.",
 )
+replace_exact(
+    adr3,
+    "- direct and nested system parameter graphs mixing ordinary `LocalCommands` with `Commands` being rejected before execution rather than assigned cross-buffer order;",
+    "- direct and nested system parameter graphs mixing `LocalCommands` with `Commands` being rejected before execution rather than assigned cross-buffer order;",
+)
+replace_exact(
+    adr3,
+    "- ordinary `LocalCommands` / `WorldMut` systems executing on the invoking thread;",
+    "- `LocalCommands` / `WorldMut` systems executing on the invoking thread;",
+)
 
 adr4 = "docs/adr/0004-normalize-dense-storage-contiguity-and-expert-query-segments.md"
 replace_exact(
