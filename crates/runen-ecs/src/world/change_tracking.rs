@@ -79,6 +79,7 @@ impl ChangeCursor {
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub(crate) enum FrameworkInvariantKind {
     ChangeCursorExhausted,
+    WorkerProjectionViolation,
 }
 
 #[allow(dead_code)]
@@ -89,10 +90,18 @@ struct FrameworkInvariantPanic {
 }
 
 pub(crate) fn panic_change_cursor_exhausted() -> ! {
-    std::panic::panic_any(FrameworkInvariantPanic {
-        kind: FrameworkInvariantKind::ChangeCursorExhausted,
-        message: "ECS change cursor exhausted",
-    })
+    panic_framework_invariant(
+        FrameworkInvariantKind::ChangeCursorExhausted,
+        "ECS change cursor exhausted",
+    )
+}
+
+pub(crate) fn panic_worker_projection_violation(message: &'static str) -> ! {
+    panic_framework_invariant(FrameworkInvariantKind::WorkerProjectionViolation, message)
+}
+
+fn panic_framework_invariant(kind: FrameworkInvariantKind, message: &'static str) -> ! {
+    std::panic::panic_any(FrameworkInvariantPanic { kind, message })
 }
 
 pub(crate) fn next_change_cursor(cursor: ChangeCursor) -> ChangeCursor {

@@ -1,7 +1,7 @@
 use super::OrderingDirection;
 use super::extract::{
     DeferredRecorderClass, DeferredRecorderConflict, SystemParam, SystemParamContext,
-    SystemParamError,
+    SystemParamError, TransferableSystemParam, WorkerPrepareContext,
 };
 use crate::commands::TransferableCommandBuffer;
 use crate::errors::RuntimeError;
@@ -9,7 +9,10 @@ use crate::scheduler::access::{AccessKey, SystemAccess};
 use crate::scheduler::inspection::ScheduleInspection;
 use crate::scheduler::label::{ScheduleKey, ScheduleLabel, SystemSet, SystemSetKey};
 use crate::scheduler::plan::ScheduleRegistry;
-use crate::scheduler::system::{OrderingDeclaration, ParamSlotDescriptor, RegisteredSystem};
+use crate::scheduler::system::{
+    OrderingDeclaration, ParamSlotDescriptor, RegisteredSystem, WorkerInvocationOutcome,
+    WorkerInvocationReport, WorkerPanicPhase,
+};
 use crate::world::MutationJournal;
 use std::cell::RefCell;
 use std::error::Error;
@@ -631,7 +634,7 @@ macro_rules! build_registered_system {
                 ),
             });
         }
-        let mut states = (
+        let states = (
             $(<$param as SystemParamState>::init_state($world)?,)*
         );
         let query_access_parts = vec![
@@ -646,11 +649,15 @@ macro_rules! build_registered_system {
         let param_slots = vec![
             $(<$param as SystemParamState>::slot_descriptor(),)*
         ];
-        let system_name_for_run = system_name.clone();
-        let mut registered = RegisteredSystem::new_transferable::<Sched>(
+        let system_name_for_serial = system_name.clone();
+        let system_name_for_worker = system_name.clone();
+        let runner_state = ($func, states);
+        let mut registered = RegisteredSystem::new_transferable_worker_capable::<Sched, _>(
             system_name,
             access,
-            move |world| {
+            runner_state,
+            move |runner_state, world| {
+                let ($func, states) = runner_state;
                 let mut mutation_journal = MutationJournal::new(&*world);
                 let mut commands = (deferred_recorder_class
                     == DeferredRecorderClass::TransferableDeferred)
@@ -669,7 +676,7 @@ macro_rules! build_registered_system {
                         $func($($param),*)
                             .into_result()
                             .map_err(|source| RuntimeError::System {
-                                system: system_name_for_run.clone(),
+                                system: system_name_for_serial.clone(),
                                 source,
                             })
                     }))
@@ -694,6 +701,76 @@ macro_rules! build_registered_system {
                         mutation_journal.commit(world);
                         resume_unwind(payload)
                     }
+                }
+            },
+            move |runner_state, lease| {
+                let (_func, states) = runner_state;
+                let mut context = WorkerPrepareContext::new(lease);
+                $(
+                    <$param as TransferableSystemParam>::prepare_worker(
+                        &states.$index,
+                        &mut context,
+                    )?;
+                )*
+                Ok(context.finish())
+            },
+            move |runner_state, prepared, capacity| {
+                let ($func, states) = runner_state;
+                let mut mutation_journal =
+                    MutationJournal::new_concurrent(prepared.base_cursor(), capacity);
+                let mut panic_phase = WorkerPanicPhase::Framework;
+                let invocation_result = catch_unwind(AssertUnwindSafe(|| -> Result<Option<TransferableCommandBuffer>> {
+                    let mut commands = (deferred_recorder_class
+                        == DeferredRecorderClass::TransferableDeferred)
+                        .then(Commands::new_external_owner);
+                    let context = SystemParamContext::new_worker(
+                        prepared.authority(),
+                        &mut mutation_journal,
+                        commands.as_mut(),
+                    );
+                    $(
+                        let $param = match unsafe {
+                            <$param as SystemParamState>::extract(&mut states.$index, context)
+                        } {
+                            Ok(value) => value,
+                            Err(error) => panic!(
+                                "worker parameter extraction failed after successful preparation: {error}"
+                            ),
+                        };
+                    )*
+                    panic_phase = WorkerPanicPhase::User;
+                    let body_result = $func($($param),*)
+                        .into_result()
+                        .map_err(|source| RuntimeError::System {
+                            system: system_name_for_worker.clone(),
+                            source,
+                        });
+                    panic_phase = WorkerPanicPhase::Framework;
+                    body_result?;
+                    let staged_commands = match deferred_recorder_class {
+                        DeferredRecorderClass::None => None,
+                        DeferredRecorderClass::TransferableDeferred => Some(
+                            commands
+                                .expect("command owner must exist for transferable recorder")
+                                .finalize_external_owner(),
+                        ),
+                        DeferredRecorderClass::LocalDeferred => unreachable!(
+                            "local deferred commands were rejected before registration"
+                        ),
+                    };
+                    Ok(staged_commands)
+                }));
+                let outcome = match invocation_result {
+                    Ok(Ok(buffer)) => WorkerInvocationOutcome::Success(buffer),
+                    Ok(Err(error)) => WorkerInvocationOutcome::Error(error),
+                    Err(payload) => WorkerInvocationOutcome::Panic {
+                        payload,
+                        phase: panic_phase,
+                    },
+                };
+                WorkerInvocationReport {
+                    journal: mutation_journal,
+                    outcome,
                 }
             },
         )?;
@@ -817,7 +894,7 @@ macro_rules! impl_into_system {
                 self,
                 world: &mut World,
             ) -> Result<RegisteredSystem> {
-                let mut func = self;
+                let func = self;
                 build_registered_system!(transferable, world, func, $($index, $param),*)
             }
         }

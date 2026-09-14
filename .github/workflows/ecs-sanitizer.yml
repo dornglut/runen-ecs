@@ -82,3 +82,7 @@ jobs:
             -Zbuild-std \
             --target x86_64-unknown-linux-gnu \
             -p runen-ecs --test miri_c3 --locked -- --nocapture
+          cargo +nightly-2026-08-25 test \
+            -Zbuild-std \
+            --target x86_64-unknown-linux-gnu \
+            -p runen-ecs --lib system::concurrent::tests --locked -- --nocapture

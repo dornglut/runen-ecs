@@ -6,7 +6,7 @@ use super::traits_and_state::{
 use crate::component::Component;
 use crate::entity::Entity;
 use crate::storage::ArchetypeExecutionBinding;
-use crate::world::QueryCapability;
+use crate::world::{QueryCapability, WorkerWorldBuilder};
 use std::any::TypeId;
 
 fn required_types_match(required_present: &[TypeId], expected: &[TypeId]) -> bool {
@@ -729,42 +729,122 @@ impl<A: Component, B: Component, C: Component> QueryData for (&mut A, &mut B, &C
     }
 }
 
-unsafe impl<T: Component + Sync> TransferableQueryData for &T {}
-unsafe impl<T: Component + Send> TransferableQueryData for &mut T {}
-unsafe impl<T: Component + Sync> TransferableQueryData for (Entity, &T) {}
-unsafe impl<T: Component + Send> TransferableQueryData for (Entity, &mut T) {}
+unsafe impl<T: Component + Sync> TransferableQueryData for &T {
+    fn prepare_worker(builder: &mut WorkerWorldBuilder<'_>) {
+        builder.prepare_component_read::<T>();
+    }
+}
+unsafe impl<T: Component + Send> TransferableQueryData for &mut T {
+    fn prepare_worker(builder: &mut WorkerWorldBuilder<'_>) {
+        builder.prepare_component_write::<T>();
+    }
+}
+unsafe impl<T: Component + Sync> TransferableQueryData for (Entity, &T) {
+    fn prepare_worker(builder: &mut WorkerWorldBuilder<'_>) {
+        builder.prepare_component_read::<T>();
+    }
+}
+unsafe impl<T: Component + Send> TransferableQueryData for (Entity, &mut T) {
+    fn prepare_worker(builder: &mut WorkerWorldBuilder<'_>) {
+        builder.prepare_component_write::<T>();
+    }
+}
 
-unsafe impl<A: Component + Sync, B: Component + Sync> TransferableQueryData for (&A, &B) {}
-unsafe impl<A: Component + Send, B: Component + Sync> TransferableQueryData for (&mut A, &B) {}
-unsafe impl<A: Component + Sync, B: Component + Send> TransferableQueryData for (&A, &mut B) {}
-unsafe impl<A: Component + Send, B: Component + Send> TransferableQueryData for (&mut A, &mut B) {}
+unsafe impl<A: Component + Sync, B: Component + Sync> TransferableQueryData for (&A, &B) {
+    fn prepare_worker(builder: &mut WorkerWorldBuilder<'_>) {
+        builder.prepare_component_read::<A>();
+        builder.prepare_component_read::<B>();
+    }
+}
+unsafe impl<A: Component + Send, B: Component + Sync> TransferableQueryData for (&mut A, &B) {
+    fn prepare_worker(builder: &mut WorkerWorldBuilder<'_>) {
+        builder.prepare_component_write::<A>();
+        builder.prepare_component_read::<B>();
+    }
+}
+unsafe impl<A: Component + Sync, B: Component + Send> TransferableQueryData for (&A, &mut B) {
+    fn prepare_worker(builder: &mut WorkerWorldBuilder<'_>) {
+        builder.prepare_component_read::<A>();
+        builder.prepare_component_write::<B>();
+    }
+}
+unsafe impl<A: Component + Send, B: Component + Send> TransferableQueryData for (&mut A, &mut B) {
+    fn prepare_worker(builder: &mut WorkerWorldBuilder<'_>) {
+        builder.prepare_component_write::<A>();
+        builder.prepare_component_write::<B>();
+    }
+}
 
-unsafe impl<T: Component + Sync> TransferableQueryData for Option<&T> {}
-unsafe impl<T: Component + Send> TransferableQueryData for Option<&mut T> {}
+unsafe impl<T: Component + Sync> TransferableQueryData for Option<&T> {
+    fn prepare_worker(builder: &mut WorkerWorldBuilder<'_>) {
+        builder.prepare_component_read::<T>();
+    }
+}
+unsafe impl<T: Component + Send> TransferableQueryData for Option<&mut T> {
+    fn prepare_worker(builder: &mut WorkerWorldBuilder<'_>) {
+        builder.prepare_component_write::<T>();
+    }
+}
 unsafe impl<A: Component + Send, B: Component + Sync> TransferableQueryData
     for (&mut A, Option<&B>)
 {
+    fn prepare_worker(builder: &mut WorkerWorldBuilder<'_>) {
+        builder.prepare_component_write::<A>();
+        builder.prepare_component_read::<B>();
+    }
 }
-unsafe impl<A: Component + Sync, B: Component + Sync> TransferableQueryData for (&A, Option<&B>) {}
+unsafe impl<A: Component + Sync, B: Component + Sync> TransferableQueryData for (&A, Option<&B>) {
+    fn prepare_worker(builder: &mut WorkerWorldBuilder<'_>) {
+        builder.prepare_component_read::<A>();
+        builder.prepare_component_read::<B>();
+    }
+}
 unsafe impl<A: Component + Sync, B: Component + Send> TransferableQueryData
     for (&A, Option<&mut B>)
 {
+    fn prepare_worker(builder: &mut WorkerWorldBuilder<'_>) {
+        builder.prepare_component_read::<A>();
+        builder.prepare_component_write::<B>();
+    }
 }
 unsafe impl<A: Component + Send, B: Component + Send> TransferableQueryData
     for (&mut A, Option<&mut B>)
 {
+    fn prepare_worker(builder: &mut WorkerWorldBuilder<'_>) {
+        builder.prepare_component_write::<A>();
+        builder.prepare_component_write::<B>();
+    }
 }
-unsafe impl<T: Component + Sync> TransferableQueryData for (Entity, Option<&T>) {}
+unsafe impl<T: Component + Sync> TransferableQueryData for (Entity, Option<&T>) {
+    fn prepare_worker(builder: &mut WorkerWorldBuilder<'_>) {
+        builder.prepare_component_read::<T>();
+    }
+}
 
 unsafe impl<A: Component + Sync, B: Component + Sync, C: Component + Sync> TransferableQueryData
     for (&A, &B, &C)
 {
+    fn prepare_worker(builder: &mut WorkerWorldBuilder<'_>) {
+        builder.prepare_component_read::<A>();
+        builder.prepare_component_read::<B>();
+        builder.prepare_component_read::<C>();
+    }
 }
 unsafe impl<A: Component + Send, B: Component + Sync, C: Component + Sync> TransferableQueryData
     for (&mut A, &B, &C)
 {
+    fn prepare_worker(builder: &mut WorkerWorldBuilder<'_>) {
+        builder.prepare_component_write::<A>();
+        builder.prepare_component_read::<B>();
+        builder.prepare_component_read::<C>();
+    }
 }
 unsafe impl<A: Component + Send, B: Component + Send, C: Component + Sync> TransferableQueryData
     for (&mut A, &mut B, &C)
 {
+    fn prepare_worker(builder: &mut WorkerWorldBuilder<'_>) {
+        builder.prepare_component_write::<A>();
+        builder.prepare_component_write::<B>();
+        builder.prepare_component_read::<C>();
+    }
 }

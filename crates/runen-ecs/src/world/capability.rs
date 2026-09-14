@@ -1,15 +1,14 @@
 //! Invocation-scoped projections owned by the `World` implementation.
 //!
-//! These capabilities are deliberately not general world handles. The only
-//! raw `World` address is held by the invocation authority in `system::extract`;
-//! this module immediately projects that authority to the concrete storage and
-//! bookkeeping domains used by a parameter. The projections are valid only
-//! while the invocation's structural freeze is active.
+//! Serial capabilities project directly from the live World. Worker capabilities
+//! are created only from the narrow prepared package built under the structural
+//! freeze lease; they never carry a whole World or heterogeneous payload owner.
 
 use super::World;
 use super::change_tracking::{ChangeCursor, RemovedComponentRecord};
 use super::component_indexes::{ComponentIndexKey, ComponentIndexStorage};
 use super::mutation_journal::MutationJournal;
+use super::parallel::WorkerQueryCapability;
 use crate::component::Component;
 use crate::entity::{Entity, WorldScopeId};
 use crate::errors::ResourceError;
@@ -20,8 +19,8 @@ use std::collections::{BTreeSet, HashMap};
 use std::marker::PhantomData;
 use std::ptr::NonNull;
 
-/// The sole invocation-scoped authority from which narrow capabilities are
-/// projected. It is never stored in a user-facing parameter value.
+/// The sole serial invocation-scoped authority from which narrow capabilities
+/// are projected. It is never stored in a user-facing parameter value.
 #[derive(Copy, Clone)]
 pub(crate) struct WorldAuthority<'world> {
     world: NonNull<World>,
@@ -68,10 +67,8 @@ impl<'world> WorldAuthority<'world> {
     }
 }
 
-/// Narrow query-domain authority. It contains pointers only to the storage,
-/// location, and change-bookkeeping fields needed by supported query forms.
-#[doc(hidden)]
-pub struct QueryCapability<'world> {
+#[derive(Copy, Clone)]
+struct SerialQueryCapability<'world> {
     world_scope: WorldScopeId,
     alive_entities: NonNull<BTreeSet<Entity>>,
     archetype_registry: NonNull<ArchetypeRegistry>,
@@ -84,6 +81,20 @@ pub struct QueryCapability<'world> {
     _marker: PhantomData<&'world World>,
 }
 
+#[derive(Copy, Clone)]
+enum QueryCapabilityBacking<'world> {
+    Serial(SerialQueryCapability<'world>),
+    Worker(WorkerQueryCapability<'world>),
+}
+
+/// Narrow query-domain authority used by both serial and prepared-worker
+/// extraction. The worker variant contains only prepared payload projections and
+/// copied metadata.
+#[doc(hidden)]
+pub struct QueryCapability<'world> {
+    backing: QueryCapabilityBacking<'world>,
+}
+
 impl<'world> Copy for QueryCapability<'world> {}
 impl<'world> Clone for QueryCapability<'world> {
     fn clone(&self) -> Self {
@@ -93,36 +104,36 @@ impl<'world> Clone for QueryCapability<'world> {
 
 impl<'world> QueryCapability<'world> {
     pub(super) fn from_world(world: &'world World) -> Self {
-        // Safety: this is the one World-owned projection point. All fields are
-        // part of `world` and remain at stable addresses while the invocation's
-        // structural freeze is active; no capability stores an archetype row or
-        // movable map entry address.
         Self {
-            world_scope: world.scope_id(),
-            alive_entities: NonNull::from(&world.alive_entities),
-            archetype_registry: NonNull::from(&world.archetype_registry),
-            entity_locations: NonNull::from(&world.entity_locations),
-            component_indexes: NonNull::from(&world.component_indexes),
-            change_tick: NonNull::from(&world.change_tick),
-            component_change_ticks: NonNull::from(&world.component_change_ticks),
-            removed_component_records: NonNull::from(&world.removed_component_records),
-            mutation_journal: None,
-            _marker: PhantomData,
+            backing: QueryCapabilityBacking::Serial(SerialQueryCapability {
+                world_scope: world.scope_id(),
+                alive_entities: NonNull::from(&world.alive_entities),
+                archetype_registry: NonNull::from(&world.archetype_registry),
+                entity_locations: NonNull::from(&world.entity_locations),
+                component_indexes: NonNull::from(&world.component_indexes),
+                change_tick: NonNull::from(&world.change_tick),
+                component_change_ticks: NonNull::from(&world.component_change_ticks),
+                removed_component_records: NonNull::from(&world.removed_component_records),
+                mutation_journal: None,
+                _marker: PhantomData,
+            }),
         }
     }
 
     pub(super) fn from_world_mut(world: &'world mut World) -> Self {
         Self {
-            world_scope: world.scope_id(),
-            alive_entities: NonNull::from(&mut world.alive_entities),
-            archetype_registry: NonNull::from(&mut world.archetype_registry),
-            entity_locations: NonNull::from(&mut world.entity_locations),
-            component_indexes: NonNull::from(&mut world.component_indexes),
-            change_tick: NonNull::from(&mut world.change_tick),
-            component_change_ticks: NonNull::from(&mut world.component_change_ticks),
-            removed_component_records: NonNull::from(&mut world.removed_component_records),
-            mutation_journal: None,
-            _marker: PhantomData,
+            backing: QueryCapabilityBacking::Serial(SerialQueryCapability {
+                world_scope: world.scope_id(),
+                alive_entities: NonNull::from(&mut world.alive_entities),
+                archetype_registry: NonNull::from(&mut world.archetype_registry),
+                entity_locations: NonNull::from(&mut world.entity_locations),
+                component_indexes: NonNull::from(&mut world.component_indexes),
+                change_tick: NonNull::from(&mut world.change_tick),
+                component_change_ticks: NonNull::from(&mut world.component_change_ticks),
+                removed_component_records: NonNull::from(&mut world.removed_component_records),
+                mutation_journal: None,
+                _marker: PhantomData,
+            }),
         }
     }
 
@@ -139,41 +150,57 @@ impl<'world> QueryCapability<'world> {
     ) -> Self {
         let world_ptr = world.as_ptr();
         Self {
-            world_scope: unsafe { (*world_ptr).scope_id() },
-            alive_entities: unsafe {
-                NonNull::new_unchecked(std::ptr::addr_of_mut!((*world_ptr).alive_entities))
-            },
-            archetype_registry: unsafe {
-                NonNull::new_unchecked(std::ptr::addr_of_mut!((*world_ptr).archetype_registry))
-            },
-            entity_locations: unsafe {
-                NonNull::new_unchecked(std::ptr::addr_of_mut!((*world_ptr).entity_locations))
-            },
-            component_indexes: unsafe {
-                NonNull::new_unchecked(std::ptr::addr_of_mut!((*world_ptr).component_indexes))
-            },
-            change_tick: unsafe {
-                NonNull::new_unchecked(std::ptr::addr_of_mut!((*world_ptr).change_tick))
-            },
-            component_change_ticks: unsafe {
-                NonNull::new_unchecked(std::ptr::addr_of_mut!((*world_ptr).component_change_ticks))
-            },
-            removed_component_records: unsafe {
-                NonNull::new_unchecked(std::ptr::addr_of_mut!(
-                    (*world_ptr).removed_component_records
-                ))
-            },
-            mutation_journal,
-            _marker: PhantomData,
+            backing: QueryCapabilityBacking::Serial(SerialQueryCapability {
+                world_scope: unsafe { (*world_ptr).scope_id() },
+                alive_entities: unsafe {
+                    NonNull::new_unchecked(std::ptr::addr_of_mut!((*world_ptr).alive_entities))
+                },
+                archetype_registry: unsafe {
+                    NonNull::new_unchecked(std::ptr::addr_of_mut!((*world_ptr).archetype_registry))
+                },
+                entity_locations: unsafe {
+                    NonNull::new_unchecked(std::ptr::addr_of_mut!((*world_ptr).entity_locations))
+                },
+                component_indexes: unsafe {
+                    NonNull::new_unchecked(std::ptr::addr_of_mut!((*world_ptr).component_indexes))
+                },
+                change_tick: unsafe {
+                    NonNull::new_unchecked(std::ptr::addr_of_mut!((*world_ptr).change_tick))
+                },
+                component_change_ticks: unsafe {
+                    NonNull::new_unchecked(std::ptr::addr_of_mut!(
+                        (*world_ptr).component_change_ticks
+                    ))
+                },
+                removed_component_records: unsafe {
+                    NonNull::new_unchecked(std::ptr::addr_of_mut!(
+                        (*world_ptr).removed_component_records
+                    ))
+                },
+                mutation_journal,
+                _marker: PhantomData,
+            }),
+        }
+    }
+
+    pub(crate) fn from_worker(worker: WorkerQueryCapability<'world>) -> Self {
+        Self {
+            backing: QueryCapabilityBacking::Worker(worker),
         }
     }
 
     pub(crate) fn current_change_tick(self) -> ChangeCursor {
-        unsafe { *self.change_tick.as_ptr() }
+        match self.backing {
+            QueryCapabilityBacking::Serial(serial) => unsafe { *serial.change_tick.as_ptr() },
+            QueryCapabilityBacking::Worker(worker) => worker.current_change_tick(),
+        }
     }
 
     pub(crate) fn world_scope(self) -> WorldScopeId {
-        self.world_scope
+        match self.backing {
+            QueryCapabilityBacking::Serial(serial) => serial.world_scope,
+            QueryCapabilityBacking::Worker(worker) => worker.world_scope(),
+        }
     }
 
     pub(crate) fn matching_entities_into(
@@ -182,13 +209,17 @@ impl<'world> QueryCapability<'world> {
         excluded: &[TypeId],
         out: &mut Vec<Entity>,
     ) {
-        unsafe {
-            self.archetype_registry.as_ref().collect_matching_entities(
-                required_present,
-                excluded,
-                out,
-            )
-        };
+        match self.backing {
+            QueryCapabilityBacking::Serial(serial) => unsafe {
+                serial
+                    .archetype_registry
+                    .as_ref()
+                    .collect_matching_entities(required_present, excluded, out);
+            },
+            QueryCapabilityBacking::Worker(worker) => {
+                worker.matching_entities_into(required_present, excluded, out)
+            }
+        }
     }
 
     pub(crate) fn matching_archetype_bindings_into(
@@ -197,20 +228,30 @@ impl<'world> QueryCapability<'world> {
         excluded: &[TypeId],
         out: &mut Vec<ArchetypeExecutionBinding>,
     ) -> bool {
-        unsafe {
-            self.archetype_registry.as_ref().collect_matching_bindings(
-                required_present,
-                excluded,
-                out,
-            )
+        match self.backing {
+            QueryCapabilityBacking::Serial(serial) => unsafe {
+                serial
+                    .archetype_registry
+                    .as_ref()
+                    .collect_matching_bindings(required_present, excluded, out)
+            },
+            QueryCapabilityBacking::Worker(worker) => {
+                worker.matching_archetype_bindings_into(required_present, excluded, out)
+            }
         }
     }
 
     pub(crate) fn archetype_entity_at(self, archetype_index: usize, row: usize) -> Option<Entity> {
-        unsafe {
-            self.archetype_registry
-                .as_ref()
-                .entity_at(archetype_index, row)
+        match self.backing {
+            QueryCapabilityBacking::Serial(serial) => unsafe {
+                serial
+                    .archetype_registry
+                    .as_ref()
+                    .entity_at(archetype_index, row)
+            },
+            QueryCapabilityBacking::Worker(worker) => {
+                worker.archetype_entity_at(archetype_index, row)
+            }
         }
     }
 
@@ -220,86 +261,134 @@ impl<'world> QueryCapability<'world> {
         required_present: &[TypeId],
         excluded: &[TypeId],
     ) -> bool {
-        self.contains(entity)
-            && required_present
-                .iter()
-                .all(|type_id| self.has_component_by_type_id(entity, *type_id))
-            && excluded
-                .iter()
-                .all(|type_id| !self.has_component_by_type_id(entity, *type_id))
+        match self.backing {
+            QueryCapabilityBacking::Serial(_) => {
+                self.contains(entity)
+                    && required_present
+                        .iter()
+                        .all(|type_id| self.has_component_by_type_id(entity, *type_id))
+                    && excluded
+                        .iter()
+                        .all(|type_id| !self.has_component_by_type_id(entity, *type_id))
+            }
+            QueryCapabilityBacking::Worker(worker) => {
+                worker.entity_matches_component_constraints(entity, required_present, excluded)
+            }
+        }
     }
 
     pub(crate) fn contains(self, entity: Entity) -> bool {
-        unsafe { self.alive_entities.as_ref().contains(&entity) }
+        match self.backing {
+            QueryCapabilityBacking::Serial(serial) => unsafe {
+                serial.alive_entities.as_ref().contains(&entity)
+            },
+            QueryCapabilityBacking::Worker(worker) => worker.contains(entity),
+        }
     }
 
     pub(crate) fn has_component_by_type_id(self, entity: Entity, type_id: TypeId) -> bool {
-        let locations = unsafe { self.entity_locations.as_ref() };
-        let Some(location) = locations.get(entity) else {
-            return false;
-        };
-        unsafe {
-            self.archetype_registry
-                .as_ref()
-                .component_types(location.archetype_id)
+        match self.backing {
+            QueryCapabilityBacking::Serial(serial) => {
+                let locations = unsafe { serial.entity_locations.as_ref() };
+                let Some(location) = locations.get(entity) else {
+                    return false;
+                };
+                unsafe {
+                    serial
+                        .archetype_registry
+                        .as_ref()
+                        .component_types(location.archetype_id)
+                }
+                .is_some_and(|types| types.binary_search(&type_id).is_ok())
+            }
+            QueryCapabilityBacking::Worker(worker) => {
+                worker.has_component_by_type_id(entity, type_id)
+            }
         }
-        .is_some_and(|types| types.binary_search(&type_id).is_ok())
     }
 
     pub(crate) fn component<T: Component>(self, entity: Entity) -> Option<&'world T> {
-        let locations = unsafe { self.entity_locations.as_ref() };
-        let ptr = unsafe {
-            self.archetype_registry
-                .as_ref()
-                .component_ptr::<T>(entity, locations)
-        }?;
-        // Safety: the storage registry verified the typed column and row. The
-        // boxed payload allocation is stable across registry/container moves.
-        Some(unsafe { &*ptr })
+        match self.backing {
+            QueryCapabilityBacking::Serial(serial) => {
+                let locations = unsafe { serial.entity_locations.as_ref() };
+                let ptr = unsafe {
+                    serial
+                        .archetype_registry
+                        .as_ref()
+                        .component_ptr::<T>(entity, locations)
+                }?;
+                Some(unsafe { &*ptr })
+            }
+            QueryCapabilityBacking::Worker(worker) => worker.component::<T>(entity),
+        }
     }
 
     /// # Safety
     /// The query access contract must contain the exclusive component borrow and
     /// structural mutation must remain frozen for `'world`.
     pub(crate) unsafe fn component_mut<T: Component>(
-        mut self,
+        self,
         entity: Entity,
     ) -> Option<&'world mut T> {
-        let locations = unsafe { self.entity_locations.as_ref() };
-        let registry = unsafe { self.archetype_registry.as_mut() };
-        let ptr = registry.component_mut_ptr::<T>(entity, locations)?;
-        Some(unsafe { &mut *ptr })
+        match self.backing {
+            QueryCapabilityBacking::Serial(mut serial) => {
+                let locations = unsafe { serial.entity_locations.as_ref() };
+                let registry = unsafe { serial.archetype_registry.as_mut() };
+                let ptr = registry.component_mut_ptr::<T>(entity, locations)?;
+                Some(unsafe { &mut *ptr })
+            }
+            QueryCapabilityBacking::Worker(worker) => unsafe { worker.component_mut::<T>(entity) },
+        }
     }
 
     pub(crate) fn component_metadata<T: Component>(
         self,
         entity: Entity,
     ) -> Option<(ChangeCursor, ChangeCursor)> {
-        let locations = unsafe { self.entity_locations.as_ref() };
-        let metadata = unsafe {
-            self.archetype_registry
-                .as_ref()
-                .component_metadata::<T>(entity, locations)
-        }?;
-        Some((metadata.added_tick, metadata.changed_tick))
+        match self.backing {
+            QueryCapabilityBacking::Serial(serial) => {
+                let locations = unsafe { serial.entity_locations.as_ref() };
+                let metadata = unsafe {
+                    serial
+                        .archetype_registry
+                        .as_ref()
+                        .component_metadata::<T>(entity, locations)
+                }?;
+                Some((metadata.added_tick, metadata.changed_tick))
+            }
+            QueryCapabilityBacking::Worker(worker) => worker.component_metadata::<T>(entity),
+        }
     }
 
-    pub(crate) fn mark_component_modified_by_id(mut self, entity: Entity, component_type: TypeId) {
-        if let Some(mut journal) = self.mutation_journal {
-            unsafe {
-                journal
-                    .as_mut()
-                    .record_component_modified(entity, component_type)
-            };
-            return;
+    pub(crate) fn mark_component_modified_by_id(self, entity: Entity, component_type: TypeId) {
+        match self.backing {
+            QueryCapabilityBacking::Serial(mut serial) => {
+                if let Some(mut journal) = serial.mutation_journal {
+                    unsafe {
+                        journal
+                            .as_mut()
+                            .record_component_modified(entity, component_type)
+                    };
+                    return;
+                }
+                let tick = Self::record_serial_component_change(
+                    &mut serial,
+                    entity,
+                    component_type,
+                    false,
+                );
+                let locations = unsafe { serial.entity_locations.as_ref() };
+                let _ = unsafe {
+                    serial
+                        .archetype_registry
+                        .as_mut()
+                        .mark_component_changed_by_id(entity, component_type, tick, locations)
+                };
+            }
+            QueryCapabilityBacking::Worker(worker) => {
+                worker.mark_component_modified_by_id(entity, component_type)
+            }
         }
-        let tick = self.record_component_change(entity, component_type, false);
-        let locations = unsafe { self.entity_locations.as_ref() };
-        let _ = unsafe {
-            self.archetype_registry
-                .as_mut()
-                .mark_component_changed_by_id(entity, component_type, tick, locations)
-        };
     }
 
     pub(crate) fn mark_component_modified<T: Component>(self, entity: Entity) {
@@ -308,37 +397,42 @@ impl<'world> QueryCapability<'world> {
         }
     }
 
-    fn record_component_change(
-        mut self,
+    fn record_serial_component_change(
+        serial: &mut SerialQueryCapability<'_>,
         entity: Entity,
         component_type: TypeId,
         removed: bool,
     ) -> ChangeCursor {
         let tick = unsafe {
-            let tick = self.change_tick.as_mut();
+            let tick = serial.change_tick.as_mut();
             *tick = super::change_tracking::advance_change_cursor(tick);
             *tick
         };
         unsafe {
-            self.component_change_ticks
+            serial
+                .component_change_ticks
                 .as_mut()
                 .insert(component_type, tick)
         };
         if removed {
             unsafe {
-                self.removed_component_records
+                serial
+                    .removed_component_records
                     .as_mut()
                     .entry(component_type)
                     .or_default()
                     .push(RemovedComponentRecord { tick, entity })
             };
         }
-        self.mark_component_indexes_dirty(component_type);
+        Self::mark_serial_component_indexes_dirty(*serial, component_type);
         tick
     }
 
-    fn mark_component_indexes_dirty(self, component_type: TypeId) {
-        let mut indexes = unsafe { self.component_indexes.as_ref().borrow_mut() };
+    fn mark_serial_component_indexes_dirty(
+        serial: SerialQueryCapability<'_>,
+        component_type: TypeId,
+    ) {
+        let mut indexes = unsafe { serial.component_indexes.as_ref().borrow_mut() };
         for (index_key, index) in indexes.iter_mut() {
             if index_key.component_type == component_type {
                 index.mark_dirty();
@@ -369,16 +463,23 @@ impl<'world> QueryCapability<'world> {
         component_type: TypeId,
         out: &mut Vec<(Entity, ChangeCursor)>,
     ) {
-        out.clear();
-        let records = unsafe { self.removed_component_records.as_ref() };
-        if let Some(records) = records.get(&component_type) {
-            out.extend(records.iter().map(|record| (record.entity, record.tick)));
+        match self.backing {
+            QueryCapabilityBacking::Serial(serial) => {
+                out.clear();
+                let records = unsafe { serial.removed_component_records.as_ref() };
+                if let Some(records) = records.get(&component_type) {
+                    out.extend(records.iter().map(|record| (record.entity, record.tick)));
+                }
+            }
+            QueryCapabilityBacking::Worker(worker) => {
+                worker.removed_component_records_current_window(component_type, out)
+            }
         }
     }
 }
 
-/// Stable typed resource payload plus the separate narrow change-tick recorder used
-/// by `ResMut`. No resource parameter retains a world or registry-entry pointer.
+/// Stable typed resource payload plus the separate narrow change recorder used
+/// by `ResMut`.
 #[doc(hidden)]
 pub struct ResourceCapability<'world, T> {
     value: NonNull<T>,
@@ -394,26 +495,50 @@ impl<'world, T> Clone for ResourceCapability<'world, T> {
 }
 
 #[derive(Copy, Clone)]
+enum ResourceMutationBacking<'world> {
+    Serial {
+        change_tick: NonNull<ChangeCursor>,
+        resource_change_ticks: NonNull<HashMap<TypeId, ChangeCursor>>,
+        mutation_journal: Option<NonNull<MutationJournal>>,
+        _marker: PhantomData<&'world mut World>,
+    },
+    Worker {
+        mutation_journal: NonNull<MutationJournal>,
+        _marker: PhantomData<&'world mut ()>,
+    },
+}
+
+#[derive(Copy, Clone)]
 pub(crate) struct ResourceMutationCapability<'world> {
-    change_tick: NonNull<ChangeCursor>,
-    resource_change_ticks: NonNull<HashMap<TypeId, ChangeCursor>>,
-    mutation_journal: Option<NonNull<MutationJournal>>,
-    _marker: PhantomData<&'world mut World>,
+    backing: ResourceMutationBacking<'world>,
 }
 
 impl<'world> ResourceMutationCapability<'world> {
-    pub(crate) fn mark_modified<T: 'static>(mut self) {
+    pub(crate) fn mark_modified<T: 'static>(self) {
         let type_id = TypeId::of::<T>();
-        if let Some(mut journal) = self.mutation_journal {
-            unsafe { journal.as_mut().record_resource_modified(type_id) };
-            return;
+        match self.backing {
+            ResourceMutationBacking::Serial {
+                mut change_tick,
+                mut resource_change_ticks,
+                mutation_journal,
+                ..
+            } => {
+                if let Some(mut journal) = mutation_journal {
+                    unsafe { journal.as_mut().record_resource_modified(type_id) };
+                    return;
+                }
+                let tick = unsafe {
+                    let tick = change_tick.as_mut();
+                    *tick = super::change_tracking::advance_change_cursor(tick);
+                    *tick
+                };
+                unsafe { resource_change_ticks.as_mut().insert(type_id, tick) };
+            }
+            ResourceMutationBacking::Worker {
+                mut mutation_journal,
+                ..
+            } => unsafe { mutation_journal.as_mut().record_resource_modified(type_id) },
         }
-        let tick = unsafe {
-            let tick = self.change_tick.as_mut();
-            *tick = super::change_tracking::advance_change_cursor(tick);
-            *tick
-        };
-        unsafe { self.resource_change_ticks.as_mut().insert(type_id, tick) };
     }
 }
 
@@ -445,16 +570,18 @@ impl World {
                 resource: type_name::<T>(),
             })?;
             let mutation = ResourceMutationCapability {
-                change_tick: unsafe {
-                    NonNull::new_unchecked(std::ptr::addr_of_mut!((*world_ptr).change_tick))
+                backing: ResourceMutationBacking::Serial {
+                    change_tick: unsafe {
+                        NonNull::new_unchecked(std::ptr::addr_of_mut!((*world_ptr).change_tick))
+                    },
+                    resource_change_ticks: unsafe {
+                        NonNull::new_unchecked(std::ptr::addr_of_mut!(
+                            (*world_ptr).resource_change_ticks
+                        ))
+                    },
+                    mutation_journal,
+                    _marker: PhantomData,
                 },
-                resource_change_ticks: unsafe {
-                    NonNull::new_unchecked(std::ptr::addr_of_mut!(
-                        (*world_ptr).resource_change_ticks
-                    ))
-                },
-                mutation_journal,
-                _marker: PhantomData,
             };
             Ok(ResourceCapability {
                 value: NonNull::from(&mut *value),
@@ -481,6 +608,30 @@ impl World {
 }
 
 impl<'world, T> ResourceCapability<'world, T> {
+    pub(crate) fn worker_shared(value: NonNull<T>) -> Self {
+        Self {
+            value,
+            mutation: None,
+            _marker: PhantomData,
+        }
+    }
+
+    pub(crate) fn worker_mutable(
+        value: NonNull<T>,
+        mutation_journal: NonNull<MutationJournal>,
+    ) -> Self {
+        Self {
+            value,
+            mutation: Some(ResourceMutationCapability {
+                backing: ResourceMutationBacking::Worker {
+                    mutation_journal,
+                    _marker: PhantomData,
+                },
+            }),
+            _marker: PhantomData,
+        }
+    }
+
     pub(crate) fn value(self) -> NonNull<T> {
         self.value
     }

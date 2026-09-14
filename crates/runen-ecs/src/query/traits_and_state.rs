@@ -4,7 +4,7 @@ use crate::component::Component;
 use crate::entity::{Entity, WorldScopeId};
 use crate::errors::QueryError;
 use crate::storage::ArchetypeExecutionBinding;
-use crate::world::{ChangeCursor, QueryCapability, World};
+use crate::world::{ChangeCursor, QueryCapability, WorkerWorldBuilder, World};
 use std::any::TypeId;
 use std::cell::{Cell, RefCell};
 use std::marker::PhantomData;
@@ -129,7 +129,9 @@ pub trait QuerySpec: sealed::QuerySpecSealed {
 ///
 /// Implementations must encode the exact `Send`/`Sync` requirements of every
 /// payload access yielded by the query shape.
-pub(crate) unsafe trait TransferableQueryData: QuerySpec {}
+pub(crate) unsafe trait TransferableQueryData: QuerySpec {
+    fn prepare_worker(builder: &mut WorkerWorldBuilder<'_>);
+}
 
 /// Framework-owned classification for query shapes that only yield shared
 /// component references (or entity identity). This is intentionally sealed;

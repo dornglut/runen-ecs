@@ -26,6 +26,8 @@ The repository also maintains focused exact-head Miri, AddressSanitizer, and Thr
 
 These safety workflows supplement `cargo validate`; they do not replace the canonical baseline. Their focused scope remains owned by the corresponding checked-in workflow and safety harness.
 
+The Miri and AddressSanitizer lanes retain the established C3 alias/lifetime suite and additionally execute the controlled worker-projection test module. That suite exercises real scoped-thread execution over prepared disjoint World projections, exact shared/mutable payload bounds, metadata-only projections, deterministic mutation-journal reconciliation, failure handling, and worker-local deferred recording without making the serial scheduler parallel.
+
 The additional successor-acceptance gates recorded by completed issue #2 are transfer provenance. They do not remain a second ongoing merge-readiness baseline after the accepted source-authority handoff.
 
 ## ThreadSanitizer race evidence
@@ -39,13 +41,14 @@ bash tools/tsan/run_ecs_tsan.sh
 ```
 
 The script pins `nightly-2026-08-25`, targets `x86_64-unknown-linux-gnu`,
-installs/uses `rust-src` through the workflow, and runs the focused
-`tsan_smoke` target with `RUSTFLAGS=-Zsanitizer=thread` and `-Zbuild-std`.
-The workflow verifies the exact pull-request head or accepted-main revision
-before running the proof. The founding smoke only checks race-free standard
-library threading with synchronization and disjoint data; it does not invent
-concurrent ECS execution. #38 and later executor slices must extend this same
-lane with their actual unsafe-boundary and production-path coverage.
+installs/uses `rust-src` through the workflow, and runs both the founding
+`tsan_smoke` target and the controlled worker-projection test module with
+`RUSTFLAGS=-Zsanitizer=thread` and `-Zbuild-std`. The workflow verifies the
+exact pull-request head or accepted-main revision before running the proof.
+The founding smoke remains infrastructure evidence; the controlled worker suite
+is the maintained race-detection coverage for the actual concurrent World
+projection/structural-freeze harness introduced by #38. Production schedule
+parallelism remains outside that proof until its owning executor slice lands.
 
 ThreadSanitizer is race-detection evidence, not exhaustive interleaving
 exploration or a replacement for Rust's type/access proof, Miri, AddressSanitizer,

@@ -41,6 +41,6 @@ pub use system::{
     SchedulePrecedencePath, SchedulePrecedenceReason, SchedulePublicationFrontier,
     SchedulePublicationObligation, ScheduleValidationError, SystemConfigExt, SystemMobilityExt,
     SystemParam, SystemParamContext, SystemParamError, SystemSet, SystemSetKey,
-    TransferableSystemParam, WorldMut,
+    TransferableSystemParam, WorkerPrepareContext, WorldMut,
 };
 pub use world::{ChangeCursor, EntityMut, EntityRef, Mut, World};
