@@ -16,6 +16,13 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Rebase temporary executor onto accepted main
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git rebase origin/main
+
       - name: Apply command vocabulary cut
         run: |
           python3 - <<'PY'
@@ -35,6 +42,9 @@ jobs:
           PY
           python3 tools/issue69_apply.py
           sed -i 's/TransferableCommandsUpdate/CommandsUpdate/g' crates/runen-ecs/tests/commands.rs
+          # The baseline deferred-command benchmark is transfer-safe; exercise the normal path.
+          sed -i 's/fn queue_spawn(mut commands: LocalCommands)/fn queue_spawn(mut commands: Commands)/' crates/runen-ecs/benches/semantic_baseline.rs
+          sed -i 's/(queue_spawn\.on_invoker_thread(), count_entities)/(queue_spawn, count_entities)/' crates/runen-ecs/benches/semantic_baseline.rs
 
       - name: Format candidate
         run: cargo fmt --all
@@ -54,8 +64,6 @@ jobs:
             exit 1
           fi
           git diff --check
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add -A
           git commit -m 'Normalize deferred command authoring vocabulary (#69)'
 
@@ -73,4 +81,4 @@ jobs:
           test -z "$(git status --porcelain)"
 
       - name: Publish validated candidate branch
-        run: git push origin HEAD:issue-69-commands-default
+        run: git push --force-with-lease origin HEAD:issue-69-commands-default
