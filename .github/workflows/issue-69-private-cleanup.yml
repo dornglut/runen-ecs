@@ -1,0 +1,64 @@
+name: Issue 69 private vocabulary cleanup
+
+on:
+  push:
+    branches:
+      - issue-69-commands-default
+
+permissions:
+  contents: write
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Verify accepted base remains current
+        run: |
+          set -euo pipefail
+          git fetch origin main
+          test "$(git merge-base HEAD origin/main)" = "$(git rev-parse origin/main)"
+
+      - name: Apply private vocabulary cleanup
+        run: python3 tools/issue69_private_names.py
+
+      - name: Format and test candidate
+        env:
+          TRYBUILD: overwrite
+        run: |
+          set -euo pipefail
+          cargo fmt --all
+          cargo test --workspace --locked
+
+      - name: Commit clean candidate
+        run: |
+          set -euo pipefail
+          rm .github/workflows/issue-69-private-cleanup.yml tools/issue69_private_names.py
+          if grep -n -E '\btransferable_commands\b' crates/runen-ecs/src/system/extract.rs crates/runen-ecs/src/system/params.rs crates/runen-ecs/src/system/runtime.rs; then
+            echo 'stale private command-owner vocabulary remains' >&2
+            exit 1
+          fi
+          git diff --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'Align private command-owner vocabulary (#69)'
+
+      - name: Validate clean committed candidate
+        run: |
+          set -euo pipefail
+          cargo test -p runen-ecs --test commands --locked
+          cargo test -p runen-ecs --test system_param_mobility --locked
+          cargo test -p runen-ecs --test public_api_boundary --locked
+          cargo run -p runen-ecs --example deferred_commands --locked
+          cargo run -p runen-ecs --example system_mobility --locked
+          cargo run -p runen-ecs --example standalone_simulation --locked
+          cargo validate
+          git diff HEAD^ --check
+          test -z "$(git status --porcelain)"
+
+      - name: Publish validated candidate
+        run: git push origin HEAD:issue-69-commands-default
