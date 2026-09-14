@@ -1,5 +1,6 @@
 // Owner: RunenECS World - Change Tracking Types
 use crate::entity::{Entity, WorldScopeId};
+use std::any::Any;
 use std::cmp::Ordering;
 use std::fmt;
 
@@ -73,6 +74,45 @@ impl ChangeCursor {
             })
         }
     }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub(crate) enum FrameworkInvariantKind {
+    ChangeCursorExhausted,
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Copy, Clone)]
+struct FrameworkInvariantPanic {
+    kind: FrameworkInvariantKind,
+    message: &'static str,
+}
+
+pub(crate) fn panic_change_cursor_exhausted() -> ! {
+    std::panic::panic_any(FrameworkInvariantPanic {
+        kind: FrameworkInvariantKind::ChangeCursorExhausted,
+        message: "ECS change cursor exhausted",
+    })
+}
+
+pub(crate) fn next_change_cursor(cursor: ChangeCursor) -> ChangeCursor {
+    cursor
+        .next()
+        .unwrap_or_else(|| panic_change_cursor_exhausted())
+}
+
+pub(crate) fn advance_change_cursor(cursor: &mut ChangeCursor) -> ChangeCursor {
+    *cursor = next_change_cursor(*cursor);
+    *cursor
+}
+
+#[allow(dead_code)]
+pub(crate) fn framework_invariant_kind(
+    payload: &(dyn Any + Send),
+) -> Option<FrameworkInvariantKind> {
+    payload
+        .downcast_ref::<FrameworkInvariantPanic>()
+        .map(|panic| panic.kind)
 }
 
 impl PartialOrd for ChangeCursor {

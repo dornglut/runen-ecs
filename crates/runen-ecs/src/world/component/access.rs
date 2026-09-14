@@ -2,6 +2,7 @@
 use crate::component::Component;
 use crate::entity::Entity;
 use crate::errors::{ChangeCursorError, EntityError};
+use crate::world::change_tracking::{advance_change_cursor, next_change_cursor};
 use crate::world::entity_handles::Mut;
 use crate::world::{ChangeCursor, World};
 use std::any::{TypeId, type_name};
@@ -57,10 +58,7 @@ impl World {
         debug_assert!(self.contains(entity));
         let already_present = self.contains_component::<T>(entity);
         let component_type = TypeId::of::<T>();
-        let commit_tick = self
-            .change_tick
-            .next()
-            .expect("ECS change cursor exhausted");
+        let commit_tick = next_change_cursor(self.change_tick);
 
         let inserted = if !already_present {
             self.archetype_registry.add_component::<T>(
@@ -132,10 +130,7 @@ impl World {
     }
 
     fn mark_component_type_changed_by_id(&mut self, type_id: TypeId) {
-        self.change_tick = self
-            .change_tick
-            .next()
-            .expect("ECS change cursor exhausted");
+        advance_change_cursor(&mut self.change_tick);
         self.component_change_ticks
             .insert(type_id, self.change_tick);
         self.mark_component_indexes_dirty(type_id);
@@ -187,6 +182,14 @@ impl World {
                 index.mark_dirty();
             }
         }
+    }
+
+    pub(crate) fn commit_component_mutation_event(
+        &mut self,
+        entity: Entity,
+        component_type: TypeId,
+    ) {
+        self.mark_component_modified_by_id(entity, component_type);
     }
 
     pub(crate) fn matching_entities_into(

@@ -9,6 +9,7 @@
 use super::World;
 use super::change_tracking::{ChangeCursor, RemovedComponentRecord};
 use super::component_indexes::{ComponentIndexKey, ComponentIndexStorage};
+use super::mutation_journal::MutationJournal;
 use crate::component::Component;
 use crate::entity::{Entity, WorldScopeId};
 use crate::errors::ResourceError;
@@ -35,10 +36,14 @@ impl<'world> WorldAuthority<'world> {
         }
     }
 
-    pub(crate) fn query(self) -> QueryCapability<'world> {
+    pub(crate) fn query_with_journal(
+        self,
+        journal: NonNull<MutationJournal>,
+    ) -> QueryCapability<'world> {
         // Safety: the authority was constructed from the live invocation World;
-        // the bridge immediately projects only owned query fields.
-        unsafe { QueryCapability::from_world_ptr(self.world) }
+        // the bridge immediately projects only owned query fields and the
+        // invocation-owned journal remains alive for the same invocation.
+        unsafe { QueryCapability::from_world_ptr_with_journal(self.world, journal) }
     }
 
     pub(crate) unsafe fn world_mut(mut self) -> &'world mut World {
@@ -50,15 +55,16 @@ impl<'world> WorldAuthority<'world> {
     ) -> Result<ResourceCapability<'world, T>, ResourceError> {
         // Safety: the authority lifetime is the invocation lifetime and the
         // resource bridge retains only the stable boxed payload address.
-        unsafe { World::resource_capability_from_ptr(self.world, false) }
+        unsafe { World::resource_capability_from_ptr(self.world, false, None) }
     }
 
     pub(crate) fn resource_mut<T: crate::component::Resource>(
         self,
+        journal: NonNull<MutationJournal>,
     ) -> Result<ResourceCapability<'world, T>, ResourceError> {
         // Safety: access validation rejects overlapping resource borrows before
         // this projection is manufactured.
-        unsafe { World::resource_capability_from_ptr(self.world, true) }
+        unsafe { World::resource_capability_from_ptr(self.world, true, Some(journal)) }
     }
 }
 
@@ -74,6 +80,7 @@ pub struct QueryCapability<'world> {
     change_tick: NonNull<ChangeCursor>,
     component_change_ticks: NonNull<HashMap<TypeId, ChangeCursor>>,
     removed_component_records: NonNull<HashMap<TypeId, Vec<RemovedComponentRecord>>>,
+    mutation_journal: Option<NonNull<MutationJournal>>,
     _marker: PhantomData<&'world World>,
 }
 
@@ -99,6 +106,7 @@ impl<'world> QueryCapability<'world> {
             change_tick: NonNull::from(&world.change_tick),
             component_change_ticks: NonNull::from(&world.component_change_ticks),
             removed_component_records: NonNull::from(&world.removed_component_records),
+            mutation_journal: None,
             _marker: PhantomData,
         }
     }
@@ -113,11 +121,22 @@ impl<'world> QueryCapability<'world> {
             change_tick: NonNull::from(&mut world.change_tick),
             component_change_ticks: NonNull::from(&mut world.component_change_ticks),
             removed_component_records: NonNull::from(&mut world.removed_component_records),
+            mutation_journal: None,
             _marker: PhantomData,
         }
     }
 
-    pub(super) unsafe fn from_world_ptr(world: NonNull<World>) -> Self {
+    pub(super) unsafe fn from_world_ptr_with_journal(
+        world: NonNull<World>,
+        journal: NonNull<MutationJournal>,
+    ) -> Self {
+        unsafe { Self::from_world_ptr_with_journal_option(world, Some(journal)) }
+    }
+
+    unsafe fn from_world_ptr_with_journal_option(
+        world: NonNull<World>,
+        mutation_journal: Option<NonNull<MutationJournal>>,
+    ) -> Self {
         let world_ptr = world.as_ptr();
         Self {
             world_scope: unsafe { (*world_ptr).scope_id() },
@@ -144,6 +163,7 @@ impl<'world> QueryCapability<'world> {
                     (*world_ptr).removed_component_records
                 ))
             },
+            mutation_journal,
             _marker: PhantomData,
         }
     }
@@ -265,6 +285,14 @@ impl<'world> QueryCapability<'world> {
     }
 
     pub(crate) fn mark_component_modified_by_id(mut self, entity: Entity, component_type: TypeId) {
+        if let Some(mut journal) = self.mutation_journal {
+            unsafe {
+                journal
+                    .as_mut()
+                    .record_component_modified(entity, component_type)
+            };
+            return;
+        }
         let tick = self.record_component_change(entity, component_type, false);
         let locations = unsafe { self.entity_locations.as_ref() };
         let _ = unsafe {
@@ -288,7 +316,7 @@ impl<'world> QueryCapability<'world> {
     ) -> ChangeCursor {
         let tick = unsafe {
             let tick = self.change_tick.as_mut();
-            *tick = tick.next().expect("ECS change cursor exhausted");
+            *tick = super::change_tracking::advance_change_cursor(tick);
             *tick
         };
         unsafe {
@@ -369,15 +397,20 @@ impl<'world, T> Clone for ResourceCapability<'world, T> {
 pub(crate) struct ResourceMutationCapability<'world> {
     change_tick: NonNull<ChangeCursor>,
     resource_change_ticks: NonNull<HashMap<TypeId, ChangeCursor>>,
+    mutation_journal: Option<NonNull<MutationJournal>>,
     _marker: PhantomData<&'world mut World>,
 }
 
 impl<'world> ResourceMutationCapability<'world> {
     pub(crate) fn mark_modified<T: 'static>(mut self) {
         let type_id = TypeId::of::<T>();
+        if let Some(mut journal) = self.mutation_journal {
+            unsafe { journal.as_mut().record_resource_modified(type_id) };
+            return;
+        }
         let tick = unsafe {
             let tick = self.change_tick.as_mut();
-            *tick = tick.next().expect("ECS change cursor exhausted");
+            *tick = super::change_tracking::advance_change_cursor(tick);
             *tick
         };
         unsafe { self.resource_change_ticks.as_mut().insert(type_id, tick) };
@@ -397,6 +430,7 @@ impl World {
     pub(crate) unsafe fn resource_capability_from_ptr<'world, T: crate::component::Resource>(
         world: NonNull<World>,
         mutable: bool,
+        mutation_journal: Option<NonNull<MutationJournal>>,
     ) -> Result<ResourceCapability<'world, T>, ResourceError> {
         let world_ptr = world.as_ptr();
         let type_id = TypeId::of::<T>();
@@ -419,6 +453,7 @@ impl World {
                         (*world_ptr).resource_change_ticks
                     ))
                 },
+                mutation_journal,
                 _marker: PhantomData,
             };
             Ok(ResourceCapability {

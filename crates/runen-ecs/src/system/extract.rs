@@ -1,6 +1,6 @@
 use crate::query::QueryAccess;
 use crate::scheduler::system::ParamSlotDescriptor;
-use crate::world::WorldAuthority;
+use crate::world::{MutationJournal, WorldAuthority};
 use crate::{Commands, ResourceError, TransferableCommands, World};
 use std::marker::PhantomData;
 use std::ptr::NonNull;
@@ -86,6 +86,7 @@ impl std::fmt::Display for DeferredRecorderConflict {
 #[derive(Copy, Clone)]
 pub struct SystemParamContext<'world> {
     authority: WorldAuthority<'world>,
+    mutation_journal: NonNull<MutationJournal>,
     commands: Option<NonNull<Commands<'static>>>,
     transferable_commands: Option<NonNull<TransferableCommands<'static>>>,
     _marker: PhantomData<&'world mut World>,
@@ -94,11 +95,13 @@ pub struct SystemParamContext<'world> {
 impl<'world> SystemParamContext<'world> {
     pub(crate) fn new(
         world: &'world mut World,
+        mutation_journal: &'world mut MutationJournal,
         commands: Option<&'world mut Commands<'static>>,
         transferable_commands: Option<&'world mut TransferableCommands<'static>>,
     ) -> Self {
         Self {
             authority: WorldAuthority::new(world),
+            mutation_journal: NonNull::from(mutation_journal),
             commands: commands.map(NonNull::from),
             transferable_commands: transferable_commands.map(NonNull::from),
             _marker: PhantomData,
@@ -106,7 +109,7 @@ impl<'world> SystemParamContext<'world> {
     }
 
     pub(crate) fn query(self) -> crate::world::QueryCapability<'world> {
-        self.authority.query()
+        self.authority.query_with_journal(self.mutation_journal)
     }
 
     pub(crate) fn resource<T: crate::Resource>(
@@ -118,7 +121,7 @@ impl<'world> SystemParamContext<'world> {
     pub(crate) fn resource_mut<T: crate::Resource>(
         self,
     ) -> Result<crate::world::ResourceCapability<'world, T>, SystemParamError> {
-        Ok(self.authority.resource_mut::<T>()?)
+        Ok(self.authority.resource_mut::<T>(self.mutation_journal)?)
     }
 
     /// # Safety
