@@ -74,10 +74,10 @@ fn main() -> Result<(), RuntimeError> {
     runtime.add_systems::<Update, _, _>(
         &mut world,
         (
-            queue_arrival.in_set(Spawn),
+            queue_arrival.on_invoker_thread().in_set(Spawn),
             integrate,
             observe_arrivals.in_set(Observe).after(Spawn),
-            advance_frame.after(Observe),
+            advance_frame.on_invoker_thread().after(Observe),
         ),
     );
 

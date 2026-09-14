@@ -22,7 +22,13 @@ type Result<T> = std::result::Result<T, RuntimeError>;
 
 type DeferredCommands = Rc<RefCell<Vec<DeferredCommandBuffer>>>;
 
-pub enum DeferredCommandBuffer {
+pub(crate) enum DeferredCommandBuffer {
+    Local(Commands<'static>),
+    Transferable(TransferableCommandBuffer),
+}
+
+pub(crate) enum InvocationOutcome {
+    None,
     Local(Commands<'static>),
     Transferable(TransferableCommandBuffer),
 }
@@ -84,7 +90,6 @@ pub trait IntoSystem<Marker>: 'static {
     fn into_registered_system<L: ScheduleLabel>(
         self,
         world: &mut World,
-        deferred_commands: DeferredCommands,
     ) -> Result<RegisteredSystem>;
 }
 
@@ -155,6 +160,17 @@ pub struct ConfiguredSystem<S, Marker> {
     config: SystemConfigMetadata,
     _marker: PhantomData<fn() -> Marker>,
 }
+
+/// Explicitly restricts a system to the thread invoking its schedule.
+pub struct InvokerThreadSystem<S>(pub(crate) S);
+
+pub trait SystemMobilityExt: Sized {
+    fn on_invoker_thread(self) -> InvokerThreadSystem<Self> {
+        InvokerThreadSystem(self)
+    }
+}
+
+impl<S> SystemMobilityExt for S {}
 
 impl<S, Marker> ConfiguredSystem<S, Marker> {
     fn new(system: S) -> Self {
@@ -246,13 +262,12 @@ pub trait SystemConfigExt<Marker>: IntoSystem<Marker> + Sized {
 impl<S, Marker> SystemConfigExt<Marker> for S where S: IntoSystem<Marker> + Sized {}
 
 mod system_configs_sealed {
-    use super::{DeferredCommands, RuntimeError, ScheduleLabel, ScheduleRegistry};
+    use super::{RuntimeError, ScheduleLabel, ScheduleRegistry};
     use crate::World;
 
     pub struct RegistrationContext<'a> {
         pub(super) world: &'a mut World,
         pub(super) scheduler: &'a mut ScheduleRegistry,
-        pub(super) deferred_commands: DeferredCommands,
         pub(super) build_errors: &'a mut Vec<RuntimeError>,
     }
 
@@ -260,13 +275,11 @@ mod system_configs_sealed {
         pub(super) fn new(
             world: &'a mut World,
             scheduler: &'a mut ScheduleRegistry,
-            deferred_commands: DeferredCommands,
             build_errors: &'a mut Vec<RuntimeError>,
         ) -> Self {
             Self {
                 world,
                 scheduler,
-                deferred_commands,
                 build_errors,
             }
         }
@@ -292,7 +305,7 @@ where
         self,
         context: &mut system_configs_sealed::RegistrationContext<'_>,
     ) {
-        match self.into_registered_system::<L>(context.world, context.deferred_commands.clone()) {
+        match self.into_registered_system::<L>(context.world) {
             Ok(registered) => {
                 if let Err(err) = context.scheduler.add_system(registered) {
                     context.build_errors.push(err.into());
@@ -311,11 +324,8 @@ where
     fn into_registered_system<L: ScheduleLabel>(
         self,
         world: &mut World,
-        deferred_commands: DeferredCommands,
     ) -> Result<RegisteredSystem> {
-        let mut registered = self
-            .system
-            .into_registered_system::<L>(world, deferred_commands)?;
+        let mut registered = self.system.into_registered_system::<L>(world)?;
         self.config.apply(&mut registered);
         Ok(registered)
     }
@@ -590,110 +600,212 @@ fn merge_access(system_name: &str, access_parts: &[SystemAccess]) -> Result<Syst
     Ok(merged)
 }
 
+macro_rules! build_registered_system {
+    (transferable, $world:ident, $func:ident, $($index:tt, $param:ident),*) => {{
+        let system_name = std::any::type_name::<Func>().to_string();
+        let mut deferred_recorder_class = DeferredRecorderClass::None;
+        $(
+            deferred_recorder_class = deferred_recorder_class
+                .merge(<$param as SystemParamState>::deferred_recorder_class().map_err(
+                    |conflict| RuntimeError::Setup {
+                        message: format!(
+                            "system '{}' has invalid deferred recorder metadata: {}",
+                            system_name, conflict
+                        ),
+                    },
+                )?)
+                .map_err(|conflict| RuntimeError::Setup {
+                    message: format!(
+                        "system '{}' has mixed deferred recorder capabilities: {}",
+                        system_name, conflict
+                    ),
+                })?;
+        )*
+        if deferred_recorder_class == DeferredRecorderClass::LocalDeferred {
+            return Err(RuntimeError::Setup {
+                message: format!(
+                    "system '{}' uses local deferred commands and is not transferable",
+                    system_name
+                ),
+            });
+        }
+        let mut states = (
+            $(<$param as SystemParamState>::init_state($world)?,)*
+        );
+        let query_access_parts = vec![
+            $(<$param as SystemParamState>::access(&states.$index),)*
+        ];
+        validate_borrow_access(&system_name, &query_access_parts)?;
+        let access_parts = query_access_parts
+            .into_iter()
+            .map(query_access_to_system_access)
+            .collect::<Vec<_>>();
+        let access = merge_access(&system_name, &access_parts)?;
+        let param_slots = vec![
+            $(<$param as SystemParamState>::slot_descriptor(),)*
+        ];
+        let system_name_for_run = system_name.clone();
+        let mut registered = RegisteredSystem::new_transferable::<Sched>(
+            system_name,
+            access,
+            move |world| {
+                let mut transferable_commands = (deferred_recorder_class
+                    == DeferredRecorderClass::TransferableDeferred)
+                    .then(TransferableCommands::new_external_owner);
+                let context = SystemParamContext::new(
+                    world,
+                    None,
+                    transferable_commands.as_mut(),
+                );
+                $(
+                    let $param = unsafe { <$param as SystemParamState>::extract(&mut states.$index, context)? };
+                )*
+                let result = $func($($param),*)
+                    .into_result()
+                    .map_err(|source| RuntimeError::System {
+                        system: system_name_for_run.clone(),
+                        source,
+                    });
+                let staged_commands = match deferred_recorder_class {
+                    DeferredRecorderClass::None => None,
+                    DeferredRecorderClass::TransferableDeferred => Some(
+                        transferable_commands
+                            .expect("transferable command owner must exist for transferable recorder")
+                            .finalize_external_owner(),
+                    ),
+                    DeferredRecorderClass::LocalDeferred => unreachable!(
+                        "local deferred commands were rejected before registration"
+                    ),
+                };
+                result.map(|()| staged_commands)
+            },
+        )?;
+        registered.set_deferred_recorder_class(deferred_recorder_class);
+        registered.set_param_slots(param_slots);
+        Ok(registered)
+    }};
+    (local, $world:ident, $func:ident, $($index:tt, $param:ident),*) => {{
+        let system_name = std::any::type_name::<Func>().to_string();
+        let mut deferred_recorder_class = DeferredRecorderClass::None;
+        $(
+            deferred_recorder_class = deferred_recorder_class
+                .merge(<$param as SystemParamState>::deferred_recorder_class().map_err(
+                    |conflict| RuntimeError::Setup {
+                        message: format!(
+                            "system '{}' has invalid deferred recorder metadata: {}",
+                            system_name, conflict
+                        ),
+                    },
+                )?)
+                .map_err(|conflict| RuntimeError::Setup {
+                    message: format!(
+                        "system '{}' has mixed deferred recorder capabilities: {}",
+                        system_name, conflict
+                    ),
+                })?;
+        )*
+        let mut states = (
+            $(<$param as SystemParamState>::init_state($world)?,)*
+        );
+        let query_access_parts = vec![
+            $(<$param as SystemParamState>::access(&states.$index),)*
+        ];
+        validate_borrow_access(&system_name, &query_access_parts)?;
+        let access_parts = query_access_parts
+            .into_iter()
+            .map(query_access_to_system_access)
+            .collect::<Vec<_>>();
+        let access = merge_access(&system_name, &access_parts)?;
+        let param_slots = vec![
+            $(<$param as SystemParamState>::slot_descriptor(),)*
+        ];
+        let system_name_for_run = system_name.clone();
+        let mut registered = RegisteredSystem::new_invoker_thread_only::<Sched>(
+            system_name,
+            access,
+            move |world| {
+                let mut commands = (deferred_recorder_class
+                    == DeferredRecorderClass::LocalDeferred)
+                    .then(Commands::new_external_owner);
+                let mut transferable_commands = (deferred_recorder_class
+                    == DeferredRecorderClass::TransferableDeferred)
+                    .then(TransferableCommands::new_external_owner);
+                let context = SystemParamContext::new(
+                    world,
+                    commands.as_mut(),
+                    transferable_commands.as_mut(),
+                );
+                $(
+                    let $param = unsafe { <$param as SystemParamState>::extract(&mut states.$index, context)? };
+                )*
+                let result = $func($($param),*)
+                    .into_result()
+                    .map_err(|source| RuntimeError::System {
+                        system: system_name_for_run.clone(),
+                        source,
+                    });
+                let staged_commands = match deferred_recorder_class {
+                    DeferredRecorderClass::None => None,
+                    DeferredRecorderClass::LocalDeferred => Some(DeferredCommandBuffer::Local(
+                        commands
+                            .expect("local command owner must exist for local recorder")
+                            .finalize_external_owner(),
+                    )),
+                    DeferredRecorderClass::TransferableDeferred => Some(
+                        DeferredCommandBuffer::Transferable(
+                            transferable_commands
+                                .expect("transferable command owner must exist for transferable recorder")
+                                .finalize_external_owner(),
+                        ),
+                    ),
+                };
+                result.map(|()| staged_commands)
+            },
+        )?;
+        registered.set_deferred_recorder_class(deferred_recorder_class);
+        registered.set_param_slots(param_slots);
+        Ok(registered)
+    }};
+}
+
 macro_rules! impl_into_system {
     ($(($index:tt, $param:ident)),* $(,)?) => {
         #[allow(unused_mut, unused_variables, non_snake_case)]
         impl<Func, R, $($param),*> IntoSystem<fn($($param),*) -> R> for Func
         where
-            Func: FnMut($($param),*) -> R + for<'world, 'state> FnMut($(<$param as SystemParamState>::Item<'world, 'state>),*) -> R + 'static,
+            Func: FnMut($($param),*) -> R
+                + for<'world, 'state> FnMut($(<$param as SystemParamState>::Item<'world, 'state>),*) -> R
+                + Send
+                + 'static,
+            $($param: SystemParam + crate::system::TransferableSystemParam,)*
+            $(<$param as SystemParam>::State: Send,)*
+            R: SystemOutput,
+        {
+            fn into_registered_system<Sched: ScheduleLabel>(
+                self,
+                world: &mut World,
+            ) -> Result<RegisteredSystem> {
+                let mut func = self;
+                build_registered_system!(transferable, world, func, $($index, $param),*)
+            }
+        }
+
+        #[allow(unused_mut, unused_variables, non_snake_case)]
+        impl<Func, R, $($param),*> IntoSystem<fn($($param),*) -> R>
+            for InvokerThreadSystem<Func>
+        where
+            Func: FnMut($($param),*) -> R
+                + for<'world, 'state> FnMut($(<$param as SystemParamState>::Item<'world, 'state>),*) -> R
+                + 'static,
             $($param: SystemParam,)*
             R: SystemOutput,
         {
             fn into_registered_system<Sched: ScheduleLabel>(
                 self,
                 world: &mut World,
-                deferred_commands: DeferredCommands,
             ) -> Result<RegisteredSystem> {
-                let system_name = std::any::type_name::<Func>().to_string();
-                let mut deferred_recorder_class = DeferredRecorderClass::None;
-                $(
-                    deferred_recorder_class = deferred_recorder_class
-                        .merge(<$param as SystemParamState>::deferred_recorder_class().map_err(
-                            |conflict| RuntimeError::Setup {
-                                message: format!(
-                                    "system '{}' has invalid deferred recorder metadata: {}",
-                                    system_name, conflict
-                                ),
-                            },
-                        )?)
-                        .map_err(|conflict| RuntimeError::Setup {
-                            message: format!(
-                                "system '{}' has mixed deferred recorder capabilities: {}",
-                                system_name, conflict
-                            ),
-                        })?;
-                )*
-                let mut states = (
-                    $(
-                        <$param as SystemParamState>::init_state(world)?,
-                    )*
-                );
-                let query_access_parts = vec![
-                    $(
-                        <$param as SystemParamState>::access(&states.$index),
-                    )*
-                ];
-                validate_borrow_access(&system_name, &query_access_parts)?;
-                let access_parts = query_access_parts
-                    .into_iter()
-                    .map(query_access_to_system_access)
-                    .collect::<Vec<_>>();
-                let access = merge_access(&system_name, &access_parts)?;
-                let param_slots = vec![
-                    $(
-                        <$param as SystemParamState>::slot_descriptor(),
-                    )*
-                ];
-                let mut func = self;
-                let deferred_commands_ref = deferred_commands.clone();
-                let system_name_for_run = system_name.clone();
-
-                let mut registered = RegisteredSystem::new::<Sched>(system_name, access, move |world| {
-                    let mut commands = (deferred_recorder_class
-                        == DeferredRecorderClass::LocalDeferred)
-                        .then(Commands::new_external_owner);
-                    let mut transferable_commands = (deferred_recorder_class
-                        == DeferredRecorderClass::TransferableDeferred)
-                        .then(TransferableCommands::new_external_owner);
-                    let context = SystemParamContext::new(
-                        world,
-                        commands.as_mut(),
-                        transferable_commands.as_mut(),
-                    );
-                    $(
-                        let $param = unsafe { <$param as SystemParamState>::extract(&mut states.$index, context)? };
-                    )*
-                    let result = func($($param),*)
-                        .into_result()
-                        .map_err(|source| RuntimeError::System {
-                            system: system_name_for_run.clone(),
-                            source,
-                        });
-                    let staged_commands = match deferred_recorder_class {
-                        DeferredRecorderClass::None => None,
-                        DeferredRecorderClass::LocalDeferred => Some(DeferredCommandBuffer::Local(
-                            commands
-                                .expect("local command owner must exist for local recorder")
-                                .finalize_external_owner(),
-                        )),
-                        DeferredRecorderClass::TransferableDeferred => Some(
-                            DeferredCommandBuffer::Transferable(
-                                transferable_commands
-                                    .expect("transferable command owner must exist for transferable recorder")
-                                    .finalize_external_owner(),
-                            ),
-                        ),
-                    };
-                    if result.is_ok() {
-                        if let Some(staged_commands) = staged_commands {
-                            deferred_commands_ref.borrow_mut().push(staged_commands);
-                        }
-                    }
-                    result
-                })?;
-                registered.set_deferred_recorder_class(deferred_recorder_class);
-                registered.set_param_slots(param_slots);
-                Ok(registered)
+                let mut func = self.0;
+                build_registered_system!(local, world, func, $($index, $param),*)
             }
         }
     };
@@ -863,7 +975,6 @@ impl Runtime {
         let mut context = system_configs_sealed::RegistrationContext::new(
             world,
             &mut self.scheduler,
-            self.deferred_commands.clone(),
             &mut self.build_errors,
         );
         systems.register::<L>(&mut context);
@@ -912,16 +1023,22 @@ impl Runtime {
         };
         let mut next_frontier = 0usize;
         for (reference_rank, system_index) in plan.reference_system_indices.iter().enumerate() {
-            let Some(system) = self.scheduler.systems_mut().get_mut(*system_index) else {
-                self.discard_deferred_commands();
-                return Err(RuntimeError::Invariant {
-                    message: "execution plan referenced missing system",
-                });
+            let outcome = {
+                let Some(system) = self.scheduler.systems_mut().get_mut(*system_index) else {
+                    self.discard_deferred_commands();
+                    return Err(RuntimeError::Invariant {
+                        message: "execution plan referenced missing system",
+                    });
+                };
+                match system.run(world) {
+                    Ok(outcome) => outcome,
+                    Err(err) => {
+                        self.discard_deferred_commands();
+                        return Err(err);
+                    }
+                }
             };
-            if let Err(err) = system.run(world) {
-                self.discard_deferred_commands();
-                return Err(err);
-            }
+            self.append_invocation_outcome(outcome);
 
             let cut = reference_rank.saturating_add(1);
             while plan
@@ -976,6 +1093,17 @@ impl Runtime {
             }
         }
         Ok(())
+    }
+
+    fn append_invocation_outcome(&self, outcome: InvocationOutcome) {
+        let buffer = match outcome {
+            InvocationOutcome::None => return,
+            InvocationOutcome::Local(commands) => DeferredCommandBuffer::Local(commands),
+            InvocationOutcome::Transferable(commands) => {
+                DeferredCommandBuffer::Transferable(commands)
+            }
+        };
+        self.deferred_commands.borrow_mut().push(buffer);
     }
 
     fn discard_deferred_commands(&self) {

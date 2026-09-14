@@ -763,7 +763,10 @@ fn added_filter_respects_command_publication_frontier() {
     world.insert_resource(QueryAddedCounts(Vec::new()));
 
     let mut runtime = Runtime::new();
-    runtime.add_systems::<QueryUpdate, _, _>(&mut world, queue_spawn_once.in_set(QueueSet));
+    runtime.add_systems::<QueryUpdate, _, _>(
+        &mut world,
+        queue_spawn_once.on_invoker_thread().in_set(QueueSet),
+    );
     runtime.add_systems::<QueryUpdate, _, _>(
         &mut world,
         observe_added.in_set(ObserveSet).after(QueueSet),

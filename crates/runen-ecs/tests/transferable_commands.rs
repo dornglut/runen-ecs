@@ -1,6 +1,6 @@
 use runen_ecs::{
-    Commands, DeferredRecorderClass, ResMut, Runtime, SystemParam, SystemParamContext,
-    SystemParamError, TransferableBatchCommands, TransferableCommands, World,
+    Commands, DeferredRecorderClass, ResMut, Runtime, SystemMobilityExt, SystemParam,
+    SystemParamContext, SystemParamError, TransferableBatchCommands, TransferableCommands, World,
 };
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -193,7 +193,7 @@ fn mixed_recorder_graph_is_rejected_before_state_initialization() {
 
     let mut world = World::new();
     let mut runtime = Runtime::new();
-    runtime.add_systems::<Update, _, _>(&mut world, mixed);
+    runtime.add_systems::<Update, _, _>(&mut world, mixed.on_invoker_thread());
 
     let error = runtime.run_schedule::<Update>(&mut world).unwrap_err();
     assert!(

@@ -1,8 +1,15 @@
 mod extract;
 mod params;
-mod runtime;
+pub(crate) mod runtime;
 
 use std::fmt;
+
+/// The proven execution capability of a registered system.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum ExecutionMobility {
+    Transferable,
+    InvokerThreadOnly,
+}
 
 /// Semantic direction of an explicit schedule ordering declaration.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -181,5 +188,5 @@ pub use extract::{
 pub use params::{Res, ResMut, WorldMut};
 pub use runtime::{
     ConfiguredSystem, DeferredPublicationFrontier, IntoSystem, IntoSystemConfigs, IntoSystemSetKey,
-    Runtime, SystemConfigExt,
+    InvokerThreadSystem, Runtime, SystemConfigExt, SystemMobilityExt,
 };

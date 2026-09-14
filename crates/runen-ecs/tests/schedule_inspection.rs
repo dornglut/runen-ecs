@@ -3,7 +3,7 @@ use runen_ecs::system::{
     OrderingDirection, OrderingPresence, ScheduleAccessConflictKind, ScheduleOrderingCycle,
     ScheduleOrderingResolutionKind, SchedulePublicationObligation,
 };
-use runen_ecs::{RuntimeError, ScheduleValidationError};
+use runen_ecs::{ExecutionMobility, RuntimeError, ScheduleValidationError};
 
 #[derive(Copy, Clone)]
 struct Update;
@@ -37,6 +37,7 @@ fn middle() {}
 fn cycle_a() {}
 fn cycle_b() {}
 fn cycle_c() {}
+fn mobility_target() {}
 fn increments(mut counter: ResMut<Counter>) {
     counter.0 = counter.0.saturating_add(1);
 }
@@ -228,7 +229,10 @@ fn publication_projection_reuses_exact_frontier_associations() {
     let mut runtime = Runtime::new();
     runtime.add_systems::<Update, _, _>(
         &mut world,
-        deferred_producer.in_set(Alpha).after_if_present(Beta),
+        deferred_producer
+            .on_invoker_thread()
+            .in_set(Alpha)
+            .after_if_present(Beta),
     );
     runtime.add_systems::<Update, _, _>(&mut world, target.after(Alpha));
     let inspection = runtime.inspect_schedule::<Update>().unwrap().unwrap();
@@ -260,8 +264,14 @@ fn publication_projection_reuses_exact_frontier_associations() {
 fn a_frontier_does_not_create_unrelated_pairwise_precedence() {
     let mut world = World::new();
     let mut runtime = Runtime::new();
-    runtime.add_systems::<Update, _, _>(&mut world, unrelated_deferred.in_set(Alpha));
-    runtime.add_systems::<Update, _, _>(&mut world, deferred_producer.in_set(Beta));
+    runtime.add_systems::<Update, _, _>(
+        &mut world,
+        unrelated_deferred.on_invoker_thread().in_set(Alpha),
+    );
+    runtime.add_systems::<Update, _, _>(
+        &mut world,
+        deferred_producer.on_invoker_thread().in_set(Beta),
+    );
     runtime.add_systems::<Update, _, _>(&mut world, target.after(Beta));
     let inspection = runtime.inspect_schedule::<Update>().unwrap().unwrap();
     let unrelated = descriptor(&inspection, "::unrelated_deferred");
@@ -277,7 +287,7 @@ fn a_frontier_does_not_create_unrelated_pairwise_precedence() {
 fn completion_only_projection_has_one_frontier_without_a_cut() {
     let mut world = World::new();
     let mut runtime = Runtime::new();
-    runtime.add_systems::<Update, _, _>(&mut world, deferred_producer);
+    runtime.add_systems::<Update, _, _>(&mut world, deferred_producer.on_invoker_thread());
     let inspection = runtime.inspect_schedule::<Update>().unwrap().unwrap();
     assert_eq!(inspection.publication_frontiers().len(), 1);
     assert!(matches!(
@@ -310,6 +320,41 @@ fn cycle_error(reverse: bool) -> ScheduleValidationError {
         runtime.add_systems::<Update, _, _>(&mut world, cycle_b.in_set(Beta).after(Alpha));
     }
     schedule_error(runtime.inspect_schedule::<Update>().unwrap_err())
+}
+
+#[test]
+fn inspection_reports_registration_mobility_without_changing_ordering() {
+    let mut transferable_world = World::new();
+    let mut transferable_runtime = Runtime::new();
+    transferable_runtime.add_systems::<Update, _, _>(&mut transferable_world, mobility_target);
+    let transferable = transferable_runtime
+        .inspect_schedule::<Update>()
+        .unwrap()
+        .unwrap();
+    let transferable_descriptor = descriptor(&transferable, "::mobility_target");
+    assert_eq!(
+        transferable.execution_mobility(&transferable_descriptor),
+        Some(ExecutionMobility::Transferable)
+    );
+
+    let mut local_world = World::new();
+    let mut local_runtime = Runtime::new();
+    local_runtime.add_systems::<Update, _, _>(
+        &mut local_world,
+        mobility_target
+            .on_invoker_thread()
+            .in_set(Alpha)
+            .after(Beta)
+            .before_if_present(Gamma),
+    );
+    local_runtime.add_systems::<Update, _, _>(&mut local_world, target.in_set(Beta));
+    let local = local_runtime.inspect_schedule::<Update>().unwrap().unwrap();
+    let local_descriptor = descriptor(&local, "::mobility_target");
+    assert_eq!(
+        local.execution_mobility(&local_descriptor),
+        Some(ExecutionMobility::InvokerThreadOnly)
+    );
+    assert_eq!(local.precedence_edges().len(), 1);
 }
 
 #[test]

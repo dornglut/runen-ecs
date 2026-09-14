@@ -88,7 +88,14 @@ fn runtime_executes_1_2_and_8_param_systems() {
     world.insert_resource(ExtraScore(7));
 
     let mut runtime = Runtime::new();
-    runtime.add_systems::<Update, _, _>(&mut world, (bump_frame, integrate_positions, full_tick));
+    runtime.add_systems::<Update, _, _>(
+        &mut world,
+        (
+            bump_frame,
+            integrate_positions,
+            full_tick.on_invoker_thread(),
+        ),
+    );
     runtime.run_schedule::<Update>(&mut world).unwrap();
 
     let positions: Vec<_> = world
@@ -132,6 +139,8 @@ unsafe impl SystemParam for CachedCounter {
         Ok(CachedCounter(*state))
     }
 }
+
+unsafe impl runen_ecs::TransferableSystemParam for CachedCounter {}
 
 #[test]
 fn runtime_caches_system_param_state_across_runs() {
@@ -208,7 +217,10 @@ fn commands_publish_at_frontier_not_between_unordered_systems() {
     world.insert_resource(SeenCount(99));
 
     let mut runtime = Runtime::new();
-    runtime.add_systems::<Update, _, _>(&mut world, (enqueue_spawn, observe_marker_count));
+    runtime.add_systems::<Update, _, _>(
+        &mut world,
+        (enqueue_spawn.on_invoker_thread(), observe_marker_count),
+    );
     runtime.run_schedule::<Update>(&mut world).unwrap();
 
     assert_eq!(world.resource::<SeenCount>().unwrap().0, 0);

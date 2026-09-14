@@ -1,12 +1,37 @@
 use crate::World;
+use crate::commands::TransferableCommandBuffer;
 use crate::errors::RuntimeError;
 use crate::scheduler::access::{AccessConflict, SystemAccess};
 use crate::scheduler::label::{ScheduleKey, ScheduleLabel, SystemSet, SystemSetKey};
 use crate::system::DeferredRecorderClass;
+use crate::system::ExecutionMobility;
 use crate::system::OrderingDirection;
+use crate::system::runtime::{DeferredCommandBuffer, InvocationOutcome};
 use std::num::NonZeroU64;
 
-pub(crate) type RunnableSystemFn = Box<dyn FnMut(&mut World) -> Result<(), RuntimeError>>;
+type TransferableRunnerFn =
+    Box<dyn FnMut(&mut World) -> Result<Option<TransferableCommandBuffer>, RuntimeError> + Send>;
+
+type InvokerThreadRunnerFn =
+    Box<dyn FnMut(&mut World) -> Result<Option<DeferredCommandBuffer>, RuntimeError>>;
+
+pub(crate) struct TransferableSystemRunner {
+    run: TransferableRunnerFn,
+}
+
+pub(crate) struct InvokerThreadSystemRunner {
+    run: InvokerThreadRunnerFn,
+}
+
+pub(crate) enum RegisteredSystemRunner {
+    Transferable(TransferableSystemRunner),
+    InvokerThreadOnly(InvokerThreadSystemRunner),
+}
+
+const _: fn() = || {
+    fn assert_send<T: Send>() {}
+    assert_send::<TransferableSystemRunner>();
+};
 
 #[allow(dead_code)]
 #[derive(Debug, Copy, Clone)]
@@ -139,14 +164,31 @@ pub struct RegisteredSystem {
     param_slots: Vec<ParamSlotDescriptor>,
     access: SystemAccess,
     deferred_recorder_class: DeferredRecorderClass,
-    run: RunnableSystemFn,
+    run: RegisteredSystemRunner,
 }
 
 impl RegisteredSystem {
     pub fn new<L>(
         name: impl Into<String>,
         access: SystemAccess,
-        run: impl FnMut(&mut World) -> Result<(), RuntimeError> + 'static,
+        mut run: impl FnMut(&mut World) -> Result<(), RuntimeError> + 'static,
+    ) -> Result<Self, RuntimeError>
+    where
+        L: ScheduleLabel,
+    {
+        let name = name.into();
+        access
+            .validate_internal()
+            .map_err(|conflict| internal_access_error(&name, &conflict))?;
+        Self::new_invoker_thread_only::<L>(name, access, move |world| run(world).map(|()| None))
+    }
+
+    pub(crate) fn new_transferable<L>(
+        name: impl Into<String>,
+        access: SystemAccess,
+        run: impl FnMut(&mut World) -> Result<Option<TransferableCommandBuffer>, RuntimeError>
+        + Send
+        + 'static,
     ) -> Result<Self, RuntimeError>
     where
         L: ScheduleLabel,
@@ -164,7 +206,36 @@ impl RegisteredSystem {
             param_slots: Vec::new(),
             access,
             deferred_recorder_class: DeferredRecorderClass::None,
-            run: Box::new(run),
+            run: RegisteredSystemRunner::Transferable(TransferableSystemRunner {
+                run: Box::new(run),
+            }),
+        })
+    }
+
+    pub(crate) fn new_invoker_thread_only<L>(
+        name: impl Into<String>,
+        access: SystemAccess,
+        run: impl FnMut(&mut World) -> Result<Option<DeferredCommandBuffer>, RuntimeError> + 'static,
+    ) -> Result<Self, RuntimeError>
+    where
+        L: ScheduleLabel,
+    {
+        let name = name.into();
+        access
+            .validate_internal()
+            .map_err(|conflict| internal_access_error(&name, &conflict))?;
+        Ok(Self {
+            id: SystemId::new(NonZeroU64::new(1).expect("literal system id is non-zero")),
+            name,
+            label: L::key(),
+            sets: Vec::new(),
+            ordering_declarations: Vec::new(),
+            param_slots: Vec::new(),
+            access,
+            deferred_recorder_class: DeferredRecorderClass::None,
+            run: RegisteredSystemRunner::InvokerThreadOnly(InvokerThreadSystemRunner {
+                run: Box::new(run),
+            }),
         })
     }
 
@@ -247,8 +318,34 @@ impl RegisteredSystem {
         &self.param_slots
     }
 
-    pub(crate) fn run(&mut self, world: &mut World) -> Result<(), RuntimeError> {
-        (self.run)(world)
+    pub(crate) fn execution_mobility(&self) -> ExecutionMobility {
+        match &self.run {
+            RegisteredSystemRunner::Transferable(_) => ExecutionMobility::Transferable,
+            RegisteredSystemRunner::InvokerThreadOnly(_) => ExecutionMobility::InvokerThreadOnly,
+        }
+    }
+
+    pub(crate) fn run(&mut self, world: &mut World) -> Result<InvocationOutcome, RuntimeError> {
+        match &mut self.run {
+            RegisteredSystemRunner::Transferable(runner) => {
+                runner.run.as_mut()(world).map(|buffer| {
+                    buffer
+                        .map(InvocationOutcome::Transferable)
+                        .unwrap_or(InvocationOutcome::None)
+                })
+            }
+            RegisteredSystemRunner::InvokerThreadOnly(runner) => {
+                runner.run.as_mut()(world).map(|buffer| match buffer {
+                    Some(DeferredCommandBuffer::Local(commands)) => {
+                        InvocationOutcome::Local(commands)
+                    }
+                    Some(DeferredCommandBuffer::Transferable(commands)) => {
+                        InvocationOutcome::Transferable(commands)
+                    }
+                    None => InvocationOutcome::None,
+                })
+            }
+        }
     }
 
     pub(crate) fn assign_id(&mut self, id: SystemId) {
