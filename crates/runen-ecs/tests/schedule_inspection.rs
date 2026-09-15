@@ -82,7 +82,7 @@ fn inspection_projects_required_optional_and_absent_resolutions() {
     let alpha = inspection
         .ordering_resolutions()
         .iter()
-        .find(|resolution| resolution.target_set().name() == Alpha::name())
+        .find(|resolution| resolution.target_set().name() == Alpha.name())
         .unwrap();
     assert_eq!(alpha.source(), &source_descriptor);
     assert_eq!(alpha.direction(), OrderingDirection::Before);
@@ -96,7 +96,7 @@ fn inspection_projects_required_optional_and_absent_resolutions() {
     let beta = inspection
         .ordering_resolutions()
         .iter()
-        .find(|resolution| resolution.target_set().name() == Beta::name())
+        .find(|resolution| resolution.target_set().name() == Beta.name())
         .unwrap();
     assert_eq!(beta.presence(), OrderingPresence::Optional);
     assert!(matches!(

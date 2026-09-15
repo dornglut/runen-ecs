@@ -736,7 +736,7 @@ mod tests {
         let mut source = system("source");
         source.add_ordering_declaration(OrderingDeclaration::optional(
             OrderingDirection::Before,
-            TargetA::key(),
+            TargetA.key(),
         ));
         registry.add_system(source).unwrap();
 
@@ -748,7 +748,7 @@ mod tests {
         ));
         assert_eq!(
             plan.ordering_resolutions[0].target_set.name(),
-            TargetA::key().name()
+            TargetA.key().name()
         );
         assert_eq!(
             plan.ordering_resolutions[0].declaration.presence(),
@@ -763,13 +763,13 @@ mod tests {
         let mut source = system("source");
         source.add_ordering_declaration(OrderingDeclaration::optional(
             OrderingDirection::Before,
-            TargetA::key(),
+            TargetA.key(),
         ));
-        source.before_set_key(TargetB::key());
+        source.before_set_key(TargetB.key());
         source.set_deferred_recorder_class(crate::system::DeferredRecorderClass::LocalDeferred);
         let mut target = system("target");
-        target.with_set_key(TargetA::key());
-        target.with_set_key(TargetB::key());
+        target.with_set_key(TargetA.key());
+        target.with_set_key(TargetB.key());
         registry.add_system(source).unwrap();
         registry.add_system(target).unwrap();
 
@@ -783,12 +783,12 @@ mod tests {
         assert!(
             plan.precedence_reasons
                 .iter()
-                .any(|reason| reason.target_set_key == TargetA::key())
+                .any(|reason| reason.target_set_key == TargetA.key())
         );
         assert!(
             plan.precedence_reasons
                 .iter()
-                .any(|reason| reason.target_set_key == TargetB::key())
+                .any(|reason| reason.target_set_key == TargetB.key())
         );
         assert!(
             plan.precedence_reasons
@@ -808,8 +808,8 @@ mod tests {
     fn reference_order_uses_depth_then_schedule_source_ordinal() {
         let mut registry = ScheduleRegistry::new();
         let mut a = system("A");
-        a.with_set_key(TargetA::key());
-        let c = system("C").after_set::<TargetA>();
+        a.with_set_key(TargetA.key());
+        let c = system("C").after_set(TargetA);
         let b = system("B");
         registry.add_system(a).unwrap();
         registry.add_system(c).unwrap();
@@ -847,9 +847,9 @@ mod tests {
     fn edge_and_completion_obligations_share_an_earlier_frontier() {
         let mut registry = ScheduleRegistry::new();
         let mut producer = system("producer");
-        producer.with_set_key(TargetA::key());
+        producer.with_set_key(TargetA.key());
         producer.set_deferred_recorder_class(crate::system::DeferredRecorderClass::LocalDeferred);
-        let successor = system("successor").after_set::<TargetA>();
+        let successor = system("successor").after_set(TargetA);
         registry.add_system(producer).unwrap();
         registry.add_system(successor).unwrap();
 
@@ -868,12 +868,12 @@ mod tests {
     fn multiple_deferred_producers_share_one_frontier() {
         let mut registry = ScheduleRegistry::new();
         let mut first = system("first");
-        first.with_set_key(TargetA::key());
+        first.with_set_key(TargetA.key());
         first.set_deferred_recorder_class(crate::system::DeferredRecorderClass::LocalDeferred);
         let mut second = system("second");
-        second.with_set_key(TargetA::key());
+        second.with_set_key(TargetA.key());
         second.set_deferred_recorder_class(crate::system::DeferredRecorderClass::LocalDeferred);
-        let successor = system("successor").after_set::<TargetA>();
+        let successor = system("successor").after_set(TargetA);
         registry.add_system(first).unwrap();
         registry.add_system(second).unwrap();
         registry.add_system(successor).unwrap();
@@ -888,14 +888,12 @@ mod tests {
     fn non_overlapping_obligations_require_two_exact_frontiers() {
         let mut registry = ScheduleRegistry::new();
         let mut first = system("first");
-        first.with_set_key(TargetA::key());
+        first.with_set_key(TargetA.key());
         first.set_deferred_recorder_class(crate::system::DeferredRecorderClass::LocalDeferred);
-        let middle = system("middle")
-            .with_set::<TargetB>()
-            .after_set::<TargetA>();
+        let middle = system("middle").with_set(TargetB).after_set(TargetA);
         let mut second = system("second");
         second.set_deferred_recorder_class(crate::system::DeferredRecorderClass::LocalDeferred);
-        second = second.after_set::<TargetB>();
+        second = second.after_set(TargetB);
         registry.add_system(first).unwrap();
         registry.add_system(middle).unwrap();
         registry.add_system(second).unwrap();
@@ -917,9 +915,9 @@ mod tests {
         let mut unrelated = system("unrelated");
         unrelated.set_deferred_recorder_class(crate::system::DeferredRecorderClass::LocalDeferred);
         let mut producer = system("producer");
-        producer.with_set_key(TargetA::key());
+        producer.with_set_key(TargetA.key());
         producer.set_deferred_recorder_class(crate::system::DeferredRecorderClass::LocalDeferred);
-        let successor = system("successor").after_set::<TargetA>();
+        let successor = system("successor").after_set(TargetA);
         registry.add_system(unrelated).unwrap();
         registry.add_system(producer).unwrap();
         registry.add_system(successor).unwrap();
@@ -948,7 +946,7 @@ mod tests {
         fn build(include_unrelated: bool) -> Vec<usize> {
             let mut registry = ScheduleRegistry::new();
             let mut producer = system("producer");
-            producer.with_set_key(TargetA::key());
+            producer.with_set_key(TargetA.key());
             producer
                 .set_deferred_recorder_class(crate::system::DeferredRecorderClass::LocalDeferred);
             registry.add_system(producer).unwrap();
@@ -956,7 +954,7 @@ mod tests {
                 registry.add_system(system("unrelated")).unwrap();
             }
             registry
-                .add_system(system("successor").after_set::<TargetA>())
+                .add_system(system("successor").after_set(TargetA))
                 .unwrap();
             registry
                 .plan_for::<Update>()
@@ -980,15 +978,15 @@ mod tests {
             let mut source = system("source");
             source.set_deferred_recorder_class(crate::system::DeferredRecorderClass::LocalDeferred);
             if reverse {
-                source.before_set_key(TargetB::key());
-                source.before_set_key(TargetA::key());
+                source.before_set_key(TargetB.key());
+                source.before_set_key(TargetA.key());
             } else {
-                source.before_set_key(TargetA::key());
-                source.before_set_key(TargetB::key());
+                source.before_set_key(TargetA.key());
+                source.before_set_key(TargetB.key());
             }
             let mut target = system("target");
-            target.with_set_key(TargetA::key());
-            target.with_set_key(TargetB::key());
+            target.with_set_key(TargetA.key());
+            target.with_set_key(TargetB.key());
             registry.add_system(source).unwrap();
             registry.add_system(target).unwrap();
             registry

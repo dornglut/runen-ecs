@@ -1,5 +1,0 @@
-error: IntoSystemSetKey derive only supports fieldless enums
- --> tests/ui/into_system_set_key_struct.rs:4:8
-  |
-4 | struct NotAnEnum;
-  |        ^^^^^^^^^

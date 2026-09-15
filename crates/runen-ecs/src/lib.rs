@@ -48,13 +48,13 @@ pub use reflect::{
     EnumInfo, EnumVariantInfo, FieldInfo, Reflect, ReflectShape, ReflectValueMut, ReflectValueRef,
     StructInfo, StructValueMut, StructValueRef, TypeInfo, TypeRegistry,
 };
-pub use runen_ecs_macros::{Bundle, Component, IntoSystemSetKey, Reflect, Resource, SystemParam};
+pub use runen_ecs_macros::{Bundle, Component, Reflect, Resource, SystemParam, SystemSet};
 pub use system::{
     ConfiguredSystem, DeferredPublicationFrontier, DeferredRecorderClass, DeferredRecorderConflict,
-    ExecutionMobility, IntoSystem, IntoSystemConfigs, IntoSystemSetKey, InvokerThreadSystem,
-    OrderingPresence, ParamSlotDescriptor, Res, ResMut, Runtime, ScheduleAccessAmbiguity,
-    ScheduleAccessConflict, ScheduleAccessConflictKind, ScheduleAccessDomain, ScheduleInspection,
-    ScheduleKey, ScheduleLabel, ScheduleOrderingCycle, ScheduleOrderingResolution,
+    ExecutionMobility, IntoSystem, IntoSystemConfigs, InvokerThreadSystem, OrderingPresence,
+    ParamSlotDescriptor, Res, ResMut, Runtime, ScheduleAccessAmbiguity, ScheduleAccessConflict,
+    ScheduleAccessConflictKind, ScheduleAccessDomain, ScheduleInspection, ScheduleKey,
+    ScheduleLabel, ScheduleOrderingCycle, ScheduleOrderingResolution,
     ScheduleOrderingResolutionKind, SchedulePairwiseConcurrencyAssessment, SchedulePrecedenceEdge,
     SchedulePrecedencePath, SchedulePrecedenceReason, SchedulePublicationFrontier,
     SchedulePublicationObligation, ScheduleValidationError, SystemConfigExt, SystemMobilityExt,

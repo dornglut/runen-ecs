@@ -59,7 +59,7 @@ impl ScheduleLabel for WorldUpdate {
 struct SpawnProducerSet;
 
 impl SystemSet for SpawnProducerSet {
-    fn name() -> &'static str {
+    fn name(&self) -> &'static str {
         "SpawnProducerSet"
     }
 }
@@ -68,7 +68,7 @@ impl SystemSet for SpawnProducerSet {
 struct ObservePublicationSet;
 
 impl SystemSet for ObservePublicationSet {
-    fn name() -> &'static str {
+    fn name(&self) -> &'static str {
         "ObservePublicationSet"
     }
 }

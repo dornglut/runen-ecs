@@ -15,7 +15,7 @@ impl ScheduleLabel for Update {
 struct CommittedProducerSet;
 
 impl SystemSet for CommittedProducerSet {
-    fn name() -> &'static str {
+    fn name(&self) -> &'static str {
         "CommittedProducerSet"
     }
 }
@@ -24,7 +24,7 @@ impl SystemSet for CommittedProducerSet {
 struct LaterFailureSet;
 
 impl SystemSet for LaterFailureSet {
-    fn name() -> &'static str {
+    fn name(&self) -> &'static str {
         "LaterFailureSet"
     }
 }

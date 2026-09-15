@@ -1,7 +1,7 @@
 use runen_ecs::prelude::*;
 
-#[derive(IntoSystemSetKey)]
-union NotAnEnum {
+#[derive(SystemSet)]
+struct NotAUnitStruct {
     value: u32,
 }
 

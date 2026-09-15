@@ -26,7 +26,7 @@ impl ScheduleLabel for QueryUpdate {
 struct QueueSet;
 
 impl SystemSet for QueueSet {
-    fn name() -> &'static str {
+    fn name(&self) -> &'static str {
         "QueueSet"
     }
 }
@@ -35,7 +35,7 @@ impl SystemSet for QueueSet {
 struct ObserveSet;
 
 impl SystemSet for ObserveSet {
-    fn name() -> &'static str {
+    fn name(&self) -> &'static str {
         "ObserveSet"
     }
 }

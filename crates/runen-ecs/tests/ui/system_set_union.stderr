@@ -1,0 +1,5 @@
+error: SystemSet derive does not support unions; use a unit struct or fieldless enum
+ --> tests/ui/system_set_union.rs:4:1
+  |
+4 | union NotAnEnum {
+  | ^^^^^

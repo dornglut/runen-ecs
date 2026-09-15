@@ -1,7 +1,7 @@
 use runen_ecs::prelude::*;
 use runen_ecs::system::{
-    IntoSystemSetKey, OrderingDirection, ScheduleDiagnosticDescriptor, ScheduleKey,
-    SystemSetDiagnosticDescriptor, SystemSetKey,
+    OrderingDirection, ScheduleDiagnosticDescriptor, ScheduleKey, SystemSetDiagnosticDescriptor,
+    SystemSetKey,
 };
 use runen_ecs::{RuntimeError, ScheduleValidationError};
 
@@ -17,7 +17,7 @@ impl ScheduleLabel for Update {
 #[derive(Copy, Clone)]
 struct TargetA;
 impl SystemSet for TargetA {
-    fn name() -> &'static str {
+    fn name(&self) -> &'static str {
         "TargetA"
     }
 }
@@ -25,7 +25,7 @@ impl SystemSet for TargetA {
 #[derive(Copy, Clone)]
 struct TargetB;
 impl SystemSet for TargetB {
-    fn name() -> &'static str {
+    fn name(&self) -> &'static str {
         "TargetB"
     }
 }
@@ -33,7 +33,7 @@ impl SystemSet for TargetB {
 #[derive(Copy, Clone)]
 struct CycleA;
 impl SystemSet for CycleA {
-    fn name() -> &'static str {
+    fn name(&self) -> &'static str {
         "CycleA"
     }
 }
@@ -41,7 +41,7 @@ impl SystemSet for CycleA {
 #[derive(Copy, Clone)]
 struct CycleB;
 impl SystemSet for CycleB {
-    fn name() -> &'static str {
+    fn name(&self) -> &'static str {
         "CycleB"
     }
 }
@@ -49,7 +49,7 @@ impl SystemSet for CycleB {
 #[derive(Copy, Clone)]
 struct CollidingTargetA;
 impl SystemSet for CollidingTargetA {
-    fn name() -> &'static str {
+    fn name(&self) -> &'static str {
         "SharedTarget"
     }
 }
@@ -57,7 +57,7 @@ impl SystemSet for CollidingTargetA {
 #[derive(Copy, Clone)]
 struct CollidingTargetB;
 impl SystemSet for CollidingTargetB {
-    fn name() -> &'static str {
+    fn name(&self) -> &'static str {
         "SharedTarget"
     }
 }
@@ -80,17 +80,17 @@ impl ScheduleLabel for CollidingScheduleB {
 
 #[derive(Copy, Clone)]
 struct TargetAliasOptional;
-impl IntoSystemSetKey for TargetAliasOptional {
-    fn system_set_key(&self) -> SystemSetKey {
-        CollidingTargetA::key()
+impl SystemSet for TargetAliasOptional {
+    fn key(&self) -> SystemSetKey {
+        CollidingTargetA.key()
     }
 }
 
 #[derive(Copy, Clone)]
 struct TargetAliasRequired;
-impl IntoSystemSetKey for TargetAliasRequired {
-    fn system_set_key(&self) -> SystemSetKey {
-        CollidingTargetA::key()
+impl SystemSet for TargetAliasRequired {
+    fn key(&self) -> SystemSetKey {
+        CollidingTargetA.key()
     }
 }
 

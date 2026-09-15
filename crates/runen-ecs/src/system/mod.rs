@@ -189,6 +189,6 @@ pub use extract::{
 };
 pub use params::{Res, ResMut, WorldMut};
 pub use runtime::{
-    ConfiguredSystem, DeferredPublicationFrontier, IntoSystem, IntoSystemConfigs, IntoSystemSetKey,
+    ConfiguredSystem, DeferredPublicationFrontier, IntoSystem, IntoSystemConfigs,
     InvokerThreadSystem, Runtime, SystemConfigExt, SystemMobilityExt,
 };

@@ -14,7 +14,7 @@ impl ScheduleLabel for Update {
 struct QueueSet;
 
 impl SystemSet for QueueSet {
-    fn name() -> &'static str {
+    fn name(&self) -> &'static str {
         "RemovedQueryQueueSet"
     }
 }
@@ -23,7 +23,7 @@ impl SystemSet for QueueSet {
 struct ObserveSet;
 
 impl SystemSet for ObserveSet {
-    fn name() -> &'static str {
+    fn name(&self) -> &'static str {
         "RemovedQueryObserveSet"
     }
 }
@@ -32,7 +32,7 @@ impl SystemSet for ObserveSet {
 struct LateObserveSet;
 
 impl SystemSet for LateObserveSet {
-    fn name() -> &'static str {
+    fn name(&self) -> &'static str {
         "RemovedQueryLateObserveSet"
     }
 }

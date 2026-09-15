@@ -1,0 +1,5 @@
+error: SystemSet derive only supports unit structs or fieldless enums; tuple structs are not supported
+ --> tests/ui/system_set_tuple_struct.rs:4:22
+  |
+4 | struct NotAUnitStruct(u32);
+  |                      ^^^^^

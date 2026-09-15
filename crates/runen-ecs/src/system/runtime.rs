@@ -100,19 +100,6 @@ pub trait IntoSystem<Marker>: 'static {
     fn into_registered_system<L: ScheduleLabel>(self) -> Result<RegisteredSystem>;
 }
 
-pub trait IntoSystemSetKey {
-    fn system_set_key(&self) -> SystemSetKey;
-}
-
-impl<S> IntoSystemSetKey for S
-where
-    S: SystemSet,
-{
-    fn system_set_key(&self) -> SystemSetKey {
-        S::key()
-    }
-}
-
 #[derive(Debug, Clone, Default)]
 struct SystemConfigMetadata {
     sets: Vec<SystemSetKey>,
@@ -190,41 +177,41 @@ impl<S, Marker> ConfiguredSystem<S, Marker> {
 
     pub fn in_set<Set>(mut self, set: Set) -> Self
     where
-        Set: IntoSystemSetKey,
+        Set: SystemSet,
     {
-        self.config.with_set(set.system_set_key());
+        self.config.with_set(set.key());
         self
     }
 
     pub fn before<Set>(mut self, set: Set) -> Self
     where
-        Set: IntoSystemSetKey,
+        Set: SystemSet,
     {
-        self.config.before_set(set.system_set_key());
+        self.config.before_set(set.key());
         self
     }
 
     pub fn after<Set>(mut self, set: Set) -> Self
     where
-        Set: IntoSystemSetKey,
+        Set: SystemSet,
     {
-        self.config.after_set(set.system_set_key());
+        self.config.after_set(set.key());
         self
     }
 
     pub fn before_if_present<Set>(mut self, set: Set) -> Self
     where
-        Set: IntoSystemSetKey,
+        Set: SystemSet,
     {
-        self.config.before_if_present_set(set.system_set_key());
+        self.config.before_if_present_set(set.key());
         self
     }
 
     pub fn after_if_present<Set>(mut self, set: Set) -> Self
     where
-        Set: IntoSystemSetKey,
+        Set: SystemSet,
     {
-        self.config.after_if_present_set(set.system_set_key());
+        self.config.after_if_present_set(set.key());
         self
     }
 }
@@ -232,35 +219,35 @@ impl<S, Marker> ConfiguredSystem<S, Marker> {
 pub trait SystemConfigExt<Marker>: IntoSystem<Marker> + Sized {
     fn in_set<Set>(self, set: Set) -> ConfiguredSystem<Self, Marker>
     where
-        Set: IntoSystemSetKey,
+        Set: SystemSet,
     {
         ConfiguredSystem::new(self).in_set(set)
     }
 
     fn before<Set>(self, set: Set) -> ConfiguredSystem<Self, Marker>
     where
-        Set: IntoSystemSetKey,
+        Set: SystemSet,
     {
         ConfiguredSystem::new(self).before(set)
     }
 
     fn after<Set>(self, set: Set) -> ConfiguredSystem<Self, Marker>
     where
-        Set: IntoSystemSetKey,
+        Set: SystemSet,
     {
         ConfiguredSystem::new(self).after(set)
     }
 
     fn before_if_present<Set>(self, set: Set) -> ConfiguredSystem<Self, Marker>
     where
-        Set: IntoSystemSetKey,
+        Set: SystemSet,
     {
         ConfiguredSystem::new(self).before_if_present(set)
     }
 
     fn after_if_present<Set>(self, set: Set) -> ConfiguredSystem<Self, Marker>
     where
-        Set: IntoSystemSetKey,
+        Set: SystemSet,
     {
         ConfiguredSystem::new(self).after_if_present(set)
     }

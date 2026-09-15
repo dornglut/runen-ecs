@@ -43,8 +43,8 @@ pub fn resource_derive(input: TokenStream) -> TokenStream {
     })
 }
 
-#[proc_macro_derive(IntoSystemSetKey)]
-pub fn into_system_set_key_derive(input: TokenStream) -> TokenStream {
+#[proc_macro_derive(SystemSet)]
+pub fn system_set_derive(input: TokenStream) -> TokenStream {
     let ecs = ecs_crate_path();
     let input = parse_macro_input!(input as DeriveInput);
     let DeriveInput {
@@ -54,48 +54,71 @@ pub fn into_system_set_key_derive(input: TokenStream) -> TokenStream {
         ..
     } = input;
 
-    let Data::Enum(data) = data else {
-        return syn::Error::new_spanned(
-            name,
-            "IntoSystemSetKey derive only supports fieldless enums",
-        )
-        .to_compile_error()
-        .into();
-    };
-
-    let mut variants = Vec::with_capacity(data.variants.len());
-    for variant in data.variants {
-        if !matches!(variant.fields, Fields::Unit) {
+    let implementation = match data {
+        Data::Struct(data) if matches!(&data.fields, Fields::Unit) => quote! {},
+        Data::Struct(data) => {
+            let message = match &data.fields {
+                Fields::Unnamed(_) => {
+                    "SystemSet derive only supports unit structs or fieldless enums; tuple structs are not supported"
+                }
+                Fields::Named(_) => {
+                    "SystemSet derive only supports unit structs or fieldless enums; named-field structs are not supported"
+                }
+                Fields::Unit => unreachable!("unit structs are handled above"),
+            };
+            return syn::Error::new_spanned(data.fields, message)
+                .to_compile_error()
+                .into();
+        }
+        Data::Union(data) => {
             return syn::Error::new_spanned(
-                variant.fields,
-                "IntoSystemSetKey derive only supports fieldless enums",
+                data.union_token,
+                "SystemSet derive does not support unions; use a unit struct or fieldless enum",
             )
             .to_compile_error()
             .into();
         }
-        let variant_name = variant.ident.to_string();
-        let key_name = format!("{}::{variant_name}", name);
-        variants.push((variant.ident, key_name));
-    }
+        Data::Enum(data) => {
+            let mut variants = Vec::with_capacity(data.variants.len());
+            for variant in data.variants {
+                if !matches!(variant.fields, Fields::Unit) {
+                    return syn::Error::new_spanned(
+                        variant.fields,
+                        "SystemSet derive only supports fieldless enum variants; payload-bearing variants are not supported",
+                    )
+                    .to_compile_error()
+                    .into();
+                }
+                let variant_name = variant.ident.to_string();
+                let key_name = format!("{}::{variant_name}", name);
+                variants.push((variant.ident, key_name));
+            }
+
+            let arms = variants.iter().map(|(variant, key_name)| {
+                quote! {
+                    Self::#variant => #key_name,
+                }
+            });
+
+            quote! {
+                fn name(&self) -> &'static str {
+                    match self {
+                        #(#arms)*
+                    }
+                }
+            }
+        }
+    };
 
     generics
         .make_where_clause()
         .predicates
         .push(parse_quote!(Self: 'static));
     let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
-    let arms = variants.iter().map(|(variant, key_name)| {
-        quote! {
-            Self::#variant => #ecs::SystemSetKey::of::<Self>(#key_name),
-        }
-    });
 
     TokenStream::from(quote! {
-        impl #impl_generics #ecs::IntoSystemSetKey for #name #ty_generics #where_clause {
-            fn system_set_key(&self) -> #ecs::SystemSetKey {
-                match self {
-                    #(#arms)*
-                }
-            }
+        impl #impl_generics #ecs::SystemSet for #name #ty_generics #where_clause {
+            #implementation
         }
     })
 }
