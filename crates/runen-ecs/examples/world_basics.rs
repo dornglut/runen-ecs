@@ -1,24 +1,24 @@
 use runen_ecs::prelude::*;
 
-#[derive(Debug, runen_ecs::Component)]
+#[derive(Debug, Component)]
 struct Position {
     x: f32,
     y: f32,
 }
 
-#[derive(Debug, runen_ecs::Component)]
+#[derive(Debug, Component)]
 struct Velocity {
     x: f32,
     y: f32,
 }
 
-#[derive(Debug, runen_ecs::Component)]
+#[derive(Debug, Component)]
 struct Health(u32);
 
-#[derive(Debug, runen_ecs::Resource)]
+#[derive(Debug, Resource)]
 struct Gravity(f32);
 
-#[derive(runen_ecs::Bundle)]
+#[derive(Bundle)]
 struct MovingBody {
     position: Position,
     velocity: Velocity,

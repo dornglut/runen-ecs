@@ -5,13 +5,9 @@ use std::rc::Rc;
 
 #[derive(Copy, Clone)]
 struct Update;
-impl ScheduleLabel for Update {
-    fn name() -> &'static str {
-        "Update"
-    }
-}
+impl ScheduleLabel for Update {}
 
-#[derive(Debug, runen_ecs::Resource)]
+#[derive(Debug, Resource)]
 struct Frame(u32);
 
 fn advance(mut frame: ResMut<Frame>) {

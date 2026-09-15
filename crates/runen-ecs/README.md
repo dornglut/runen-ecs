@@ -21,11 +21,7 @@ use runen_ecs::prelude::*;
 #[derive(Copy, Clone)]
 struct Update;
 
-impl ScheduleLabel for Update {
-    fn name() -> &'static str {
-        "Update"
-    }
-}
+impl ScheduleLabel for Update {}
 
 #[derive(Component)]
 struct Position(f32);

@@ -1,21 +1,21 @@
 use runen_ecs::prelude::*;
 
-#[derive(Debug, runen_ecs::Component)]
+#[derive(Debug, Component)]
 struct Position(i32);
 
-#[derive(Debug, runen_ecs::Component)]
+#[derive(Debug, Component)]
 struct Velocity(i32);
 
-#[derive(Debug, runen_ecs::Component)]
+#[derive(Debug, Component)]
 struct Name(&'static str);
 
-#[derive(Debug, runen_ecs::Component)]
+#[derive(Debug, Component)]
 struct Active;
 
-#[derive(Debug, runen_ecs::Component)]
+#[derive(Debug, Component)]
 struct Sleeping;
 
-#[derive(Debug, runen_ecs::Component)]
+#[derive(Debug, Component)]
 struct Player;
 
 fn main() {

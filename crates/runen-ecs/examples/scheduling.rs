@@ -2,37 +2,21 @@ use runen_ecs::prelude::*;
 
 #[derive(Copy, Clone)]
 struct Update;
-impl ScheduleLabel for Update {
-    fn name() -> &'static str {
-        "Update"
-    }
-}
+impl ScheduleLabel for Update {}
 
 #[derive(Copy, Clone)]
 struct Prepare;
-impl SystemSet for Prepare {
-    fn name() -> &'static str {
-        "Prepare"
-    }
-}
+impl SystemSet for Prepare {}
 
 #[derive(Copy, Clone)]
 struct Simulation;
-impl SystemSet for Simulation {
-    fn name() -> &'static str {
-        "Simulation"
-    }
-}
+impl SystemSet for Simulation {}
 
 #[derive(Copy, Clone)]
 struct DebugOutput;
-impl SystemSet for DebugOutput {
-    fn name() -> &'static str {
-        "DebugOutput"
-    }
-}
+impl SystemSet for DebugOutput {}
 
-#[derive(Debug, Default, runen_ecs::Resource)]
+#[derive(Debug, Default, Resource)]
 struct Order(Vec<&'static str>);
 
 fn prepare(mut order: ResMut<Order>) {
