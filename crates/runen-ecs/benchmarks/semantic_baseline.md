@@ -59,12 +59,40 @@ pre-touched the transition fixture immediately before measurement.
 
 ## Corrected semantic baseline
 
-Pending measurement of the new immutable harness H2. H2 removes only that
-per-sample transition assertion; the dedicated `prove_transition_fixture()`
-sanity path remains. The deferred fixture still prepares and caches its
-one-system schedule plan through the World-independent `Runtime::validate()`
-contract before measurement, without executing user code on a throwaway World.
+The final corrected harness was measured without changing its source after the
+following immutable harness commit:
 
-The H2 measurement will record the exact harness SHA, compiler/toolchain,
-target, host, command, Criterion configuration and effective batch choice,
-together with all five observed medians and semantic cardinalities.
+- Measured harness commit (H2): `ae2194bf59b0f7411dafca5c715e2ac53ae34af1`
+- Compiler: `rustc 1.98.1 (48a229cea 2026-09-01)`
+- Active toolchain: `stable-aarch64-apple-darwin` (repository toolchain override)
+- Target/host: `aarch64-apple-darwin`
+- Host architecture/CPU: `arm64`, Apple M3
+- Command: `cargo bench -p runen-ecs --bench semantic_baseline --locked`
+- Criterion configuration: normal optimized Criterion run, default warm-up and
+  sampling configuration; Gnuplot was unavailable, so Criterion used its
+  Plotters backend.
+- Reset-fixture batch choice: `BatchSize::SmallInput` for insertion, transition
+  and deferred application. The normal run showed no excessive memory or
+  external-resource pressure, so no escalation was necessary.
+
+The corrected deferred fixture registers only `queue_spawn`, calls
+`Runtime::validate()` during untimed setup to validate and cache the schedule
+plan, and then runs one schedule invocation against each fresh target World.
+It does not execute user code on a throwaway World or bind the Runtime to a
+bootstrap World. The dedicated transition sanity proof remains outside
+Criterion measurement; per-sample setup only constructs the fresh fixture.
+
+Corrected semantic cardinalities and observed H2 medians:
+
+| Scenario | Semantic cardinality | Median |
+| --- | --- | ---: |
+| Entity/component insertion (1000) | 1000 fresh `(Position, Velocity)` spawns | 910.03 µs |
+| Query iteration (10000) | 10,000 matching `(Position, Velocity)` entities | 669.35 µs |
+| Archetype transition (1000) | 1000 `{Position, Velocity}` → `{Position, Velocity, TransitionMarker}` additions | 604.55 µs |
+| Serial schedule execution (10000) | 10,000 mutable `Position` components per invocation | 749.78 µs |
+| Deferred command application | one `Commands` spawn published by one `Update` invocation | 1.8349 µs |
+
+These H2 medians supersede the H/E measurements above for acceptance. The
+change is a benchmark-fixture correction, not an ECS performance
+regression/improvement claim. This E2 commit changes documentation only;
+`H2..E2` must contain no benchmark-source or runtime changes.
