@@ -1,3 +1,21 @@
+//! RunenECS registers system declarations without borrowing a live [`World`].
+//!
+//! The pre-#70 World-bound registration spelling is intentionally rejected:
+//!
+//! ```compile_fail
+//! use runen_ecs::{Runtime, ScheduleLabel, World};
+//!
+//! #[derive(Copy, Clone)]
+//! struct Update;
+//! impl ScheduleLabel for Update {}
+//!
+//! let mut world = World::new();
+//! let mut runtime = Runtime::new();
+//! runtime.add_systems::<Update, _, _>(&mut world, || {});
+//! ```
+//!
+//! Register with `runtime.add_systems(Update, systems)?` instead.
+
 extern crate self as runen_ecs;
 
 mod bundle;

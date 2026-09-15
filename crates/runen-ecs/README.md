@@ -48,7 +48,7 @@ fn main() {
     world.insert_resource(DeltaTime(0.5));
 
     let mut runtime = Runtime::new();
-    runtime.add_systems(Update, integrate);
+    runtime.add_systems(Update, integrate).unwrap();
     runtime.run_schedule::<Update>(&mut world).unwrap();
 }
 ```

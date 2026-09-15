@@ -77,7 +77,7 @@ fn main() -> Result<(), RuntimeError> {
     world.spawn((Position(0), Velocity(1))).unwrap();
 
     let mut runtime = Runtime::new();
-    let _ = runtime.add_systems(
+    runtime.add_systems(
         Update,
         (
             queue_arrival.in_set(Spawn),
@@ -85,7 +85,7 @@ fn main() -> Result<(), RuntimeError> {
             observe_arrivals.in_set(Observe).after(Simulate),
             advance_frame.after(Observe),
         ),
-    );
+    )?;
 
     runtime.run_schedule::<Update>(&mut world)?;
 

@@ -13,6 +13,14 @@ impl SystemSet for ProducerSet {}
 struct MissingSet;
 impl SystemSet for MissingSet {}
 
+#[derive(Copy, Clone)]
+struct CycleA;
+impl SystemSet for CycleA {}
+
+#[derive(Copy, Clone)]
+struct CycleB;
+impl SystemSet for CycleB {}
+
 #[derive(runen_ecs::Component)]
 struct Marker;
 
@@ -187,6 +195,23 @@ fn validate_and_dirty_run_or_inspect_rebuild_schedule_topology() {
     assert!(matches!(
         runtime.inspect_schedule::<Update>(),
         Err(RuntimeError::Schedule(_))
+    ));
+
+    let mut cyclic = Runtime::new();
+    cyclic
+        .add_systems(
+            Update,
+            (
+                source.in_set(CycleA).after(CycleB),
+                target.in_set(CycleB).after(CycleA),
+            ),
+        )
+        .unwrap();
+    assert!(matches!(
+        cyclic.validate(),
+        Err(RuntimeError::Schedule(
+            ScheduleValidationError::OrderingCycle { .. }
+        ))
     ));
 
     let mut valid = Runtime::new();
