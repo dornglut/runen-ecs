@@ -48,7 +48,7 @@ pub use reflect::{
     EnumInfo, EnumVariantInfo, FieldInfo, Reflect, ReflectShape, ReflectValueMut, ReflectValueRef,
     StructInfo, StructValueMut, StructValueRef, TypeInfo, TypeRegistry,
 };
-pub use runen_ecs_macros::{Bundle, Component, Reflect, Resource, SystemParam};
+pub use runen_ecs_macros::{Bundle, Component, IntoSystemSetKey, Reflect, Resource, SystemParam};
 pub use system::{
     ConfiguredSystem, DeferredPublicationFrontier, DeferredRecorderClass, DeferredRecorderConflict,
     ExecutionMobility, IntoSystem, IntoSystemConfigs, IntoSystemSetKey, InvokerThreadSystem,
