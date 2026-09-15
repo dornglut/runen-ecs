@@ -85,16 +85,18 @@ fn main() {
     world.insert_resource(Observations::default());
 
     let mut runtime = Runtime::new();
-    runtime.add_systems::<Update, _, _>(
-        &mut world,
-        (
-            mutate.in_set(Mutate),
-            observe_added.in_set(Observe).after(Mutate),
-            observe_changed.in_set(Observe).after(Mutate),
-            observe_removed.in_set(Observe).after(Mutate),
-            advance_phase.after(Observe),
-        ),
-    );
+    runtime
+        .add_systems(
+            Update,
+            (
+                mutate.in_set(Mutate),
+                observe_added.in_set(Observe).after(Mutate),
+                observe_changed.in_set(Observe).after(Mutate),
+                observe_removed.in_set(Observe).after(Mutate),
+                advance_phase.after(Observe),
+            ),
+        )
+        .unwrap();
 
     runtime.run_schedule::<Update>(&mut world).unwrap();
     runtime.run_schedule::<Update>(&mut world).unwrap();

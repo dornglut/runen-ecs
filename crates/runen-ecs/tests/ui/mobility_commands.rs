@@ -9,5 +9,5 @@ fn local_system(_: LocalCommands<'_>) {}
 fn main() {
     let mut world = World::new();
     let mut runtime = Runtime::new();
-    runtime.add_systems::<Update, _, _>(&mut world, local_system);
+    let _ = runtime.add_systems(Update, local_system);
 }

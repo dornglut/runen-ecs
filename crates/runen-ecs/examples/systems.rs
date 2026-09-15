@@ -44,7 +44,7 @@ fn main() {
     let mut runtime = Runtime::new();
     // Ordinary registration is the proven-transferable path. No mobility
     // annotation is needed for a normal system whose parameters satisfy it.
-    runtime.add_systems::<Update, _, _>(&mut world, integrate);
+    runtime.add_systems(Update, integrate).unwrap();
     runtime.run_schedule::<Update>(&mut world).unwrap();
 
     let position = world.query_state::<&Position, ()>().single(&world).unwrap();

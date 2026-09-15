@@ -24,11 +24,11 @@ fn duplicate_res_mut_params_are_rejected_before_system_execution() {
     let mut world = World::new();
     world.insert_resource(Counter(0));
     let mut runtime = Runtime::new();
-    runtime.add_systems::<Update, _, _>(&mut world, invalid);
-
     let error = runtime
-        .run_schedule::<Update>(&mut world)
-        .expect_err("duplicate mutable resource borrows must be rejected");
+        .add_systems(Update, invalid)
+        .err()
+        .expect("invalid system registration must fail");
+
     let message = format!("{error:#}");
     assert!(message.contains("conflicting param borrows"), "{message}");
     assert!(message.contains("resource"), "{message}");
@@ -44,11 +44,12 @@ fn mutable_and_shared_resource_params_are_rejected_before_system_execution() {
     let mut world = World::new();
     world.insert_resource(Counter(0));
     let mut runtime = Runtime::new();
-    runtime.add_systems::<Update, _, _>(&mut world, invalid);
+    let _ = runtime.add_systems(Update, invalid);
 
     let error = runtime
-        .run_schedule::<Update>(&mut world)
-        .expect_err("mutable/shared resource aliases must be rejected");
+        .add_systems(Update, invalid)
+        .err()
+        .expect("invalid system registration must fail");
     assert!(
         format!("{error:#}").contains("conflicting param borrows"),
         "{error:#}"
@@ -66,11 +67,12 @@ fn conflicting_query_params_are_rejected_before_system_execution() {
         .spawn(Position(1))
         .expect("fixture spawn should succeed");
     let mut runtime = Runtime::new();
-    runtime.add_systems::<Update, _, _>(&mut world, invalid);
+    let _ = runtime.add_systems(Update, invalid);
 
     let error = runtime
-        .run_schedule::<Update>(&mut world)
-        .expect_err("mutable/shared query aliases must be rejected");
+        .add_systems(Update, invalid)
+        .err()
+        .expect("invalid system registration must fail");
     let message = format!("{error:#}");
     assert!(message.contains("conflicting param borrows"), "{message}");
     assert!(message.contains("component"), "{message}");
@@ -97,11 +99,12 @@ fn nested_derived_param_borrow_conflicts_are_rejected() {
     let mut world = World::new();
     world.insert_resource(Counter(0));
     let mut runtime = Runtime::new();
-    runtime.add_systems::<Update, _, _>(&mut world, invalid);
+    let _ = runtime.add_systems(Update, invalid);
 
     let error = runtime
-        .run_schedule::<Update>(&mut world)
-        .expect_err("nested derived borrow aliases must be rejected");
+        .add_systems(Update, invalid)
+        .err()
+        .expect("invalid system registration must fail");
     assert!(
         format!("{error:#}").contains("conflicting param borrows"),
         "{error:#}"

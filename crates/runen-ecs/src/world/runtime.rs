@@ -109,8 +109,8 @@ mod tests {
         let body_ran = Arc::new(AtomicBool::new(false));
         let body_ran_for_system = Arc::clone(&body_ran);
         let mut runtime = Runtime::new();
-        runtime.add_systems::<JournalExhaustion, _, _>(
-            &mut world,
+        let _ = runtime.add_systems(
+            JournalExhaustion,
             move |mut query: Query<&mut ExhaustionA>| {
                 let _ = query.get(entity).expect("component should exist");
                 body_ran_for_system.store(true, Ordering::Relaxed);
@@ -144,8 +144,8 @@ mod tests {
         let body_ran = Arc::new(AtomicBool::new(false));
         let body_ran_for_system = Arc::clone(&body_ran);
         let mut runtime = Runtime::new();
-        runtime.add_systems::<JournalExhaustion, _, _>(
-            &mut world,
+        let _ = runtime.add_systems(
+            JournalExhaustion,
             move |mut query: Query<(&mut ExhaustionA, &mut ExhaustionB)>| {
                 let _ = query.get(entity).expect("components should exist");
                 body_ran_for_system.store(true, Ordering::Relaxed);

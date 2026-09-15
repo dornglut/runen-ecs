@@ -36,7 +36,7 @@ pub struct RemovedState<T: Component> {
 }
 
 impl<T: Component> RemovedState<T> {
-    pub fn new(_world: &World) -> Self {
+    pub(crate) fn unbound() -> Self {
         let mut access = QueryAccess::default();
         access.add_removed_component_read::<T>();
         Self {
@@ -44,6 +44,10 @@ impl<T: Component> RemovedState<T> {
             scratch: RefCell::new(Vec::new()),
             _marker: PhantomData,
         }
+    }
+
+    pub fn new(_world: &World) -> Self {
+        Self::unbound()
     }
 
     pub fn access(&self) -> &QueryAccess {

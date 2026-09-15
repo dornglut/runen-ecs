@@ -5,7 +5,7 @@ error[E0277]: `std::sync::MutexGuard<'static, ()>` cannot be sent between thread
    |                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `std::sync::MutexGuard<'static, ()>` cannot be sent between threads safely
    |
    = help: within `SyncButNotSend`, the trait `Send` is not implemented for `std::sync::MutexGuard<'static, ()>`
-help: the trait `runen_ecs::TransferableSystemParam` is conditionally implemented for `Query<'_, '_, Q, F>`
+help: the trait `runen_ecs::TransferableSystemParam` is conditionally implemented for `runen_ecs::Query<'_, '_, Q, F>`
   --> src/system/params.rs
    |
    | / unsafe impl<'param, 'cached, Q, F> TransferableSystemParam for Query<'param, 'cached, Q, F>
@@ -20,7 +20,7 @@ note: required because it appears within the type `SyncButNotSend`
  4 | struct SyncButNotSend(MutexGuard<'static, ()>);
    |        ^^^^^^^^^^^^^^
    = note: required for `&mut SyncButNotSend` to implement `query::traits_and_state::TransferableQueryData`
-   = note: required for `Query<'static, 'static, &mut SyncButNotSend>` to implement `runen_ecs::TransferableSystemParam`
+   = note: required for `runen_ecs::Query<'static, 'static, &mut SyncButNotSend>` to implement `runen_ecs::TransferableSystemParam`
 note: required by a bound in `assert_transferable`
   --> tests/ui/mobility_mut_missing_send.rs:6:27
    |

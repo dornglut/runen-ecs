@@ -67,7 +67,7 @@ fn query_and_disjoint_query_can_retain_items_together() {
 
     let mut world = world_with_two_entities();
     let mut runtime = Runtime::new();
-    runtime.add_systems::<C3, _, _>(&mut world, system);
+    let _ = runtime.add_systems(C3, system);
     runtime.run_schedule::<C3>(&mut world).unwrap();
 }
 
@@ -84,7 +84,7 @@ fn query_item_and_resource_mutation_can_be_live_together() {
     let mut world = world_with_two_entities();
     world.insert_resource(ResourceB(4));
     let mut runtime = Runtime::new();
-    runtime.add_systems::<C3, _, _>(&mut world, system);
+    let _ = runtime.add_systems(C3, system);
     runtime.run_schedule::<C3>(&mut world).unwrap();
 }
 
@@ -116,7 +116,7 @@ fn resource_payloads_survive_other_resource_mutation_bookkeeping() {
     world.insert_resource(ResourceA(1));
     world.insert_resource(ResourceB(2));
     let mut runtime = Runtime::new();
-    runtime.add_systems::<C3, _, _>(&mut world, system);
+    let _ = runtime.add_systems(C3, system);
     runtime.run_schedule::<C3>(&mut world).unwrap();
 }
 

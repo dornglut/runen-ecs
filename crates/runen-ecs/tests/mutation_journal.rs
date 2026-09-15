@@ -48,8 +48,8 @@ fn journal_preserves_noop_mutation_multiplicity_and_mixed_parameter_semantics() 
     let before = world.current_change_cursor();
 
     let mut runtime = Runtime::new();
-    runtime.add_systems::<Update, _, _>(
-        &mut world,
+    let _ = runtime.add_systems(
+        Update,
         move |mut query: Query<&mut A>, mut resource: ResMut<R>| {
             let _ = query.get(entity).expect("component should exist");
             let _ = query.get(entity).expect("component should exist");
@@ -90,8 +90,8 @@ fn journal_reconciles_admitted_events_when_system_returns_err() {
     let before = world.current_change_cursor();
 
     let mut runtime = Runtime::new();
-    runtime.add_systems::<Update, _, _>(
-        &mut world,
+    let _ = runtime.add_systems(
+        Update,
         move |mut query: Query<&mut A>, mut resource: ResMut<R>| {
             query.get(entity).expect("component should exist").0 = 7;
             resource.0 = 9;
@@ -115,8 +115,8 @@ fn journal_reconciles_before_resuming_original_user_panic() {
     let before = world.current_change_cursor();
 
     let mut runtime = Runtime::new();
-    runtime.add_systems::<Update, _, _>(
-        &mut world,
+    let _ = runtime.add_systems(
+        Update,
         (move |mut query: Query<&mut A>, mut commands: LocalCommands| -> () {
             query.get(entity).expect("component should exist").0 = 7;
             commands.spawn(Marker);
@@ -146,7 +146,7 @@ fn mutable_tuple_journal_keeps_both_payloads_and_events() {
     let before = world.current_change_cursor();
 
     let mut runtime = Runtime::new();
-    runtime.add_systems::<Update, _, _>(&mut world, move |mut query: Query<(&mut A, &mut B)>| {
+    let _ = runtime.add_systems(Update, move |mut query: Query<(&mut A, &mut B)>| {
         let (a, b) = query.get(entity).expect("components should exist");
         a.0 = 3;
         b.0 = 4;

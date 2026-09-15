@@ -54,7 +54,7 @@ fn main() {
     world.insert_resource(Visibility::default());
 
     let mut runtime = Runtime::new();
-    runtime.add_systems::<Update, _, _>(&mut world, stage_changes);
+    runtime.add_systems(Update, stage_changes).unwrap();
     runtime.run_schedule::<Update>(&mut world).unwrap();
 
     let visibility = world.resource::<Visibility>().unwrap();

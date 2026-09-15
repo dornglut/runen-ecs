@@ -89,8 +89,8 @@ fn runtime_executes_1_2_and_8_param_systems() {
     world.insert_resource(ExtraScore(7));
 
     let mut runtime = Runtime::new();
-    runtime.add_systems::<Update, _, _>(
-        &mut world,
+    let _ = runtime.add_systems(
+        Update,
         (
             bump_frame,
             integrate_positions,
@@ -122,7 +122,7 @@ unsafe impl SystemParam for CachedCounter {
     type State = usize;
     type Item<'world, 'state> = CachedCounter;
 
-    fn init_state(_world: &mut World) -> Result<Self::State, SystemParamError> {
+    fn init_state() -> Result<Self::State, SystemParamError> {
         INIT_STATE_CALLS.fetch_add(1, Ordering::SeqCst);
         Ok(0)
     }
@@ -156,7 +156,7 @@ fn runtime_caches_system_param_state_across_runs() {
     world.insert_resource(Frame(0));
 
     let mut runtime = Runtime::new();
-    runtime.add_systems::<Update, _, _>(&mut world, cached);
+    let _ = runtime.add_systems(Update, cached);
     runtime.run_schedule::<Update>(&mut world).unwrap();
     runtime.run_schedule::<Update>(&mut world).unwrap();
 
@@ -179,11 +179,14 @@ fn runtime_reports_extraction_errors_cleanly() {
 
     let mut world = World::new();
     let mut runtime = Runtime::new();
-    runtime.add_systems::<Update, _, _>(&mut world, requires_missing_resource);
+    runtime
+        .add_systems(Update, requires_missing_resource)
+        .unwrap();
 
     let err = runtime.run_schedule::<Update>(&mut world).unwrap_err();
     let message = format!("{err:#}");
-    assert!(message.contains("runtime setup failed"), "{message}");
+    assert!(message.contains("parameter failed"), "{message}");
+    assert!(message.contains("requires_missing_resource"), "{message}");
     assert!(message.contains("does not exist"), "{message}");
 }
 
@@ -197,7 +200,7 @@ fn res_provides_read_only_resource_access() {
     world.insert_resource(Frame(42));
     world.insert_resource(Score(0));
     let mut runtime = Runtime::new();
-    runtime.add_systems::<Update, _, _>(&mut world, mirror_frame_into_score);
+    let _ = runtime.add_systems(Update, mirror_frame_into_score);
     runtime.run_schedule::<Update>(&mut world).unwrap();
 
     assert_eq!(world.resource::<Frame>().unwrap().0, 42);
@@ -218,8 +221,8 @@ fn commands_publish_at_frontier_not_between_unordered_systems() {
     world.insert_resource(SeenCount(99));
 
     let mut runtime = Runtime::new();
-    runtime.add_systems::<Update, _, _>(
-        &mut world,
+    let _ = runtime.add_systems(
+        Update,
         (enqueue_spawn.on_invoker_thread(), observe_marker_count),
     );
     runtime.run_schedule::<Update>(&mut world).unwrap();

@@ -45,7 +45,7 @@ unsafe impl<'param> SystemParam for WorldMut<'param> {
     type State = ();
     type Item<'world, 'state> = WorldMut<'world>;
 
-    fn init_state(_: &mut World) -> Result<Self::State, SystemParamError> {
+    fn init_state() -> Result<Self::State, SystemParamError> {
         Ok(())
     }
 
@@ -124,8 +124,8 @@ where
 {
     type State = QueryState<Q, F>;
     type Item<'world, 'state> = Query<'world, 'state, Q, F>;
-    fn init_state(world: &mut World) -> Result<Self::State, SystemParamError> {
-        Ok(QueryState::new(world))
+    fn init_state() -> Result<Self::State, SystemParamError> {
+        QueryState::unbound().map_err(SystemParamError::from)
     }
     fn access(state: &Self::State) -> QueryAccess {
         state.access().clone()
@@ -160,8 +160,8 @@ unsafe impl<'param, 'cached, T: Component + 'static> SystemParam
 {
     type State = RemovedState<T>;
     type Item<'world, 'state> = RemovedQuery<'world, 'state, T>;
-    fn init_state(world: &mut World) -> Result<Self::State, SystemParamError> {
-        Ok(RemovedState::new(world))
+    fn init_state() -> Result<Self::State, SystemParamError> {
+        Ok(RemovedState::unbound())
     }
     fn access(state: &Self::State) -> QueryAccess {
         state.access().clone()
@@ -196,8 +196,7 @@ unsafe impl<'param, 'cached, T: Component + 'static> TransferableSystemParam
 unsafe impl<'param, T: Resource + 'static> SystemParam for Res<'param, T> {
     type State = ();
     type Item<'world, 'state> = Res<'world, T>;
-    fn init_state(world: &mut World) -> Result<Self::State, SystemParamError> {
-        world.resource::<T>()?;
+    fn init_state() -> Result<Self::State, SystemParamError> {
         Ok(())
     }
     fn access(_: &Self::State) -> QueryAccess {
@@ -227,8 +226,7 @@ unsafe impl<'param, T: Resource + Sync + 'static> TransferableSystemParam for Re
 unsafe impl<'param, T: Resource + 'static> SystemParam for ResMut<'param, T> {
     type State = ();
     type Item<'world, 'state> = ResMut<'world, T>;
-    fn init_state(world: &mut World) -> Result<Self::State, SystemParamError> {
-        world.resource::<T>()?;
+    fn init_state() -> Result<Self::State, SystemParamError> {
         Ok(())
     }
     fn access(_: &Self::State) -> QueryAccess {
@@ -258,7 +256,7 @@ unsafe impl<'param, T: Resource + Send + 'static> TransferableSystemParam for Re
 unsafe impl<'param> SystemParam for LocalCommands<'param> {
     type State = ();
     type Item<'world, 'state> = LocalCommands<'world>;
-    fn init_state(_: &mut World) -> Result<Self::State, SystemParamError> {
+    fn init_state() -> Result<Self::State, SystemParamError> {
         Ok(())
     }
     fn deferred_recorder_class() -> Result<DeferredRecorderClass, DeferredRecorderConflict> {
@@ -286,7 +284,7 @@ unsafe impl<'param> SystemParam for Commands<'param> {
     type State = ();
     type Item<'world, 'state> = Commands<'world>;
 
-    fn init_state(_: &mut World) -> Result<Self::State, SystemParamError> {
+    fn init_state() -> Result<Self::State, SystemParamError> {
         Ok(())
     }
 
@@ -324,8 +322,8 @@ macro_rules! impl_tuple_system_param {
         unsafe impl<$($param: SystemParam),+> SystemParam for ($($param,)+) {
             type State = ($($param::State,)+);
             type Item<'world, 'state> = ($($param::Item<'world, 'state>,)+);
-            fn init_state(world: &mut World) -> Result<Self::State, SystemParamError> {
-                Ok(($($param::init_state(world)?,)+))
+            fn init_state() -> Result<Self::State, SystemParamError> {
+                Ok(($($param::init_state()?,)+))
             }
             fn deferred_recorder_class() -> Result<DeferredRecorderClass, DeferredRecorderConflict> {
                 let mut class = DeferredRecorderClass::None;

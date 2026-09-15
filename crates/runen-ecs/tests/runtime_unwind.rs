@@ -56,7 +56,7 @@ fn panicked_schedule_discards_unpublished_deferred_work_before_runtime_reuse() {
     world.insert_resource(PanicGate(false));
 
     let mut runtime = Runtime::new();
-    runtime.add_systems::<Update, _, _>(&mut world, (enqueue.on_invoker_thread(), panic_once));
+    let _ = runtime.add_systems(Update, (enqueue.on_invoker_thread(), panic_once));
 
     let first_run = catch_unwind(AssertUnwindSafe(|| {
         runtime.run_schedule::<Update>(&mut world)
@@ -94,14 +94,14 @@ fn panicked_later_system_preserves_committed_frontier_and_discards_only_unpublis
     world.insert_resource(PanicGate(false));
 
     let mut runtime = Runtime::new();
-    runtime.add_systems::<Update, _, _>(
-        &mut world,
+    let _ = runtime.add_systems(
+        Update,
         enqueue_committed
             .on_invoker_thread()
             .in_set(CommittedProducerSet),
     );
-    runtime.add_systems::<Update, _, _>(
-        &mut world,
+    let _ = runtime.add_systems(
+        Update,
         (
             enqueue_aborted
                 .on_invoker_thread()

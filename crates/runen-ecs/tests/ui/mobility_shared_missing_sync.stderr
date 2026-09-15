@@ -6,7 +6,7 @@ error[E0277]: `Cell<u32>` cannot be shared between threads safely
    |
    = help: within `SendButNotSync`, the trait `Sync` is not implemented for `Cell<u32>`
    = note: if you want to do aliasing and mutation between multiple threads, use `std::sync::RwLock` or `std::sync::atomic::AtomicU32` instead
-help: the trait `runen_ecs::TransferableSystemParam` is conditionally implemented for `Query<'_, '_, Q, F>`
+help: the trait `runen_ecs::TransferableSystemParam` is conditionally implemented for `runen_ecs::Query<'_, '_, Q, F>`
   --> src/system/params.rs
    |
    | / unsafe impl<'param, 'cached, Q, F> TransferableSystemParam for Query<'param, 'cached, Q, F>
@@ -21,7 +21,7 @@ note: required because it appears within the type `SendButNotSync`
  4 | struct SendButNotSync(Cell<u32>);
    |        ^^^^^^^^^^^^^^
    = note: required for `&SendButNotSync` to implement `query::traits_and_state::TransferableQueryData`
-   = note: required for `Query<'static, 'static, &SendButNotSync>` to implement `runen_ecs::TransferableSystemParam`
+   = note: required for `runen_ecs::Query<'static, 'static, &SendButNotSync>` to implement `runen_ecs::TransferableSystemParam`
 note: required by a bound in `assert_transferable`
   --> tests/ui/mobility_shared_missing_sync.rs:6:27
    |

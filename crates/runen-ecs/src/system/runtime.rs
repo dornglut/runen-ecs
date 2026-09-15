@@ -98,10 +98,7 @@ where
 }
 
 pub trait IntoSystem<Marker>: 'static {
-    fn into_registered_system<L: ScheduleLabel>(
-        self,
-        world: &mut World,
-    ) -> Result<RegisteredSystem>;
+    fn into_registered_system<L: ScheduleLabel>(self) -> Result<RegisteredSystem>;
 }
 
 pub trait IntoSystemSetKey {
@@ -273,31 +270,10 @@ pub trait SystemConfigExt<Marker>: IntoSystem<Marker> + Sized {
 impl<S, Marker> SystemConfigExt<Marker> for S where S: IntoSystem<Marker> + Sized {}
 
 mod system_configs_sealed {
-    use super::{RuntimeError, ScheduleLabel, ScheduleRegistry};
-    use crate::World;
-
-    pub struct RegistrationContext<'a> {
-        pub(super) world: &'a mut World,
-        pub(super) scheduler: &'a mut ScheduleRegistry,
-        pub(super) build_errors: &'a mut Vec<RuntimeError>,
-    }
-
-    impl<'a> RegistrationContext<'a> {
-        pub(super) fn new(
-            world: &'a mut World,
-            scheduler: &'a mut ScheduleRegistry,
-            build_errors: &'a mut Vec<RuntimeError>,
-        ) -> Self {
-            Self {
-                world,
-                scheduler,
-                build_errors,
-            }
-        }
-    }
+    use super::{RegisteredSystem, Result, ScheduleLabel};
 
     pub trait RegisterSystemConfigs<Marker> {
-        fn register<L: ScheduleLabel>(self, context: &mut RegistrationContext<'_>);
+        fn register<L: ScheduleLabel>(self) -> Result<Vec<RegisteredSystem>>;
     }
 }
 
@@ -312,18 +288,8 @@ impl<S, Marker> system_configs_sealed::RegisterSystemConfigs<Marker> for S
 where
     S: IntoSystem<Marker>,
 {
-    fn register<L: ScheduleLabel>(
-        self,
-        context: &mut system_configs_sealed::RegistrationContext<'_>,
-    ) {
-        match self.into_registered_system::<L>(context.world) {
-            Ok(registered) => {
-                if let Err(err) = context.scheduler.add_system(registered) {
-                    context.build_errors.push(err.into());
-                }
-            }
-            Err(err) => context.build_errors.push(err),
-        }
+    fn register<L: ScheduleLabel>(self) -> Result<Vec<RegisteredSystem>> {
+        Ok(vec![self.into_registered_system::<L>()?])
     }
 }
 
@@ -332,11 +298,8 @@ where
     S: IntoSystem<Marker>,
     Marker: 'static,
 {
-    fn into_registered_system<L: ScheduleLabel>(
-        self,
-        world: &mut World,
-    ) -> Result<RegisteredSystem> {
-        let mut registered = self.system.into_registered_system::<L>(world)?;
+    fn into_registered_system<L: ScheduleLabel>(self) -> Result<RegisteredSystem> {
+        let mut registered = self.system.into_registered_system::<L>()?;
         self.config.apply(&mut registered);
         Ok(registered)
     }
@@ -351,11 +314,10 @@ macro_rules! impl_into_system_configs_tuple {
         {
             fn register<Sched: ScheduleLabel>(
                 self,
-                context: &mut system_configs_sealed::RegistrationContext<'_>,
-            ) {
-                $(
-                    self.$index.register::<Sched>(context);
-                )+
+            ) -> Result<Vec<RegisteredSystem>> {
+                let mut systems = Vec::new();
+                $(systems.extend(self.$index.register::<Sched>()?);)+
+                Ok(systems)
             }
         }
     };
@@ -524,7 +486,7 @@ trait SystemParamState: Sized {
     type State: 'static;
     type Item<'world, 'state>;
 
-    fn init_state(world: &mut World) -> std::result::Result<Self::State, SystemParamError>;
+    fn init_state() -> std::result::Result<Self::State, SystemParamError>;
     fn deferred_recorder_class()
     -> std::result::Result<DeferredRecorderClass, DeferredRecorderConflict>;
     fn access(state: &Self::State) -> QueryAccess;
@@ -543,8 +505,8 @@ where
     type State = T::State;
     type Item<'world, 'state> = T::Item<'world, 'state>;
 
-    fn init_state(world: &mut World) -> std::result::Result<Self::State, SystemParamError> {
-        T::init_state(world)
+    fn init_state() -> std::result::Result<Self::State, SystemParamError> {
+        T::init_state()
     }
 
     fn deferred_recorder_class()
@@ -612,7 +574,7 @@ fn merge_access(system_name: &str, access_parts: &[SystemAccess]) -> Result<Syst
 }
 
 macro_rules! build_registered_system {
-    (transferable, $world:ident, $func:ident, $($index:tt, $param:ident),*) => {{
+    (transferable, $func:ident, $($index:tt, $param:ident),*) => {{
         let system_name = std::any::type_name::<Func>().to_string();
         let mut deferred_recorder_class = DeferredRecorderClass::None;
         $(
@@ -641,7 +603,10 @@ macro_rules! build_registered_system {
             });
         }
         let states = (
-            $(<$param as SystemParamState>::init_state($world)?,)*
+            $(<$param as SystemParamState>::init_state().map_err(|source| RuntimeError::Param {
+                system: system_name.clone(),
+                source,
+            })?,)*
         );
         let query_access_parts = vec![
             $(<$param as SystemParamState>::access(&states.$index),)*
@@ -657,6 +622,7 @@ macro_rules! build_registered_system {
         ];
         let system_name_for_serial = system_name.clone();
         let system_name_for_worker = system_name.clone();
+        let system_name_for_worker_prepare = system_name.clone();
         let runner_state = ($func, states);
         let mut registered = RegisteredSystem::new_transferable_worker_capable::<Sched, _>(
             system_name,
@@ -676,7 +642,13 @@ macro_rules! build_registered_system {
                         commands.as_mut(),
                     );
                     $(
-                        let $param = unsafe { <$param as SystemParamState>::extract(&mut states.$index, context)? };
+                        let $param = unsafe {
+                            <$param as SystemParamState>::extract(&mut states.$index, context)
+                                .map_err(|source| RuntimeError::Param {
+                                    system: system_name_for_serial.clone(),
+                                    source,
+                                })?
+                        };
                     )*
                     catch_unwind(AssertUnwindSafe(|| {
                         $func($($param),*)
@@ -716,7 +688,10 @@ macro_rules! build_registered_system {
                     <$param as TransferableSystemParam>::prepare_worker(
                         &states.$index,
                         &mut context,
-                    )?;
+                    ).map_err(|source| RuntimeError::Param {
+                        system: system_name_for_worker_prepare.clone(),
+                        source,
+                    })?;
                 )*
                 Ok(context.finish())
             },
@@ -784,7 +759,7 @@ macro_rules! build_registered_system {
         registered.set_param_slots(param_slots);
         Ok(registered)
     }};
-    (local, $world:ident, $func:ident, $($index:tt, $param:ident),*) => {{
+    (local, $func:ident, $($index:tt, $param:ident),*) => {{
         let system_name = std::any::type_name::<Func>().to_string();
         let mut deferred_recorder_class = DeferredRecorderClass::None;
         $(
@@ -805,7 +780,10 @@ macro_rules! build_registered_system {
                 })?;
         )*
         let mut states = (
-            $(<$param as SystemParamState>::init_state($world)?,)*
+            $(<$param as SystemParamState>::init_state().map_err(|source| RuntimeError::Param {
+                system: system_name.clone(),
+                source,
+            })?,)*
         );
         let query_access_parts = vec![
             $(<$param as SystemParamState>::access(&states.$index),)*
@@ -839,7 +817,13 @@ macro_rules! build_registered_system {
                         commands.as_mut(),
                     );
                     $(
-                        let $param = unsafe { <$param as SystemParamState>::extract(&mut states.$index, context)? };
+                        let $param = unsafe {
+                            <$param as SystemParamState>::extract(&mut states.$index, context)
+                                .map_err(|source| RuntimeError::Param {
+                                    system: system_name_for_run.clone(),
+                                    source,
+                                })?
+                        };
                     )*
                     catch_unwind(AssertUnwindSafe(|| {
                         $func($($param),*)
@@ -898,10 +882,9 @@ macro_rules! impl_into_system {
         {
             fn into_registered_system<Sched: ScheduleLabel>(
                 self,
-                world: &mut World,
             ) -> Result<RegisteredSystem> {
                 let func = self;
-                build_registered_system!(transferable, world, func, $($index, $param),*)
+                build_registered_system!(transferable, func, $($index, $param),*)
             }
         }
 
@@ -917,10 +900,9 @@ macro_rules! impl_into_system {
         {
             fn into_registered_system<Sched: ScheduleLabel>(
                 self,
-                world: &mut World,
             ) -> Result<RegisteredSystem> {
                 let mut func = self.0;
-                build_registered_system!(local, world, func, $($index, $param),*)
+                build_registered_system!(local, func, $($index, $param),*)
             }
         }
     };
@@ -1064,7 +1046,6 @@ impl_into_system!(
 pub struct Runtime {
     scheduler: ScheduleRegistry,
     deferred_commands: DeferredCommands,
-    build_errors: Vec<RuntimeError>,
 }
 
 impl Default for Runtime {
@@ -1078,26 +1059,25 @@ impl Runtime {
         Self {
             scheduler: ScheduleRegistry::new(),
             deferred_commands: Rc::new(RefCell::new(Vec::new())),
-            build_errors: Vec::new(),
         }
     }
 
-    pub fn add_systems<L, S, Marker>(&mut self, world: &mut World, systems: S) -> &mut Self
+    pub fn add_systems<L, S, Marker>(&mut self, _schedule: L, systems: S) -> Result<&mut Self>
     where
         L: ScheduleLabel,
         S: IntoSystemConfigs<Marker>,
     {
-        let mut context = system_configs_sealed::RegistrationContext::new(
-            world,
-            &mut self.scheduler,
-            &mut self.build_errors,
-        );
-        systems.register::<L>(&mut context);
-        self
+        let registered = systems.register::<L>()?;
+        self.scheduler.add_systems(registered)?;
+        Ok(self)
+    }
+
+    pub fn validate(&mut self) -> Result<()> {
+        self.scheduler.validate().map_err(Into::into)
     }
 
     pub fn inspect_schedule<L: ScheduleLabel>(&mut self) -> Result<Option<ScheduleInspection>> {
-        self.ensure_build_ready()?;
+        self.validate()?;
         let plan = self.scheduler.plan_for::<L>()?.cloned();
         Ok(plan.map(|plan| ScheduleInspection::from_plan(&plan, self.scheduler.systems())))
     }
@@ -1121,7 +1101,7 @@ impl Runtime {
     {
         let _unwind_guard = DeferredCommandsUnwindGuard::new(self.deferred_commands.clone());
 
-        if let Err(err) = self.ensure_build_ready() {
+        if let Err(err) = self.validate() {
             self.discard_deferred_commands();
             return Err(err);
         }
@@ -1186,16 +1166,6 @@ impl Runtime {
             });
         }
         Ok(())
-    }
-
-    fn ensure_build_ready(&self) -> Result<()> {
-        if self.build_errors.is_empty() {
-            return Ok(());
-        }
-        let messages: Vec<_> = self.build_errors.iter().map(ToString::to_string).collect();
-        Err(RuntimeError::Setup {
-            message: messages.join("\n"),
-        })
     }
 
     fn publish_deferred_commands(&self, world: &mut World) -> Result<()> {
@@ -1355,7 +1325,7 @@ mod tests {
         world.insert_resource(Sum(0));
 
         let mut runtime = Runtime::new();
-        runtime.add_systems::<MaxAritySchedule, _, _>(&mut world, max_arity_system);
+        let _ = runtime.add_systems(MaxAritySchedule, max_arity_system);
         runtime
             .run_schedule::<MaxAritySchedule>(&mut world)
             .unwrap();
@@ -1367,8 +1337,8 @@ mod tests {
         let mut world = World::new();
         world.insert_resource(Counter(0));
         let mut runtime = Runtime::new();
-        runtime.add_systems::<MaxTupleSchedule, _, _>(
-            &mut world,
+        let _ = runtime.add_systems(
+            MaxTupleSchedule,
             (
                 bump_counter,
                 bump_counter,

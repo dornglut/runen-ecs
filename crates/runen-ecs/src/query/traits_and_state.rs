@@ -253,11 +253,11 @@ pub struct QueryFastCache {
 }
 
 pub struct QueryState<Q, F = ()> {
-    world_scope: Cell<WorldScopeId>,
+    world_scope: Cell<Option<WorldScopeId>>,
     required_present: Vec<TypeId>,
     excluded: Vec<TypeId>,
     access: QueryAccess,
-    last_run_tick: Cell<ChangeCursor>,
+    last_run_tick: Cell<Option<ChangeCursor>>,
     scratch_pool: RefCell<Vec<Vec<Entity>>>,
     archetype_row_scratch_pool: RefCell<Vec<Vec<QueryArchetypeRow>>>,
     fast_fetch_enabled: bool,
@@ -272,7 +272,7 @@ impl<Q: QuerySpec, F: QueryFilter> QueryState<Q, F> {
     }
 
     pub(crate) fn try_new(world: &World) -> Result<Self, QueryError> {
-        let state = Self::detached(world.scope_id());
+        let state = Self::bound(world.scope_id());
         if let Some(conflict) = state.access.borrow_conflict() {
             return Err(QueryError::ConflictingBorrow {
                 domain: conflict.domain(),
@@ -330,7 +330,10 @@ impl<Q: QuerySpec, F: QueryFilter> QueryState<Q, F> {
         Q: 'w,
     {
         self.rebind_world_scope(world.world_scope());
-        let since_tick = self.last_run_tick.get();
+        let since_tick = self
+            .last_run_tick
+            .get()
+            .expect("query state must be bound before iteration");
         let (use_fast_fetch, mut fast_cache) = self.prepare_fast_fetch(world);
 
         if self.archetype_execution_enabled {
@@ -345,7 +348,7 @@ impl<Q: QuerySpec, F: QueryFilter> QueryState<Q, F> {
                 if F::needs_tick_filter() {
                     rows.retain(|row| F::matches_entity(world, row.entity, since_tick));
                 }
-                self.last_run_tick.set(world.current_change_tick());
+                self.last_run_tick.set(Some(world.current_change_tick()));
                 return QueryIter {
                     world,
                     entities: None,
@@ -364,7 +367,7 @@ impl<Q: QuerySpec, F: QueryFilter> QueryState<Q, F> {
         let mut entities = self.acquire_scratch_vec();
         // Fallback path for query forms that do not support archetype-row execution.
         self.matching_entities_into(world, &mut entities);
-        self.last_run_tick.set(world.current_change_tick());
+        self.last_run_tick.set(Some(world.current_change_tick()));
         QueryIter {
             world,
             entities: Some(entities),
@@ -384,7 +387,7 @@ impl<Q: QuerySpec, F: QueryFilter> QueryState<Q, F> {
     {
         self.rebind_world_scope(world.world_scope());
         let matches = self.matches_entity(world, entity);
-        self.last_run_tick.set(world.current_change_tick());
+        self.last_run_tick.set(Some(world.current_change_tick()));
         if !matches {
             return None;
         }
@@ -400,7 +403,7 @@ impl<Q: QuerySpec, F: QueryFilter> QueryState<Q, F> {
         self.rebind_world_scope(world.world_scope());
         let mut entities = self.acquire_scratch_vec();
         self.matching_entities_into(world, &mut entities);
-        self.last_run_tick.set(world.current_change_tick());
+        self.last_run_tick.set(Some(world.current_change_tick()));
         if entities.is_empty() {
             self.release_scratch_vec(entities);
             return Err(QueryError::NoResults);
@@ -418,7 +421,22 @@ impl<Q: QuerySpec, F: QueryFilter> QueryState<Q, F> {
         result
     }
 
-    pub(crate) fn detached(world_scope: WorldScopeId) -> Self {
+    pub(crate) fn unbound() -> Result<Self, QueryError> {
+        let state = Self::new_state(None);
+        if let Some(conflict) = state.access.borrow_conflict() {
+            return Err(QueryError::ConflictingBorrow {
+                domain: conflict.domain(),
+                target: conflict.name(),
+            });
+        }
+        Ok(state)
+    }
+
+    fn bound(world_scope: WorldScopeId) -> Self {
+        Self::new_state(Some(world_scope))
+    }
+
+    fn new_state(world_scope: Option<WorldScopeId>) -> Self {
         let query_types = Q::query_types();
         let mut required = Vec::new();
         let mut excluded = Vec::new();
@@ -442,7 +460,7 @@ impl<Q: QuerySpec, F: QueryFilter> QueryState<Q, F> {
             required_present,
             excluded,
             access,
-            last_run_tick: Cell::new(ChangeCursor::origin(world_scope)),
+            last_run_tick: Cell::new(world_scope.map(ChangeCursor::origin)),
             scratch_pool: RefCell::new(Vec::new()),
             archetype_row_scratch_pool: RefCell::new(Vec::new()),
             fast_fetch_enabled: Q::supports_fast_path(),
@@ -453,12 +471,12 @@ impl<Q: QuerySpec, F: QueryFilter> QueryState<Q, F> {
     }
 
     fn rebind_world_scope(&self, actual: WorldScopeId) {
-        if self.world_scope.get() == actual {
+        if self.world_scope.get() == Some(actual) {
             return;
         }
 
-        self.world_scope.set(actual);
-        self.last_run_tick.set(ChangeCursor::origin(actual));
+        self.world_scope.set(Some(actual));
+        self.last_run_tick.set(Some(ChangeCursor::origin(actual)));
         *self.fast_cache.borrow_mut() = QueryFastCache::default();
     }
 
@@ -473,7 +491,10 @@ impl<Q: QuerySpec, F: QueryFilter> QueryState<Q, F> {
     }
 
     fn matching_entities_into(&self, world: QueryCapability<'_>, out: &mut Vec<Entity>) {
-        let since_tick = self.last_run_tick.get();
+        let since_tick = self
+            .last_run_tick
+            .get()
+            .expect("query state must be bound before matching entities");
         world.matching_entities_into(&self.required_present, &self.excluded, out);
         if F::needs_tick_filter() {
             out.retain(|entity| F::matches_entity(world, *entity, since_tick));
@@ -481,7 +502,10 @@ impl<Q: QuerySpec, F: QueryFilter> QueryState<Q, F> {
     }
 
     fn matches_entity(&self, world: QueryCapability<'_>, entity: Entity) -> bool {
-        let since_tick = self.last_run_tick.get();
+        let since_tick = self
+            .last_run_tick
+            .get()
+            .expect("query state must be bound before matching an entity");
         world.entity_matches_component_constraints(entity, &self.required_present, &self.excluded)
             && (!F::needs_tick_filter() || F::matches_entity(world, entity, since_tick))
     }

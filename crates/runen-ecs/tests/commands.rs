@@ -42,7 +42,7 @@ unsafe impl SystemParam for TransferProbe {
     type State = ();
     type Item<'world, 'state> = TransferProbe;
 
-    fn init_state(_: &mut World) -> Result<Self::State, SystemParamError> {
+    fn init_state() -> Result<Self::State, SystemParamError> {
         TRANSFER_PROBE_INIT.fetch_add(1, Ordering::Relaxed);
         Ok(())
     }
@@ -115,7 +115,7 @@ fn same_class_handles_share_one_ordered_transferable_buffer() {
     let mut world = World::new();
     world.insert_resource(Events(Vec::new()));
     let mut runtime = Runtime::new();
-    runtime.add_systems::<Update, _, _>(&mut world, record);
+    let _ = runtime.add_systems(Update, record);
 
     let mut frontiers = Vec::new();
     runtime
@@ -155,7 +155,7 @@ fn transfer_buffer_is_discarded_on_error_and_panic() {
     world.insert_resource(Events(Vec::new()));
     world.insert_resource(Gate(true));
     let mut runtime = Runtime::new();
-    runtime.add_systems::<Update, _, _>(&mut world, failing);
+    let _ = runtime.add_systems(Update, failing);
 
     assert!(runtime.run_schedule::<Update>(&mut world).is_err());
     assert!(world.resource::<Events>().unwrap().0.is_empty());
@@ -175,7 +175,7 @@ fn transfer_buffer_is_discarded_on_error_and_panic() {
     world.insert_resource(Events(Vec::new()));
     world.insert_resource(Gate(true));
     let mut runtime = Runtime::new();
-    runtime.add_systems::<Update, _, _>(&mut world, panicking);
+    let _ = runtime.add_systems(Update, panicking);
     let result = catch_unwind(AssertUnwindSafe(|| {
         runtime.run_schedule::<Update>(&mut world)
     }));
@@ -190,11 +190,12 @@ fn mixed_recorder_graph_is_rejected_before_state_initialization() {
     TRANSFER_PROBE_INIT.store(0, Ordering::Relaxed);
     fn mixed(_: LocalCommands<'_>, _: TransferProbe) {}
 
-    let mut world = World::new();
     let mut runtime = Runtime::new();
-    runtime.add_systems::<Update, _, _>(&mut world, mixed.on_invoker_thread());
+    let error = runtime
+        .add_systems(Update, mixed.on_invoker_thread())
+        .err()
+        .expect("mixed recorder registration must fail");
 
-    let error = runtime.run_schedule::<Update>(&mut world).unwrap_err();
     assert!(
         error
             .to_string()
@@ -236,8 +237,8 @@ fn local_commands_succeed_with_explicit_invoker_thread_registration() {
     let local_ran = Rc::new(Cell::new(false));
     let captured = Rc::clone(&local_ran);
     let mut runtime = Runtime::new();
-    runtime.add_systems::<Update, _, _>(
-        &mut world,
+    let _ = runtime.add_systems(
+        Update,
         (move |mut commands: LocalCommands<'_>| {
             let deferred_capture = Rc::clone(&captured);
             commands.queue(move |_world: &mut World| {

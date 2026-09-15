@@ -1,10 +1,10 @@
 error[E0277]: the trait bound `for<'a> fn(LocalCommands<'a>) {local_system}: IntoSystemConfigs<_>` is not satisfied
-  --> tests/ui/mobility_commands.rs:12:35
+  --> tests/ui/mobility_commands.rs:12:41
    |
-12 |     runtime.add_systems::<Update, _, _>(&mut world, local_system);
-   |             -----------           ^ the trait `IntoSystem<_>` is not implemented for fn item `for<'a> fn(LocalCommands<'a>) {local_system}`
-   |             |
-   |             required by a bound introduced by this call
+12 |     let _ = runtime.add_systems(Update, local_system);
+   |                     -----------         ^^^^^^^^^^^^ the trait `IntoSystem<_>` is not implemented for fn item `for<'a> fn(LocalCommands<'a>) {local_system}`
+   |                     |
+   |                     required by a bound introduced by this call
    |
    = help: the following other types implement trait `IntoSystem<Marker>`:
              `ConfiguredSystem<S, Marker>` implements `IntoSystem<Marker>`
@@ -21,7 +21,7 @@ error[E0277]: the trait bound `for<'a> fn(LocalCommands<'a>) {local_system}: Int
 note: required by a bound in `Runtime::add_systems`
   --> src/system/runtime.rs
    |
-   |     pub fn add_systems<L, S, Marker>(&mut self, world: &mut World, systems: S) -> &mut Self
+   |     pub fn add_systems<L, S, Marker>(&mut self, _schedule: L, systems: S) -> Result<&mut Self>
    |            ----------- required by a bound in this associated function
 ...
    |         S: IntoSystemConfigs<Marker>,

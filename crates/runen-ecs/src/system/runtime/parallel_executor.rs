@@ -57,7 +57,7 @@ impl Runtime {
             });
         }
 
-        if let Err(err) = self.ensure_build_ready() {
+        if let Err(err) = self.validate() {
             self.discard_deferred_commands();
             return Err(err);
         }
@@ -306,8 +306,8 @@ mod tests {
     use crate::system::runtime::Runtime;
     use crate::world::{ChangeCursor, FrameworkInvariantKind, framework_invariant_kind};
     use crate::{
-        Commands, Component, Query, ResMut, Resource, RuntimeError, ScheduleLabel, SystemConfigExt,
-        SystemMobilityExt, SystemSet, World,
+        Commands, Component, Query, Res, ResMut, Resource, RuntimeError, ScheduleLabel,
+        SystemConfigExt, SystemMobilityExt, SystemSet, World,
     };
     use std::cell::RefCell;
     use std::rc::Rc;
@@ -346,6 +346,30 @@ mod tests {
     struct Seen(usize);
     impl Resource for Seen {}
 
+    #[derive(Debug)]
+    struct MissingWorkerResource;
+    impl Resource for MissingWorkerResource {}
+
+    #[test]
+    fn worker_resource_presence_is_checked_at_preparation_with_context() {
+        fn consume(_: Res<MissingWorkerResource>) {}
+
+        let mut world = World::new();
+        let mut runtime = Runtime::new();
+        runtime.add_systems(ParallelSchedule, consume).unwrap();
+
+        let error = runtime
+            .run_schedule_parallel::<ParallelSchedule>(&mut world, 1)
+            .unwrap_err();
+        match error {
+            RuntimeError::Param { system, source } => {
+                assert!(system.contains("consume"));
+                assert!(matches!(source, crate::SystemParamError::Resource(_)));
+            }
+            other => panic!("expected structured worker parameter error, got {other:?}"),
+        }
+    }
+
     #[test]
     fn production_parallel_path_overlaps_compatible_workers_and_is_reusable() {
         let mut world = World::new();
@@ -363,7 +387,7 @@ mod tests {
         };
 
         let mut runtime = Runtime::new();
-        runtime.add_systems::<ParallelSchedule, _, _>(&mut world, (first, second));
+        let _ = runtime.add_systems(ParallelSchedule, (first, second));
         runtime
             .run_schedule_parallel::<ParallelSchedule>(&mut world, 2)
             .unwrap();
@@ -380,8 +404,8 @@ mod tests {
         let mut world = World::new();
         world.insert_resource(Counter(1));
         let mut runtime = Runtime::new();
-        runtime.add_systems::<ParallelSchedule, _, _>(
-            &mut world,
+        let _ = runtime.add_systems(
+            ParallelSchedule,
             (
                 |mut counter: ResMut<Counter>| counter.0 += 1,
                 |mut counter: ResMut<Counter>| counter.0 *= 10,
@@ -396,10 +420,9 @@ mod tests {
 
     #[test]
     fn explicit_precedence_blocks_same_launch_even_without_deferred_frontier() {
-        let mut world = World::new();
         let mut runtime = Runtime::new();
-        runtime.add_systems::<ParallelSchedule, _, _>(
-            &mut world,
+        let _ = runtime.add_systems(
+            ParallelSchedule,
             ((|| {}).in_set(ProducerSet), (|| {}).after(ProducerSet)),
         );
         let plan = runtime
@@ -424,8 +447,8 @@ mod tests {
         let mut world = World::new();
         world.insert_resource(Seen(0));
         let mut runtime = Runtime::new();
-        runtime.add_systems::<ParallelSchedule, _, _>(
-            &mut world,
+        let _ = runtime.add_systems(
+            ParallelSchedule,
             (
                 (|mut commands: Commands| commands.spawn(DeferredMarker(7))).in_set(ProducerSet),
                 (|mut query: Query<&DeferredMarker>, mut seen: ResMut<Seen>| {
@@ -476,7 +499,7 @@ mod tests {
         let third = move || third_log.lock().unwrap().push(3u8);
 
         let mut runtime = Runtime::new();
-        runtime.add_systems::<ParallelSchedule, _, _>(&mut world, (first, local, third));
+        let _ = runtime.add_systems(ParallelSchedule, (first, local, third));
         runtime
             .run_schedule_parallel::<ParallelSchedule>(&mut world, 3)
             .unwrap();
@@ -505,7 +528,7 @@ mod tests {
         };
 
         let mut runtime = Runtime::new();
-        runtime.add_systems::<ParallelSchedule, _, _>(&mut world, (lower_rank, higher_rank));
+        let _ = runtime.add_systems(ParallelSchedule, (lower_rank, higher_rank));
         runtime
             .run_schedule_parallel::<ParallelSchedule>(&mut world, 2)
             .unwrap();
@@ -533,7 +556,7 @@ mod tests {
 
         let before = world.current_change_cursor();
         let mut runtime = Runtime::new();
-        runtime.add_systems::<ParallelSchedule, _, _>(&mut world, (lower_rank, higher_rank));
+        let _ = runtime.add_systems(ParallelSchedule, (lower_rank, higher_rank));
         runtime
             .run_schedule_parallel::<ParallelSchedule>(&mut world, 2)
             .unwrap();
@@ -551,8 +574,8 @@ mod tests {
             let entity = world.spawn((A(1), B(2))).unwrap();
             let before = world.current_change_cursor();
             let mut runtime = Runtime::new();
-            runtime.add_systems::<ParallelSchedule, _, _>(
-                &mut world,
+            let _ = runtime.add_systems(
+                ParallelSchedule,
                 (
                     move |mut query: Query<&mut A>| query.get(entity).unwrap().0 += 3,
                     move |mut query: Query<&mut B>| query.get(entity).unwrap().0 += 5,
@@ -591,7 +614,7 @@ mod tests {
         let later = (move || later_flag.set(true)).on_invoker_thread();
 
         let mut runtime = Runtime::new();
-        runtime.add_systems::<ParallelSchedule, _, _>(&mut world, (error_system, later));
+        let _ = runtime.add_systems(ParallelSchedule, (error_system, later));
         let result = runtime.run_schedule_parallel::<ParallelSchedule>(&mut world, 2);
         assert!(matches!(result, Err(RuntimeError::System { .. })));
         assert!(!later_ran.get());
@@ -609,7 +632,7 @@ mod tests {
         let later = (move || later_flag.set(true)).on_invoker_thread();
 
         let mut runtime = Runtime::new();
-        runtime.add_systems::<ParallelSchedule, _, _>(&mut world, (panic_system, later));
+        let _ = runtime.add_systems(ParallelSchedule, (panic_system, later));
         let payload = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             let _ = runtime.run_schedule_parallel::<ParallelSchedule>(&mut world, 2);
         }))
@@ -636,7 +659,7 @@ mod tests {
         world.set_change_cursor_for_test(before);
 
         let mut runtime = Runtime::new();
-        runtime.add_systems::<ParallelSchedule, _, _>(&mut world, system);
+        let _ = runtime.add_systems(ParallelSchedule, system);
         let payload = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             let _ = runtime.run_schedule_parallel::<ParallelSchedule>(&mut world, 1);
         }))

@@ -79,7 +79,7 @@ fn increment(mut query: Query<&mut Position>) {
 fn bench_serial_schedule_execution(c: &mut Criterion) {
     let mut world = build_world(10_000);
     let mut runtime = Runtime::new();
-    runtime.add_systems::<Update, _, _>(&mut world, increment);
+    runtime.add_systems(Update, increment).unwrap();
     c.bench_function("serial_schedule_execution_10000", |b| {
         b.iter(|| runtime.run_schedule::<Update>(&mut world).unwrap());
     });
@@ -97,7 +97,9 @@ fn bench_deferred_command_application(c: &mut Criterion) {
     let mut world = World::new();
     world.insert_resource(Count::default());
     let mut runtime = Runtime::new();
-    runtime.add_systems::<Update, _, _>(&mut world, (queue_spawn, count_entities));
+    runtime
+        .add_systems(Update, (queue_spawn, count_entities))
+        .unwrap();
     c.bench_function("deferred_command_application", |b| {
         b.iter(|| runtime.run_schedule::<Update>(&mut world).unwrap());
     });
