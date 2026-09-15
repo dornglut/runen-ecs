@@ -43,40 +43,28 @@ Observed predecessor medians:
 These numbers remain historical provenance only and must not be compared as
 corrected workload thresholds.
 
+## Superseded first corrected measurement
+
+The first corrected harness and its evidence commit are retained as review
+provenance:
+
+- Harness H: `a8adcdae27b5dfb41fc4c5cd8021ad58b30d8819`
+- Evidence E: `97949a31cc490e545cd79e9d01b78e21e467406d`
+
+Those measurements are superseded for acceptance because independent review
+found that `build_transition_fixture()` performed the full marker-absence,
+query-count and per-entity metadata scan during every Criterion setup. That
+work was untimed but duplicated the dedicated one-off sanity proof and
+pre-touched the transition fixture immediately before measurement.
+
 ## Corrected semantic baseline
 
-The corrected harness was measured without changing its source after the
-following immutable harness commit:
+Pending measurement of the new immutable harness H2. H2 removes only that
+per-sample transition assertion; the dedicated `prove_transition_fixture()`
+sanity path remains. The deferred fixture still prepares and caches its
+one-system schedule plan through the World-independent `Runtime::validate()`
+contract before measurement, without executing user code on a throwaway World.
 
-- Measured harness commit (H): `a8adcdae27b5dfb41fc4c5cd8021ad58b30d8819`
-- Compiler: `rustc 1.98.1 (48a229cea 2026-09-01)`
-- Active toolchain: `stable-aarch64-apple-darwin` (repository toolchain override)
-- Target/host: `aarch64-apple-darwin`
-- Host architecture/CPU: `arm64`, Apple M3
-- Command: `cargo bench -p runen-ecs --bench semantic_baseline --locked`
-- Criterion configuration: normal optimized Criterion run, default warm-up and
-  sampling configuration; Gnuplot was unavailable, so Criterion used its
-  Plotters backend.
-- Reset-fixture batch choice: `BatchSize::SmallInput` for insertion, transition
-  and deferred application. The normal run showed no excessive memory or
-  external-resource pressure, so no escalation was necessary.
-
-The corrected deferred fixture registers only `queue_spawn`, calls
-`Runtime::validate()` during untimed setup to validate and cache the schedule
-plan, and then runs one schedule invocation against each fresh target World.
-It does not execute user code on a throwaway World or bind the Runtime to a
-bootstrap World.
-
-Corrected semantic cardinalities and observed medians:
-
-| Scenario | Semantic cardinality | Median |
-| --- | --- | ---: |
-| Entity/component insertion (1000) | 1000 fresh `(Position, Velocity)` spawns | 916.79 µs |
-| Query iteration (10000) | 10,000 matching `(Position, Velocity)` entities | 679.40 µs |
-| Archetype transition (1000) | 1000 `{Position, Velocity}` → `{Position, Velocity, TransitionMarker}` additions | 673.64 µs |
-| Serial schedule execution (10000) | 10,000 mutable `Position` components per invocation | 797.06 µs |
-| Deferred command application | one `Commands` spawn published by one `Update` invocation | 1.6251 µs |
-
-These corrected medians belong only to H and are not comparable with the
-historical predecessor rows above. This evidence commit changes documentation
-only; `H..E` must contain no benchmark-source or runtime changes.
+The H2 measurement will record the exact harness SHA, compiler/toolchain,
+target, host, command, Criterion configuration and effective batch choice,
+together with all five observed medians and semantic cardinalities.

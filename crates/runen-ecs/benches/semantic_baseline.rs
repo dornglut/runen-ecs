@@ -70,9 +70,7 @@ fn build_transition_fixture() -> TransitionFixture {
     for index in 0..ENTITY_COMPONENT_COUNT {
         entities.push(world.spawn((Position(index as u32), Velocity(1))).unwrap());
     }
-    let fixture = TransitionFixture { world, entities };
-    assert_transition_fixture(&fixture, false);
-    fixture
+    TransitionFixture { world, entities }
 }
 
 fn apply_transition(fixture: &mut TransitionFixture) {
