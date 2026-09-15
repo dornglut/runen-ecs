@@ -545,10 +545,7 @@ mod tests {
 
         assert_eq!(world.resource::<Seen>().unwrap().0, 1);
         assert_eq!(frontier_ordinals, vec![0]);
-        let marker = world
-            .query_state::<&DeferredMarker, ()>()
-            .single(&world)
-            .unwrap();
+        let marker = world.query::<&DeferredMarker>().single(&world).unwrap();
         assert_eq!(marker.0, 7);
     }
 
@@ -658,10 +655,7 @@ mod tests {
             runtime
                 .run_schedule_parallel::<ParallelSchedule>(&mut world, capacity)
                 .unwrap();
-            let marker_count = world
-                .query_state::<&DeferredMarker, ()>()
-                .iter(&world)
-                .count();
+            let marker_count = world.query::<&DeferredMarker>().iter(&world).count();
             let after = world.current_change_cursor();
             (
                 world.get::<A>(entity).unwrap().0,
@@ -756,10 +750,7 @@ mod tests {
                 component_b: world.get::<B>(entity).unwrap().0,
                 resource_counter: world.resource::<Counter>().unwrap().0,
                 deferred_sequence: world.resource::<Sequence>().unwrap().0.clone(),
-                deferred_marker_count: world
-                    .query_state::<&DeferredMarker, ()>()
-                    .iter(&world)
-                    .count(),
+                deferred_marker_count: world.query::<&DeferredMarker>().iter(&world).count(),
                 cursor_delta: after.tick() - before.tick(),
                 component_a_changed: world.component_changed_since::<A>(before).unwrap(),
                 component_b_changed: world.component_changed_since::<B>(before).unwrap(),

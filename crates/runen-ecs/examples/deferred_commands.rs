@@ -60,11 +60,11 @@ fn main() {
     assert_eq!(visibility.spawned_after_queue, 0);
 
     let ready_after_publish = world
-        .query_state::<&Position, With<Ready>>()
+        .query_filtered::<&Position, With<Ready>>()
         .single(&world)
         .expect("the target should become ready after publication");
     let spawned_after_publish = world
-        .query_state::<&Position, With<Spawned>>()
+        .query_filtered::<&Position, With<Spawned>>()
         .single(&world)
         .expect("the staged spawn should exist after publication");
     assert_eq!(ready_after_publish.0, 1);

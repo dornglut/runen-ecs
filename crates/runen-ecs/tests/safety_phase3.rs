@@ -13,7 +13,7 @@ fn same_type_double_mut_query_is_rejected_before_iteration() {
     world.spawn(A(1)).expect("spawn should succeed");
 
     let panic_result = catch_unwind(AssertUnwindSafe(|| {
-        let _ = world.query_state::<(&mut A, &mut A), ()>();
+        let _ = world.query::<(&mut A, &mut A)>();
     }));
     assert!(panic_result.is_err());
 }
@@ -24,7 +24,7 @@ fn same_type_mut_read_query_is_rejected_before_iteration() {
     world.spawn(A(1)).expect("spawn should succeed");
 
     let panic_result = catch_unwind(AssertUnwindSafe(|| {
-        let _ = world.query_state::<(&mut A, &A), ()>();
+        let _ = world.query::<(&mut A, &A)>();
     }));
     assert!(panic_result.is_err());
 }
@@ -35,7 +35,7 @@ fn same_type_optional_mut_query_is_rejected_before_iteration() {
     world.spawn(A(1)).expect("spawn should succeed");
 
     let panic_result = catch_unwind(AssertUnwindSafe(|| {
-        let _ = world.query_state::<(&mut A, Option<&mut A>), ()>();
+        let _ = world.query::<(&mut A, Option<&mut A>)>();
     }));
     assert!(panic_result.is_err());
 }
@@ -44,7 +44,7 @@ fn same_type_optional_mut_query_is_rejected_before_iteration() {
 fn query_state_rebinds_world_scope_and_resets_change_cursor() {
     let mut first = World::new();
     let first_entity = first.spawn(A(1)).expect("spawn should succeed");
-    let changed = first.query_state::<(Entity, &A), Changed<A>>();
+    let changed = first.query_filtered::<(Entity, &A), Changed<A>>();
 
     assert_eq!(
         changed
@@ -83,7 +83,7 @@ fn optional_mut_query_handles_present_absent_and_repeated_iteration() {
     let with_b = world.spawn((A(1), B(10))).expect("spawn should succeed");
     let without_b = world.spawn(A(2)).expect("spawn should succeed");
 
-    let query = world.query_state::<(&mut A, Option<&mut B>), ()>();
+    let query = world.query::<(&mut A, Option<&mut B>)>();
 
     for (a, maybe_b) in query.iter(&mut world) {
         a.0 += 1;

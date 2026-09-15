@@ -78,8 +78,8 @@ fn query_change_filters_rebind_to_the_new_world_origin() {
     let mut first = World::new();
     first.spawn(Position(1)).unwrap();
 
-    let added = first.query_state::<&Position, Added<Position>>();
-    let changed = first.query_state::<&Position, Changed<Position>>();
+    let added = first.query_filtered::<&Position, Added<Position>>();
+    let changed = first.query_filtered::<&Position, Changed<Position>>();
 
     assert_eq!(
         added

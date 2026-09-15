@@ -13,7 +13,11 @@ impl World {
         LocalCommands::new()
     }
 
-    pub fn query_state<Q: QuerySpec, F: QueryFilter>(&self) -> QueryState<Q, F> {
+    pub fn query<Q: QuerySpec>(&self) -> QueryState<Q> {
+        QueryState::new(self)
+    }
+
+    pub fn query_filtered<Q: QuerySpec, F: QueryFilter>(&self) -> QueryState<Q, F> {
         QueryState::new(self)
     }
 

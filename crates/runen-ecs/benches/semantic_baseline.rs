@@ -47,7 +47,7 @@ fn insert_entities(world: &mut World) {
 
 fn bench_query_iteration(c: &mut Criterion) {
     let world = build_world(QUERY_ENTITY_COUNT);
-    let query = world.query_state::<(&Position, &Velocity), ()>();
+    let query = world.query::<(&Position, &Velocity)>();
     c.bench_function("query_iteration_10000", |b| {
         b.iter(|| {
             let checksum = query
@@ -85,7 +85,7 @@ fn assert_transition_fixture(fixture: &TransitionFixture, marker_present: bool) 
     assert_eq!(
         fixture
             .world
-            .query_state::<(&Position, &Velocity), ()>()
+            .query::<(&Position, &Velocity)>()
             .iter(&fixture.world)
             .count(),
         ENTITY_COMPONENT_COUNT
@@ -159,10 +159,7 @@ fn run_deferred_once(fixture: &mut DeferredFixture) {
 }
 
 fn count_position_velocity(world: &World) -> usize {
-    world
-        .query_state::<(&Position, &Velocity), ()>()
-        .iter(world)
-        .count()
+    world.query::<(&Position, &Velocity)>().iter(world).count()
 }
 
 fn prove_deferred_fixture() {

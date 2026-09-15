@@ -36,7 +36,7 @@ struct Marker(u32);
 struct PanicGate(bool);
 
 fn marker_count(world: &mut World) -> usize {
-    world.query_state::<&Marker, ()>().iter(&*world).count()
+    world.query::<&Marker>().iter(&*world).count()
 }
 
 #[test]
@@ -127,7 +127,7 @@ fn panicked_later_system_preserves_committed_frontier_and_discards_only_unpublis
         .expect("runtime must remain reusable after the caught panic");
 
     let mut values = world
-        .query_state::<&Marker, ()>()
+        .query::<&Marker>()
         .iter(&world)
         .map(|marker| marker.0)
         .collect::<Vec<_>>();

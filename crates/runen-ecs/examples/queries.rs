@@ -29,27 +29,25 @@ fn main() {
         .unwrap();
 
     let moving = world
-        .query_state::<(&mut Position, &Velocity), ()>()
+        .query::<(&mut Position, &Velocity)>()
         .with::<Active>()
         .without::<Sleeping>();
     for (position, velocity) in moving.iter(&mut world) {
         position.0 += velocity.0;
     }
 
-    let positions = world.query_state::<(Entity, &Position), ()>();
+    let positions = world.query::<(Entity, &Position)>();
     assert_eq!(positions.get(&world, player).unwrap().1.0, 2);
     assert_eq!(positions.get(&world, enemy).unwrap().1.0, 9);
     assert_eq!(positions.get(&world, sleeping).unwrap().1.0, 20);
 
     let player_position = world
-        .query_state::<&Position, With<Player>>()
+        .query_filtered::<&Position, With<Player>>()
         .single(&world)
         .expect("exactly one player should exist");
     assert_eq!(player_position.0, 2);
 
-    let names = world
-        .query_state::<(Entity, Option<&Name>), ()>()
-        .with::<Position>();
+    let names = world.query::<(Entity, Option<&Name>)>().with::<Position>();
     let mut named: Vec<_> = names
         .iter(&world)
         .map(|(entity, name)| (entity, name.map(|name| name.0)))

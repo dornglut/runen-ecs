@@ -71,7 +71,7 @@ fn main() -> Result<(), RuntimeError> {
     runtime.run_schedule::<Update>(&mut world)?;
 
     let arrival = world
-        .query_state::<&Position, With<NewArrival>>()
+        .query_filtered::<&Position, With<NewArrival>>()
         .single(&world)
         .expect("one arrival should exist");
     assert_eq!(arrival.0, 12);
