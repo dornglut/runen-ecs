@@ -1,7 +1,6 @@
-// The parallel selector remains private until #40 completes failure/permutation
-// acceptance. Its internal entry points are exercised by this crate's conformance
-// tests before they become a supported runtime selection surface.
-#[allow(dead_code)]
+// The parallel selector is a supported deterministic physical realization of the
+// independent serial executor. Its failure/permutation conformance lives with the
+// executor module so the semantic boundary stays visible next to the implementation.
 mod parallel_executor;
 
 use super::OrderingDirection;

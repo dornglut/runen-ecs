@@ -56,6 +56,12 @@ RunenECS treats parallel system execution as a physical realization of the deter
 
 The executor, mutation-journal, deferred-publication, and fail-stop rules are owned by [ADR 0003: Realize Deterministic Parallel System Execution from Serial Semantics](docs/adr/0003-realize-deterministic-parallel-system-execution-from-serial-semantics.md).
 
+`Runtime::run_schedule_parallel` and its deferred-publication-frontier callback
+form are supported execution selectors. They keep worker capacity, cohort shape,
+completion order, reservation order, and worker identity private. The serial
+`Runtime::run_schedule` path remains the independent correctness oracle; callers
+choose whether and when to use parallel execution as product policy.
+
 ## Dependency direction
 
 RunenECS does not depend on Runenwerk. Runenwerk may consume an exact immutable accepted RunenECS revision. Reusable networking and spatial semantics remain owned by RunenNet and RunenSpatial rather than being duplicated here.

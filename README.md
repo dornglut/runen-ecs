@@ -19,7 +19,7 @@ The runtime and proc-macro packages retain the accepted C9 public identities.
 
 ## Boundary
 
-RunenECS owns reusable ECS entity/component/resource/world lifecycle, storage/query semantics, deferred structural mutation, explicit reflection, ECS system identity/access/order/set/schedule validation, and deterministic serial reference execution.
+RunenECS owns reusable ECS entity/component/resource/world lifecycle, storage/query semantics, deferred structural mutation, explicit reflection, ECS system identity/access/order/set/schedule validation, and deterministic serial reference execution. It also provides a deterministic parallel realization whose successful ECS-observable results are defined by that serial oracle; worker capacity is physical configuration only.
 
 Runenwerk retains application/frame/fixed/render/startup/shutdown policy and product integration. RunenNet and RunenSpatial retain their own reusable networking and spatial semantics.
 

@@ -4,8 +4,10 @@ use crate::errors::RuntimeError;
 use crate::scheduler::system::{
     TransferableSystemRunner, WorkerInvocationOutcome, WorkerPanicPhase,
 };
-use crate::world::{FrameworkInvariantKind, ParallelWorldLease, framework_invariant_kind};
-use std::any::Any;
+use crate::world::{
+    FrameworkInvariantKind, ParallelWorldLease, framework_invariant_kind,
+    panic_parallel_executor_violation,
+};
 use std::panic::resume_unwind;
 
 /// Executes one already-planned transferable worker cohort.
@@ -19,10 +21,9 @@ pub(crate) fn run_worker_cohort(
     mut members: Vec<(usize, &mut TransferableSystemRunner)>,
 ) -> Result<Vec<(usize, Option<TransferableCommandBuffer>)>, RuntimeError> {
     members.sort_by_key(|(rank, _)| *rank);
-    assert!(
-        members.windows(2).all(|window| window[0].0 < window[1].0),
-        "worker cohort reference ranks must be unique"
-    );
+    if !members.windows(2).all(|window| window[0].0 < window[1].0) {
+        panic_parallel_executor_violation("worker cohort reference ranks must be unique");
+    }
 
     let mut lease = ParallelWorldLease::new(world);
     let mut prepared = Vec::with_capacity(members.len());
@@ -36,10 +37,11 @@ pub(crate) fn run_worker_cohort(
             .into_iter()
             .zip(prepared)
             .map(|((rank, runner), (prepared_rank, mut prepared))| {
-                assert_eq!(
-                    rank, prepared_rank,
-                    "prepared worker projection must retain reference rank"
-                );
+                if rank != prepared_rank {
+                    panic_parallel_executor_violation(
+                        "prepared worker projection lost its reference rank",
+                    );
+                }
                 let capacity = capacity.clone();
                 (
                     rank,
@@ -55,24 +57,22 @@ pub(crate) fn run_worker_cohort(
     });
 
     let mut reports = Vec::with_capacity(joined.len());
-    let mut unexpected_framework_panic: Option<(usize, Box<dyn Any + Send>)> = None;
+    let mut unexpected_framework_panic = false;
     for (rank, result) in joined {
         match result {
             Ok(report) => reports.push((rank, report)),
-            Err(payload) => {
-                if unexpected_framework_panic.is_none() {
-                    unexpected_framework_panic = Some((rank, payload));
-                }
-            }
+            Err(_payload) => unexpected_framework_panic = true,
         }
     }
 
     // A panic escaping the registered worker runner means its journal report
     // may have been lost. Join/drain is complete, but semantic reconciliation
     // is no longer proven safe.
-    if let Some((_rank, payload)) = unexpected_framework_panic {
+    if unexpected_framework_panic {
         drop(lease);
-        resume_unwind(payload);
+        panic_parallel_executor_violation(
+            "worker runner escaped its structured invocation outcome",
+        );
     }
 
     let mut journals = Vec::with_capacity(reports.len());
@@ -102,12 +102,11 @@ pub(crate) fn run_worker_cohort(
         }
         drop(lease);
 
-        let selected = outcomes
-            .into_iter()
-            .nth(selected_index)
-            .expect("selected framework failure must still exist");
+        let selected = outcomes.into_iter().nth(selected_index).unwrap_or_else(|| {
+            panic_parallel_executor_violation("selected framework failure disappeared")
+        });
         let WorkerInvocationOutcome::Panic { payload, .. } = selected.1 else {
-            unreachable!("worker framework failures are represented as panics")
+            panic_parallel_executor_violation("framework failure was not represented as a panic")
         };
         resume_unwind(payload);
     }
@@ -131,7 +130,7 @@ pub(crate) fn run_worker_cohort(
             WorkerInvocationOutcome::Panic {
                 phase: WorkerPanicPhase::Framework,
                 ..
-            } => unreachable!("framework panic should have been selected before reconciliation"),
+            } => panic_parallel_executor_violation("framework panic escaped invariant selection"),
         }
     }
     Ok(buffers)

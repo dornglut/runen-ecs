@@ -79,6 +79,7 @@ impl ChangeCursor {
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub(crate) enum FrameworkInvariantKind {
     ChangeCursorExhausted,
+    ParallelExecutorViolation,
     WorkerProjectionViolation,
 }
 
@@ -98,6 +99,10 @@ pub(crate) fn panic_change_cursor_exhausted() -> ! {
 
 pub(crate) fn panic_worker_projection_violation(message: &'static str) -> ! {
     panic_framework_invariant(FrameworkInvariantKind::WorkerProjectionViolation, message)
+}
+
+pub(crate) fn panic_parallel_executor_violation(message: &'static str) -> ! {
+    panic_framework_invariant(FrameworkInvariantKind::ParallelExecutorViolation, message)
 }
 
 fn panic_framework_invariant(kind: FrameworkInvariantKind, message: &'static str) -> ! {

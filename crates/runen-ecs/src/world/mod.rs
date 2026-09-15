@@ -19,7 +19,11 @@ pub use state::World;
 pub(crate) use capability::{
     QueryCapability, ResourceCapability, ResourceMutationCapability, WorldAuthority,
 };
-pub(crate) use change_tracking::{FrameworkInvariantKind, framework_invariant_kind};
+#[cfg(test)]
+pub(crate) use change_tracking::panic_worker_projection_violation;
+pub(crate) use change_tracking::{
+    FrameworkInvariantKind, framework_invariant_kind, panic_parallel_executor_violation,
+};
 pub(crate) use mutation_journal::{ConcurrentMutationCapacity, MutationJournal};
 pub(crate) use parallel::{
     ParallelWorldLease, PreparedWorkerWorld, WorkerWorldAuthority, WorkerWorldBuilder,
