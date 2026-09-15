@@ -96,3 +96,41 @@ These H2 medians supersede the H/E measurements above for acceptance. The
 change is a benchmark-fixture correction, not an ECS performance
 regression/improvement claim. This E2 commit changes documentation only;
 `H2..E2` must contain no benchmark-source or runtime changes.
+
+## Direct-query API migration evidence
+
+The direct-query API migration was measured from the following immutable
+harness commit. These measurements apply to this exact `H` source and do not
+reinterpret or replace the H2 predecessor evidence above.
+
+- Measured harness commit (H): `719a5ec5c7086e1244ab5e048031d7ac3019e82b`
+- Compiler: `rustc 1.98.1 (48a229cea 2026-09-01)`
+- Active toolchain: `stable-aarch64-apple-darwin` (repository toolchain override)
+- Target/host: `aarch64-apple-darwin`
+- Host architecture/CPU: `arm64`, Apple M3
+- Command: `cargo bench -p runen-ecs --bench semantic_baseline --locked`
+- Criterion configuration: normal optimized Criterion run with default 3-second
+  warm-up and 100-sample collection; Gnuplot was unavailable, so Criterion
+  used its Plotters backend.
+- Reset-fixture batch choice: `BatchSize::SmallInput` for insertion, transition
+  and deferred application, matching the measured harness source.
+
+Observed exact-H medians:
+
+| Scenario | Semantic cardinality | Median |
+| --- | --- | ---: |
+| Entity/component insertion (1000) | 1000 fresh `(Position, Velocity)` spawns | 4.0893 ms |
+| Query iteration (10000) | 10,000 matching `(Position, Velocity)` entities | 1.4618 ms |
+| Archetype transition (1000) | 1000 `{Position, Velocity}` → `{Position, Velocity, TransitionMarker}` additions | 4.7726 ms |
+| Serial schedule execution (10000) | 10,000 mutable `Position` components per invocation | 1.1314 ms |
+| Deferred command application | one `Commands` spawn published by one `Update` invocation | 2.1106 µs |
+
+These exact-H figures are migration provenance only. They were not produced as
+a controlled paired H2-versus-H comparison, so their differences from the H2
+medians do not establish an ECS performance regression or improvement and do
+not replace H2 as a performance threshold. Any such claim requires separately
+controlled comparative measurement.
+
+All commits after H in this candidate change benchmark documentation only; no
+benchmark-source, runtime-source, test-source, or API-source mutation affects
+the measured harness.

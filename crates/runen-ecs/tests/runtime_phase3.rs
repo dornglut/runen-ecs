@@ -266,7 +266,7 @@ fn unordered_command_systems_merge_deterministically_without_visibility() {
 
     assert_eq!(world.resource::<SeenCount>().unwrap().0, 0);
     let values = world
-        .query_state::<&Marker, ()>()
+        .query::<&Marker>()
         .iter(&world)
         .map(|marker| marker.0)
         .collect::<Vec<_>>();
@@ -301,7 +301,7 @@ fn deferred_commands_publish_before_semantic_frontier_callback() {
         .run_schedule_with_deferred_publication_frontier::<Update, _, _>(
             &mut world,
             |frontier, world| {
-                let marker_count = world.query_state::<&Marker, ()>().iter(&*world).count();
+                let marker_count = world.query::<&Marker>().iter(&*world).count();
                 boundaries.push((frontier.schedule().name(), frontier.ordinal(), marker_count));
                 Ok::<(), std::io::Error>(())
             },
@@ -478,13 +478,13 @@ fn frontier_callback_error_keeps_publication_and_stops_later_systems() {
     let result = runtime.run_schedule_with_deferred_publication_frontier::<Update, _, _>(
         &mut world,
         |_frontier, world| {
-            assert_eq!(world.query_state::<&Marker, ()>().iter(world).count(), 1);
+            assert_eq!(world.query::<&Marker>().iter(world).count(), 1);
             Err::<(), _>(std::io::Error::other("intentional frontier callback error"))
         },
     );
 
     assert!(matches!(result, Err(RuntimeError::Boundary { .. })));
-    assert_eq!(world.query_state::<&Marker, ()>().iter(&world).count(), 1);
+    assert_eq!(world.query::<&Marker>().iter(&world).count(), 1);
     assert_eq!(world.resource::<SeenCount>().unwrap().0, 0);
 }
 
@@ -512,11 +512,11 @@ fn frontier_callback_panic_preserves_publication_and_runtime_reuse() {
         )
     }));
     assert!(first.is_err());
-    assert_eq!(world.query_state::<&Marker, ()>().iter(&world).count(), 1);
+    assert_eq!(world.query::<&Marker>().iter(&world).count(), 1);
     assert_eq!(world.resource::<SeenCount>().unwrap().0, 0);
 
     runtime.run_schedule::<Update>(&mut world).unwrap();
-    assert_eq!(world.query_state::<&Marker, ()>().iter(&world).count(), 2);
+    assert_eq!(world.query::<&Marker>().iter(&world).count(), 2);
     assert_eq!(world.resource::<SeenCount>().unwrap().0, 1);
 }
 
@@ -556,7 +556,7 @@ fn system_error_before_unreached_frontier_skips_callback_and_later_systems() {
 
     assert!(matches!(result, Err(RuntimeError::System { .. })));
     assert_eq!(callbacks, 0);
-    assert_eq!(world.query_state::<&Marker, ()>().iter(&world).count(), 0);
+    assert_eq!(world.query::<&Marker>().iter(&world).count(), 0);
     assert_eq!(world.resource::<SeenCount>().unwrap().0, 0);
 }
 
@@ -597,7 +597,7 @@ fn deferred_application_error_is_fail_stop_after_prior_commands() {
 
     assert!(matches!(result, Err(RuntimeError::Command(_))));
     assert_eq!(callbacks, 0);
-    assert_eq!(world.query_state::<&Marker, ()>().iter(&world).count(), 0);
+    assert_eq!(world.query::<&Marker>().iter(&world).count(), 0);
     assert_eq!(world.resource::<SeenCount>().unwrap().0, 0);
 }
 
@@ -626,7 +626,7 @@ fn deferred_application_panic_is_fail_stop_without_leaking_later_commands() {
     }));
     assert!(first.is_err());
     let first_values = world
-        .query_state::<&Marker, ()>()
+        .query::<&Marker>()
         .iter(&world)
         .map(|marker| marker.0)
         .collect::<Vec<_>>();
@@ -634,7 +634,7 @@ fn deferred_application_panic_is_fail_stop_without_leaking_later_commands() {
 
     runtime.run_schedule::<Update>(&mut world).unwrap();
     let mut second_values = world
-        .query_state::<&Marker, ()>()
+        .query::<&Marker>()
         .iter(&world)
         .map(|marker| marker.0)
         .collect::<Vec<_>>();
@@ -705,7 +705,7 @@ fn canonical_frontiers_are_multiple_and_later_frontier_may_be_empty() {
             |frontier, world| {
                 frontiers.push((
                     frontier.ordinal(),
-                    world.query_state::<&Marker, ()>().iter(world).count(),
+                    world.query::<&Marker>().iter(world).count(),
                 ));
                 Ok::<(), RuntimeError>(())
             },
@@ -725,11 +725,11 @@ fn closure_commands_queue_api_remains_functional() {
         Ok(())
     });
 
-    assert_eq!(world.query_state::<&Marker, ()>().iter(&world).count(), 0);
+    assert_eq!(world.query::<&Marker>().iter(&world).count(), 0);
     commands.apply(&mut world).unwrap();
 
     let values = world
-        .query_state::<&Marker, ()>()
+        .query::<&Marker>()
         .iter(&world)
         .map(|marker| marker.0)
         .collect::<Vec<_>>();
@@ -745,11 +745,11 @@ fn typed_deferred_commands_apply_correctly() {
         Ok(())
     });
 
-    assert_eq!(world.query_state::<&Marker, ()>().iter(&world).count(), 0);
+    assert_eq!(world.query::<&Marker>().iter(&world).count(), 0);
     commands.apply(&mut world).unwrap();
 
     let values = world
-        .query_state::<&Marker, ()>()
+        .query::<&Marker>()
         .iter(&world)
         .map(|marker| marker.0)
         .collect::<Vec<_>>();
@@ -777,7 +777,7 @@ fn mixed_closure_and_typed_commands_apply_in_deterministic_order() {
     commands.apply(&mut world).unwrap();
 
     let values = world
-        .query_state::<&Marker, ()>()
+        .query::<&Marker>()
         .iter(&world)
         .map(|marker| marker.0)
         .collect::<Vec<_>>();
@@ -803,7 +803,7 @@ fn batch_commands_apply_in_deterministic_insertion_order() {
     commands.apply(&mut world).unwrap();
 
     let values = world
-        .query_state::<&Marker, ()>()
+        .query::<&Marker>()
         .iter(&world)
         .map(|marker| marker.0)
         .collect::<Vec<_>>();
@@ -833,7 +833,7 @@ fn batch_commands_do_not_mutate_before_publication() {
     runtime.run_schedule::<Update>(&mut world).unwrap();
 
     assert_eq!(world.resource::<SeenCount>().unwrap().0, 0);
-    assert_eq!(world.query_state::<&Marker, ()>().iter(&world).count(), 1);
+    assert_eq!(world.query::<&Marker>().iter(&world).count(), 1);
 }
 
 #[test]
@@ -858,7 +858,7 @@ fn batch_and_non_batch_commands_share_queue_order_deterministically() {
     commands.apply(&mut world).unwrap();
 
     let values = world
-        .query_state::<&Marker, ()>()
+        .query::<&Marker>()
         .iter(&world)
         .map(|marker| marker.0)
         .collect::<Vec<_>>();
@@ -906,7 +906,7 @@ fn batch_stops_on_first_error_and_keeps_earlier_mutations() {
     ));
 
     let values = world
-        .query_state::<&Marker, ()>()
+        .query::<&Marker>()
         .iter(&world)
         .map(|marker| marker.0)
         .collect::<Vec<_>>();
@@ -940,7 +940,7 @@ fn multiple_batches_in_one_schedule_keep_deterministic_system_order() {
     runtime.run_schedule::<Update>(&mut world).unwrap();
 
     let values = world
-        .query_state::<&Marker, ()>()
+        .query::<&Marker>()
         .iter(&world)
         .map(|marker| marker.0)
         .collect::<Vec<_>>();
@@ -971,7 +971,7 @@ fn typed_commands_do_not_mutate_before_publication() {
     runtime.run_schedule::<Update>(&mut world).unwrap();
 
     assert_eq!(world.resource::<SeenCount>().unwrap().0, 0);
-    assert_eq!(world.query_state::<&Marker, ()>().iter(&world).count(), 1);
+    assert_eq!(world.query::<&Marker>().iter(&world).count(), 1);
 }
 
 #[test]
@@ -1039,7 +1039,7 @@ fn borrowed_command_owner_is_stable_across_repeated_runs() {
     }
 
     let mut ids = world
-        .query_state::<&Marker, ()>()
+        .query::<&Marker>()
         .iter(&world)
         .map(|marker| marker.0)
         .collect::<Vec<_>>();
@@ -1071,10 +1071,10 @@ fn failed_schedule_drops_unpublished_deferred_commands_instead_of_replaying_next
     let error = runtime.run_schedule::<Update>(&mut world).unwrap_err();
     assert!(matches!(error, RuntimeError::System { .. }));
     assert!(error.to_string().contains("intentional failure"));
-    assert_eq!(world.query_state::<&Marker, ()>().iter(&world).count(), 0);
+    assert_eq!(world.query::<&Marker>().iter(&world).count(), 0);
 
     runtime.run_schedule::<Update>(&mut world).unwrap();
-    assert_eq!(world.query_state::<&Marker, ()>().iter(&world).count(), 0);
+    assert_eq!(world.query::<&Marker>().iter(&world).count(), 0);
 }
 
 static PARAM_INIT_CALLS: AtomicUsize = AtomicUsize::new(0);

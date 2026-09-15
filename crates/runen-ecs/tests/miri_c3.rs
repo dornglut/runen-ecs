@@ -31,7 +31,7 @@ fn world_with_two_entities() -> World {
 #[test]
 fn mutable_query_items_remain_unique_across_iterator_advancement() {
     let mut world = world_with_two_entities();
-    let query = world.query_state::<&mut A, ()>();
+    let query = world.query::<&mut A>();
     let mut iter = query.iter(&mut world);
     let first = iter.next().unwrap();
     let second = iter.next().unwrap();
@@ -43,7 +43,7 @@ fn mutable_query_items_remain_unique_across_iterator_advancement() {
 #[test]
 fn mutable_tuple_items_remain_disjoint_across_iterator_advancement() {
     let mut world = world_with_two_entities();
-    let query = world.query_state::<(&mut A, &mut B), ()>();
+    let query = world.query::<(&mut A, &mut B)>();
     let mut iter = query.iter(&mut world);
     let (first_a, first_b) = iter.next().unwrap();
     let (second_a, second_b) = iter.next().unwrap();
@@ -91,7 +91,7 @@ fn query_item_and_resource_mutation_can_be_live_together() {
 #[test]
 fn query_scratch_is_recycled_after_early_drop_with_live_direct_iterators() {
     let world = world_with_two_entities();
-    let query = world.query_state::<&A, ()>();
+    let query = world.query::<&A>();
 
     let mut first = query.iter(&world);
     let mut second = query.iter(&world);
@@ -128,7 +128,7 @@ fn migrated_archetype_query_still_yields_unique_mutable_items() {
     world.insert(first_entity, B(10)).unwrap();
     world.insert(second_entity, B(20)).unwrap();
 
-    let query = world.query_state::<&mut A, ()>();
+    let query = world.query::<&mut A>();
     let mut iter = query.iter(&mut world);
     let first = iter.next().unwrap();
     let second = iter.next().unwrap();

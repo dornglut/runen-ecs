@@ -43,7 +43,7 @@ fn main() {
     runtime.add_systems(Update, integrate).unwrap();
     runtime.run_schedule::<Update>(&mut world).unwrap();
 
-    let position = world.query_state::<&Position, ()>().single(&world).unwrap();
+    let position = world.query::<&Position>().single(&world).unwrap();
     assert_eq!(position.0, 3.0);
     assert_eq!(world.resource::<Frame>().unwrap().0, 1);
 

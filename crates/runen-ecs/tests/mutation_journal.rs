@@ -72,7 +72,7 @@ fn journal_preserves_noop_mutation_multiplicity_and_mixed_parameter_semantics() 
     assert!(world.component_changed_since::<A>(before).unwrap());
     assert!(world.resource_changed_since::<R>(before).unwrap());
 
-    let changed = world.query_state::<(Entity, &A), Changed<A>>();
+    let changed = world.query_filtered::<(Entity, &A), Changed<A>>();
     assert_eq!(
         changed
             .iter(&world)
@@ -136,7 +136,7 @@ fn journal_reconciles_before_resuming_original_user_panic() {
     assert_eq!(world.require::<A>(entity).unwrap().0, 7);
     assert_eq!(world.current_change_cursor().tick(), before.tick() + 1);
     assert!(world.component_changed_since::<A>(before).unwrap());
-    assert_eq!(world.query_state::<&Marker, ()>().iter(&world).count(), 0);
+    assert_eq!(world.query::<&Marker>().iter(&world).count(), 0);
 }
 
 #[test]

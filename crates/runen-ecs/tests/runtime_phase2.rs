@@ -100,14 +100,14 @@ fn runtime_executes_1_2_and_8_param_systems() {
     runtime.run_schedule::<Update>(&mut world).unwrap();
 
     let positions: Vec<_> = world
-        .query_state::<&Position, ()>()
+        .query::<&Position>()
         .iter(&world)
         .map(|position| position.0)
         .collect();
     assert_eq!(positions, vec![5.25, 4.25]);
     assert_eq!(world.resource::<Frame>().unwrap().0, 11);
     assert_eq!(world.resource::<Score>().unwrap().0, 7);
-    assert_eq!(world.query_state::<&Marker, ()>().iter(&world).count(), 1);
+    assert_eq!(world.query::<&Marker>().iter(&world).count(), 1);
 }
 
 static INIT_STATE_CALLS: AtomicUsize = AtomicUsize::new(0);
@@ -228,5 +228,5 @@ fn commands_publish_at_frontier_not_between_unordered_systems() {
     runtime.run_schedule::<Update>(&mut world).unwrap();
 
     assert_eq!(world.resource::<SeenCount>().unwrap().0, 0);
-    assert_eq!(world.query_state::<&Marker, ()>().iter(&world).count(), 1);
+    assert_eq!(world.query::<&Marker>().iter(&world).count(), 1);
 }

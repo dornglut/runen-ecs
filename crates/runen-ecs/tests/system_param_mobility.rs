@@ -109,7 +109,7 @@ fn cached_state_is_send_without_being_required_to_be_sync() {
 #[test]
 fn metadata_change_filters_keep_scheduler_component_read_access() {
     let world = World::new();
-    let changed = world.query_state::<&SyncButNotSend, runen_ecs::Changed<ThreadBound>>();
+    let changed = world.query_filtered::<&SyncButNotSend, runen_ecs::Changed<ThreadBound>>();
     assert!(
         changed
             .access()
@@ -129,7 +129,7 @@ fn query_state_scratch_can_be_reused_after_early_drop_and_with_live_iterators() 
     let guard = mutex.lock().unwrap();
     world.spawn(SyncButNotSend(guard)).unwrap();
 
-    let query = world.query_state::<&SyncButNotSend, ()>();
+    let query = world.query::<&SyncButNotSend>();
     let mut first = query.iter(&world);
     let mut second = query.iter(&world);
     assert!(first.next().is_some());

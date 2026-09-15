@@ -354,19 +354,13 @@ mod tests {
 
         let buffers = run_controlled_worker_harness(&mut world, vec![system]).unwrap();
         assert_eq!(world.resource::<Counter>().unwrap().0, 3);
-        assert_eq!(
-            world
-                .query_state::<&DeferredMarker, ()>()
-                .iter(&world)
-                .count(),
-            0
-        );
+        assert_eq!(world.query::<&DeferredMarker>().iter(&world).count(), 0);
         assert_eq!(buffers.len(), 1);
         for buffer in buffers.into_iter().flatten() {
             buffer.apply(&mut world).unwrap();
         }
         let value = world
-            .query_state::<&DeferredMarker, ()>()
+            .query::<&DeferredMarker>()
             .single(&world)
             .expect("derived worker Commands buffer should publish on the invoker");
         assert_eq!(value.0, 11);
@@ -380,19 +374,13 @@ mod tests {
         });
 
         let buffers = run_controlled_worker_harness(&mut world, vec![system]).unwrap();
-        assert_eq!(
-            world
-                .query_state::<&DeferredMarker, ()>()
-                .iter(&world)
-                .count(),
-            0
-        );
+        assert_eq!(world.query::<&DeferredMarker>().iter(&world).count(), 0);
         assert_eq!(buffers.len(), 1);
         for buffer in buffers.into_iter().flatten() {
             buffer.apply(&mut world).unwrap();
         }
         let value = world
-            .query_state::<&DeferredMarker, ()>()
+            .query::<&DeferredMarker>()
             .single(&world)
             .expect("published worker buffer should spawn the component");
         assert_eq!(value.0, 9);

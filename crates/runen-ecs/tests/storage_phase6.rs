@@ -113,7 +113,7 @@ fn archetype_value_and_metadata_stay_aligned_across_migration() {
     assert_eq!(added_after_insert, added_before);
     assert_eq!(changed_after_insert, changed_before);
 
-    for value in world.query_state::<&mut A, ()>().iter(&mut world) {
+    for value in world.query::<&mut A>().iter(&mut world) {
         value.0 += 1;
     }
     let (added_after_mut, changed_after_mut) = world
@@ -142,7 +142,7 @@ fn despawn_clears_component_value_and_keeps_swapped_entity_access_valid() {
     assert_eq!(world.require::<A>(second).unwrap().0, 2);
 
     let remaining: Vec<_> = world
-        .query_state::<(Entity, &A), ()>()
+        .query::<(Entity, &A)>()
         .iter(&world)
         .map(|(entity, value)| (entity, value.0))
         .collect();
@@ -249,7 +249,7 @@ fn row_metadata_stays_consistent_across_multi_component_remove_reinsert_cycles()
         }
         previous_b_added = Some(b_added);
 
-        for (a, b) in world.query_state::<(&mut A, &mut B), ()>().iter(&mut world) {
+        for (a, b) in world.query::<(&mut A, &mut B)>().iter(&mut world) {
             a.0 += 1;
             b.0 += 5;
         }

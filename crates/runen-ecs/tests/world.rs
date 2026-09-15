@@ -98,9 +98,7 @@ fn spawn_query_and_entity_access_work() {
     assert!(entity_ref.contains::<Player>());
     assert!(entity_ref.contains::<Velocity>());
 
-    let query = world
-        .query_state::<(Entity, &Position), ()>()
-        .with::<Player>();
+    let query = world.query::<(Entity, &Position)>().with::<Player>();
     let seen: Vec<_> = query
         .iter(&world)
         .map(|(entity, position)| (entity, position.x, position.y))
@@ -123,7 +121,7 @@ fn query_filters_support_unified_iter_for_mutation() {
         .expect("spawn should succeed");
 
     let query = world
-        .query_state::<(&mut Position, &Velocity), ()>()
+        .query::<(&mut Position, &Velocity)>()
         .without::<Disabled>();
     for (position, velocity) in query.iter(&mut world) {
         position.x += velocity.x;
@@ -223,7 +221,7 @@ fn commands_apply_spawn_insert_and_despawn() {
     assert!(world.require::<Velocity>(existing).is_ok());
     assert!(!world.contains(doomed));
 
-    let query = world.query_state::<&Position, ()>();
+    let query = world.query::<&Position>();
     let positions: Vec<_> = query.iter(&world).copied().collect();
     assert_eq!(positions.len(), 2);
     assert!(positions.contains(&Position { x: 1.0, y: 1.0 }));
@@ -328,13 +326,13 @@ fn query_support_matrix_required_forms_work() {
     let e2 = world.spawn((A(2), C(200))).expect("spawn should succeed");
     let e3 = world.spawn(B(30)).expect("spawn should succeed");
 
-    let q_read = world.query_state::<&A, ()>();
+    let q_read = world.query::<&A>();
     assert_eq!(
         q_read.iter(&world).map(|a| a.0).collect::<Vec<_>>(),
         vec![1, 2]
     );
 
-    let q_entity_mut = world.query_state::<(Entity, &mut B), ()>();
+    let q_entity_mut = world.query::<(Entity, &mut B)>();
     for (entity, b) in q_entity_mut.iter(&mut world) {
         if entity == e1 {
             b.0 += 1;
@@ -343,42 +341,42 @@ fn query_support_matrix_required_forms_work() {
         }
     }
 
-    let q_mut_read = world.query_state::<(&mut A, &B), ()>();
+    let q_mut_read = world.query::<(&mut A, &B)>();
     for (a, b) in q_mut_read.iter(&mut world) {
         a.0 += b.0;
     }
 
-    let q_read_mut = world.query_state::<(&A, &mut C), ()>();
+    let q_read_mut = world.query::<(&A, &mut C)>();
     for (a, c) in q_read_mut.iter(&mut world) {
         c.0 += a.0;
     }
 
-    let q_double_mut = world.query_state::<(&mut A, &mut C), ()>();
+    let q_double_mut = world.query::<(&mut A, &mut C)>();
     for (a, c) in q_double_mut.iter(&mut world) {
         a.0 += 1;
         c.0 += 1;
     }
 
-    let q_opt_read = world.query_state::<Option<&B>, ()>();
+    let q_opt_read = world.query::<Option<&B>>();
     let opt_read: Vec<_> = q_opt_read
         .iter(&world)
         .map(|b| b.map(|value| value.0))
         .collect();
     assert_eq!(opt_read, vec![Some(11), None, Some(32)]);
 
-    let q_opt_mut = world.query_state::<Option<&mut B>, ()>();
+    let q_opt_mut = world.query::<Option<&mut B>>();
     for b in q_opt_mut.iter(&mut world).flatten() {
         b.0 += 10;
     }
 
-    let q_mut_opt = world.query_state::<(&mut A, Option<&B>), ()>();
+    let q_mut_opt = world.query::<(&mut A, Option<&B>)>();
     for (a, maybe_b) in q_mut_opt.iter(&mut world) {
         if let Some(b) = maybe_b {
             a.0 += b.0;
         }
     }
 
-    let q_entity_opt = world.query_state::<(Entity, Option<&A>), ()>();
+    let q_entity_opt = world.query::<(Entity, Option<&A>)>();
     let entity_optional_a: Vec<_> = q_entity_opt
         .iter(&world)
         .map(|(entity, a)| (entity, a.map(|value| value.0)))
@@ -388,21 +386,19 @@ fn query_support_matrix_required_forms_work() {
         vec![(e1, Some(34)), (e2, Some(3)), (e3, None)]
     );
 
-    let q_three_read = world.query_state::<(&A, &B, &C), ()>().with::<Player>();
+    let q_three_read = world.query::<(&A, &B, &C)>().with::<Player>();
     let three_read: Vec<_> = q_three_read
         .iter(&world)
         .map(|(a, b, c)| (a.0, b.0, c.0))
         .collect();
     assert_eq!(three_read, vec![(34, 21, 113)]);
 
-    let q_three_mut = world.query_state::<(&mut A, &B, &C), ()>().with::<Player>();
+    let q_three_mut = world.query::<(&mut A, &B, &C)>().with::<Player>();
     for (a, b, c) in q_three_mut.iter(&mut world) {
         a.0 += b.0 + c.0;
     }
 
-    let q_three_mixed = world
-        .query_state::<(&mut A, &mut C, &B), ()>()
-        .with::<Player>();
+    let q_three_mixed = world.query::<(&mut A, &mut C, &B)>().with::<Player>();
     for (a, c, b) in q_three_mixed.iter(&mut world) {
         a.0 += b.0;
         c.0 += b.0;
@@ -419,21 +415,21 @@ fn query_optional_symmetry_forms_work() {
     let with_b = world.spawn((A(1), B(10))).expect("spawn should succeed");
     let without_b = world.spawn(A(2)).expect("spawn should succeed");
 
-    let read_optional = world.query_state::<(&A, Option<&B>), ()>();
+    let read_optional = world.query::<(&A, Option<&B>)>();
     let values: Vec<_> = read_optional
         .iter(&world)
         .map(|(a, b)| (a.0, b.map(|value| value.0)))
         .collect();
     assert_eq!(values, vec![(1, Some(10)), (2, None)]);
 
-    let read_optional_mut = world.query_state::<(&A, Option<&mut B>), ()>();
+    let read_optional_mut = world.query::<(&A, Option<&mut B>)>();
     for (a, maybe_b) in read_optional_mut.iter(&mut world) {
         if let Some(b) = maybe_b {
             b.0 += a.0;
         }
     }
 
-    let mut_optional_mut = world.query_state::<(&mut A, Option<&mut B>), ()>();
+    let mut_optional_mut = world.query::<(&mut A, Option<&mut B>)>();
     for (a, maybe_b) in mut_optional_mut.iter(&mut world) {
         a.0 += 1;
         if let Some(b) = maybe_b {
@@ -457,7 +453,7 @@ fn changed_and_added_filters_work_and_compose() {
         .expect("spawn should succeed");
 
     let changed_active = world
-        .query_state::<(Entity, &Position), (Changed<Position>, With<Player>, Without<Disabled>)>();
+        .query_filtered::<(Entity, &Position), (Changed<Position>, With<Player>, Without<Disabled>)>();
     let first_pass: Vec<_> = changed_active
         .iter(&world)
         .map(|(entity, _)| entity)
@@ -476,7 +472,7 @@ fn changed_and_added_filters_work_and_compose() {
     assert_eq!(second_pass, vec![active]);
 
     let added_visible =
-        world.query_state::<(Entity, &Health), (Added<Health>, Without<Disabled>)>();
+        world.query_filtered::<(Entity, &Health), (Added<Health>, Without<Disabled>)>();
     assert!(added_visible.iter(&world).next().is_none());
 
     let visible_health = world
@@ -509,7 +505,7 @@ fn query_filter_tuple_composition_works() {
         .spawn((Position { x: 2.0, y: 2.0 }, Player, Disabled))
         .expect("spawn should succeed");
 
-    let query = world.query_state::<(Entity, &Position), ()>();
+    let query = world.query::<(Entity, &Position)>();
     let seen: Vec<_> = query
         .with::<Player>()
         .without::<Disabled>()
@@ -525,7 +521,7 @@ fn broad_query_state_reuse_tracks_current_entities() {
     let first = world.spawn(A(1)).expect("spawn should succeed");
     let second = world.spawn(A(2)).expect("spawn should succeed");
 
-    let query = world.query_state::<(Entity, &A), ()>();
+    let query = world.query::<(Entity, &A)>();
     let first_pass: Vec<_> = query
         .iter(&world)
         .map(|(entity, a)| (entity, a.0))
@@ -550,9 +546,7 @@ fn broad_without_filter_reuse_stays_correct_after_component_toggle() {
     let enabled = world.spawn(A(1)).expect("spawn should succeed");
     let muted = world.spawn((A(2), Disabled)).expect("spawn should succeed");
 
-    let query = world
-        .query_state::<(Entity, &A), ()>()
-        .without::<Disabled>();
+    let query = world.query::<(Entity, &A)>().without::<Disabled>();
     let initial: Vec<_> = query
         .iter(&world)
         .map(|(entity, a)| (entity, a.0))
@@ -573,7 +567,7 @@ fn broad_without_filter_reuse_stays_correct_after_component_toggle() {
 fn query_state_cache_rebinds_when_iterating_a_different_world() {
     let mut first_world = World::new();
     let first_entity = first_world.spawn(A(1)).expect("spawn should succeed");
-    let query = first_world.query_state::<&mut A, ()>();
+    let query = first_world.query::<&mut A>();
     for value in query.iter(&mut first_world) {
         value.0 += 1;
     }
@@ -592,7 +586,7 @@ fn query_state_cache_rebinds_when_iterating_a_different_world() {
 #[test]
 fn query_state_cache_recovers_when_store_appears_after_empty_run() {
     let mut world = World::new();
-    let query = world.query_state::<&mut A, ()>();
+    let query = world.query::<&mut A>();
     assert!(query.iter(&mut world).next().is_none());
 
     let entity = world.spawn(A(4)).expect("spawn should succeed");
@@ -613,12 +607,12 @@ fn query_get_respects_filters_and_changed_semantics() {
         .spawn((Position { x: 2.0, y: 2.0 }, Player, Disabled))
         .expect("spawn should succeed");
 
-    let visible_query = world.query_state::<&Position, (With<Player>, Without<Disabled>)>();
+    let visible_query = world.query_filtered::<&Position, (With<Player>, Without<Disabled>)>();
     assert!(visible_query.get(&world, visible).is_some());
     assert!(visible_query.get(&world, hidden).is_none());
 
     let changed_visible =
-        world.query_state::<&Position, (Changed<Position>, With<Player>, Without<Disabled>)>();
+        world.query_filtered::<&Position, (Changed<Position>, With<Player>, Without<Disabled>)>();
     assert!(changed_visible.get(&world, visible).is_some());
     assert!(changed_visible.get(&world, visible).is_none());
 
@@ -633,7 +627,7 @@ fn changed_and_added_filters_handle_remove_then_reinsert() {
         .spawn((Health(10), Player))
         .expect("spawn should succeed");
 
-    let added = world.query_state::<(Entity, &Health), Added<Health>>();
+    let added = world.query_filtered::<(Entity, &Health), Added<Health>>();
     assert_eq!(
         added
             .iter(&world)
@@ -660,7 +654,7 @@ fn changed_and_added_filters_handle_remove_then_reinsert() {
 fn get_mut_and_require_mut_update_changed_tracking_semantics() {
     let mut world = World::new();
     let entity = world.spawn(Health(10)).expect("spawn should succeed");
-    let changed = world.query_state::<(Entity, &Health), Changed<Health>>();
+    let changed = world.query_filtered::<(Entity, &Health), Changed<Health>>();
 
     assert_eq!(
         changed
@@ -715,7 +709,7 @@ fn get_mut_and_require_mut_update_changed_tracking_semantics() {
 fn failed_mutable_component_lookup_does_not_create_mutation_facts() {
     let mut world = World::new();
     let entity = world.spawn(Player).expect("spawn should succeed");
-    let changed = world.query_state::<(Entity, &Health), Changed<Health>>();
+    let changed = world.query_filtered::<(Entity, &Health), Changed<Health>>();
     let before = world.current_change_cursor();
 
     assert!(world.get_mut::<Health>(entity).is_none());

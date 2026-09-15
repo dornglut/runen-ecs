@@ -78,13 +78,6 @@ pub fn run_conformance() -> Result<(), RuntimeError> {
     runtime.run_schedule::<Update>(&mut world)?;
 
     assert_eq!(world.resource::<Frame>().unwrap().value, 2);
-    assert_eq!(
-        world
-            .query_state::<&Position, ()>()
-            .single(&world)
-            .unwrap()
-            .x,
-        1
-    );
+    assert_eq!(world.query::<&Position>().single(&world).unwrap().x, 1);
     Ok(())
 }

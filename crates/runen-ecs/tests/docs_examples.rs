@@ -56,7 +56,7 @@ fn docs_runtime_query_snippet_runs() {
     world.insert_resource(Frame(1));
 
     let query = world
-        .query_state::<(&mut Position, &Velocity), ()>()
+        .query::<(&mut Position, &Velocity)>()
         .with::<Simulated>();
     for (position, velocity) in query.iter(&mut world) {
         position.x += velocity.x;
@@ -96,7 +96,7 @@ fn docs_runtime_execution_snippet_runs() {
     runtime.add_systems(Update, advance).unwrap();
     runtime.run_schedule::<Update>(&mut world).unwrap();
 
-    let pos = world.query_state::<&Position, ()>().single(&world).unwrap();
+    let pos = world.query::<&Position>().single(&world).unwrap();
     assert_eq!(pos.x, 0.25);
     assert_eq!(world.resource::<Frame>().unwrap().0, 1);
 }
@@ -107,7 +107,7 @@ fn docs_change_filter_snippet_runs() {
     let entity = world
         .spawn(Position { x: 0.0, y: 0.0 })
         .expect("spawn should succeed");
-    let changed_positions = world.query_state::<(Entity, &Position), Changed<Position>>();
+    let changed_positions = world.query_filtered::<(Entity, &Position), Changed<Position>>();
 
     let first: Vec<_> = changed_positions
         .iter(&world)
