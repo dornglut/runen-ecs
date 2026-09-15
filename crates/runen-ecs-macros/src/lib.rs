@@ -43,6 +43,63 @@ pub fn resource_derive(input: TokenStream) -> TokenStream {
     })
 }
 
+#[proc_macro_derive(IntoSystemSetKey)]
+pub fn into_system_set_key_derive(input: TokenStream) -> TokenStream {
+    let ecs = ecs_crate_path();
+    let input = parse_macro_input!(input as DeriveInput);
+    let DeriveInput {
+        ident: name,
+        mut generics,
+        data,
+        ..
+    } = input;
+
+    let Data::Enum(data) = data else {
+        return syn::Error::new_spanned(
+            name,
+            "IntoSystemSetKey derive only supports fieldless enums",
+        )
+        .to_compile_error()
+        .into();
+    };
+
+    let mut variants = Vec::with_capacity(data.variants.len());
+    for variant in data.variants {
+        if !matches!(variant.fields, Fields::Unit) {
+            return syn::Error::new_spanned(
+                variant.fields,
+                "IntoSystemSetKey derive only supports fieldless enums",
+            )
+            .to_compile_error()
+            .into();
+        }
+        let variant_name = variant.ident.to_string();
+        let key_name = format!("{}::{variant_name}", name);
+        variants.push((variant.ident, key_name));
+    }
+
+    generics
+        .make_where_clause()
+        .predicates
+        .push(parse_quote!(Self: 'static));
+    let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
+    let arms = variants.iter().map(|(variant, key_name)| {
+        quote! {
+            Self::#variant => #ecs::SystemSetKey::of::<Self>(#key_name),
+        }
+    });
+
+    TokenStream::from(quote! {
+        impl #impl_generics #ecs::IntoSystemSetKey for #name #ty_generics #where_clause {
+            fn system_set_key(&self) -> #ecs::SystemSetKey {
+                match self {
+                    #(#arms)*
+                }
+            }
+        }
+    })
+}
+
 #[proc_macro_derive(SystemParam)]
 pub fn system_param_derive(input: TokenStream) -> TokenStream {
     let ecs = ecs_crate_path();

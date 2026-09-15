@@ -37,6 +37,12 @@ impl ScheduleLabel for Update {
     }
 }
 
+#[derive(Copy, Clone, IntoSystemSetKey)]
+enum Phase {
+    Prepare,
+    Simulate,
+}
+
 fn advance(mut params: SimulationParams<'_, '_>) {
     for position in params.positions.iter() {
         position.x += 1;
@@ -49,6 +55,13 @@ fn touch_world(mut world: WorldMut<'_>) {
 }
 
 pub fn run_conformance() -> Result<(), RuntimeError> {
+    let prepare = Phase::Prepare.system_set_key();
+    let simulate = Phase::Simulate.system_set_key();
+    assert_eq!(prepare.name(), "Phase::Prepare");
+    assert_eq!(simulate.name(), "Phase::Simulate");
+    assert_ne!(prepare, simulate);
+    assert_eq!(prepare, Phase::Prepare.system_set_key());
+
     let mut world = World::new();
     world.insert_resource(Frame::default());
     world
