@@ -21,7 +21,9 @@ pub(crate) use capability::{
 };
 #[cfg(test)]
 pub(crate) use change_tracking::panic_worker_projection_violation;
-pub(crate) use change_tracking::{FrameworkInvariantKind, framework_invariant_kind};
+pub(crate) use change_tracking::{
+    FrameworkInvariantKind, framework_invariant_kind, panic_parallel_executor_violation,
+};
 pub(crate) use mutation_journal::{ConcurrentMutationCapacity, MutationJournal};
 pub(crate) use parallel::{
     ParallelWorldLease, PreparedWorkerWorld, WorkerWorldAuthority, WorkerWorldBuilder,
