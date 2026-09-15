@@ -21,11 +21,12 @@ enum ParallelStep {
 }
 
 impl Runtime {
-    /// Internal baseline deterministic-parallel executor used by #39 conformance.
+    /// Executes a schedule using RunenECS's deterministic parallel realization.
     ///
-    /// The public serial executor remains the independent semantic oracle. #40
-    /// owns final supported selector/failure-permutation acceptance.
-    pub(crate) fn run_schedule_parallel<L: ScheduleLabel>(
+    /// `worker_capacity` controls only physical worker admission. It does not
+    /// change schedule semantics or deterministic-profile ECS results. The
+    /// serial [`Runtime::run_schedule`] path remains the independent oracle.
+    pub fn run_schedule_parallel<L: ScheduleLabel>(
         &mut self,
         world: &mut World,
         worker_capacity: usize,
@@ -37,7 +38,12 @@ impl Runtime {
         )
     }
 
-    pub(crate) fn run_schedule_parallel_with_deferred_publication_frontier<L, F, E>(
+    /// Executes a schedule in parallel and invokes `on_frontier` after each
+    /// semantic deferred-publication frontier has committed.
+    ///
+    /// The callback runs on the schedule-invoking thread. Worker capacity and
+    /// physical cohort shape do not create additional callbacks.
+    pub fn run_schedule_parallel_with_deferred_publication_frontier<L, F, E>(
         &mut self,
         world: &mut World,
         worker_capacity: usize,
@@ -310,6 +316,7 @@ mod tests {
         SystemConfigExt, SystemMobilityExt, SystemSet, World,
     };
     use std::cell::RefCell;
+    use std::io;
     use std::rc::Rc;
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::{Arc, Barrier, Mutex};
@@ -345,6 +352,10 @@ mod tests {
     #[derive(Debug)]
     struct Seen(usize);
     impl Resource for Seen {}
+
+    #[derive(Debug)]
+    struct Sequence(Vec<i32>);
+    impl Resource for Sequence {}
 
     #[derive(Debug)]
     struct MissingWorkerResource;
@@ -605,6 +616,55 @@ mod tests {
     }
 
     #[test]
+    fn successful_parallel_corpus_matches_the_serial_oracle() {
+        fn run(parallel: bool, capacity: usize) -> (i32, i32, i32, usize, u64, bool, bool) {
+            let mut world = World::new();
+            let entity = world.spawn((A(1), B(2))).unwrap();
+            world.insert_resource(Counter(3));
+            let before = world.current_change_cursor();
+            let mut runtime = Runtime::new();
+            let _ = runtime.add_systems(
+                ParallelSchedule,
+                (
+                    move |mut query: Query<&mut A>| query.get(entity).unwrap().0 += 4,
+                    move |mut query: Query<&mut B>| query.get(entity).unwrap().0 += 5,
+                    |mut counter: ResMut<Counter>, mut commands: Commands| {
+                        counter.0 += 6;
+                        commands.spawn(DeferredMarker(9));
+                    },
+                ),
+            );
+            if parallel {
+                runtime
+                    .run_schedule_parallel::<ParallelSchedule>(&mut world, capacity)
+                    .unwrap();
+            } else {
+                runtime
+                    .run_schedule::<ParallelSchedule>(&mut world)
+                    .unwrap();
+            }
+            let after = world.current_change_cursor();
+            (
+                world.get::<A>(entity).unwrap().0,
+                world.get::<B>(entity).unwrap().0,
+                world.resource::<Counter>().unwrap().0,
+                world
+                    .query_state::<&DeferredMarker, ()>()
+                    .iter(&world)
+                    .count(),
+                after.tick() - before.tick(),
+                world.component_changed_since::<A>(before).unwrap(),
+                world.resource_changed_since::<Counter>(before).unwrap(),
+            )
+        }
+
+        let serial = run(false, 1);
+        assert_eq!(serial, run(true, 1));
+        assert_eq!(serial, run(true, 2));
+        assert_eq!(serial, run(true, 4));
+    }
+
+    #[test]
     fn ordinary_worker_error_stops_before_later_invoker_step() {
         let mut world = World::new();
         let later_ran = Rc::new(std::cell::Cell::new(false));
@@ -672,5 +732,460 @@ mod tests {
         assert!(!body_ran.load(Ordering::Relaxed));
         assert!(world.component_changed_since::<A>(before).unwrap());
         assert!(!world.component_changed_since::<B>(before).unwrap());
+    }
+
+    #[test]
+    fn ordinary_failures_use_reference_rank_not_completion_order() {
+        let higher_finished = Arc::new(AtomicBool::new(false));
+        let wait_for_higher = Arc::clone(&higher_finished);
+        let lower = move || -> io::Result<()> {
+            while !wait_for_higher.load(Ordering::Acquire) {
+                std::thread::yield_now();
+            }
+            Err(io::Error::other("lower-rank error"))
+        };
+        let mark_higher = Arc::clone(&higher_finished);
+        let higher = move || -> io::Result<()> {
+            mark_higher.store(true, Ordering::Release);
+            Err(io::Error::other("higher-rank error"))
+        };
+
+        let mut runtime = Runtime::new();
+        let _ = runtime.add_systems(ParallelSchedule, (lower, higher));
+        let error = runtime
+            .run_schedule_parallel::<ParallelSchedule>(&mut World::new(), 2)
+            .expect_err("the lower-rank ordinary error must be returned");
+        match error {
+            RuntimeError::System { source, .. } => {
+                assert_eq!(source.to_string(), "lower-rank error");
+            }
+            other => panic!("expected selected lower-rank system error, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn mixed_ordinary_error_and_user_panic_keep_ranked_selection() {
+        let higher_finished = Arc::new(AtomicBool::new(false));
+        let wait_for_higher = Arc::clone(&higher_finished);
+        let lower_error = move || -> io::Result<()> {
+            while !wait_for_higher.load(Ordering::Acquire) {
+                std::thread::yield_now();
+            }
+            Err(io::Error::other("lower-rank error"))
+        };
+        let mark_higher = Arc::clone(&higher_finished);
+        let higher_panic = move || -> io::Result<()> {
+            mark_higher.store(true, Ordering::Release);
+            panic!("higher-rank panic");
+        };
+        let mut runtime = Runtime::new();
+        let _ = runtime.add_systems(ParallelSchedule, (lower_error, higher_panic));
+        let error = runtime
+            .run_schedule_parallel::<ParallelSchedule>(&mut World::new(), 2)
+            .expect_err("the lower-rank ordinary error must win over a higher panic");
+        assert!(matches!(error, RuntimeError::System { .. }));
+
+        let higher_finished = Arc::new(AtomicBool::new(false));
+        let wait_for_higher = Arc::clone(&higher_finished);
+        let lower_panic = move || -> io::Result<()> {
+            while !wait_for_higher.load(Ordering::Acquire) {
+                std::thread::yield_now();
+            }
+            panic!("lower-rank panic");
+        };
+        let mark_higher = Arc::clone(&higher_finished);
+        let higher_error = move || -> io::Result<()> {
+            mark_higher.store(true, Ordering::Release);
+            Err(io::Error::other("higher-rank error"))
+        };
+        let mut runtime = Runtime::new();
+        let _ = runtime.add_systems(ParallelSchedule, (lower_panic, higher_error));
+        let payload = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _ = runtime.run_schedule_parallel::<ParallelSchedule>(&mut World::new(), 2);
+        }))
+        .expect_err("the lower-rank user panic must be resumed");
+        assert_eq!(
+            payload.downcast_ref::<&'static str>(),
+            Some(&"lower-rank panic")
+        );
+    }
+
+    #[test]
+    fn multiple_user_panics_select_the_lowest_ranked_payload() {
+        let higher_finished = Arc::new(AtomicBool::new(false));
+        let wait_for_higher = Arc::clone(&higher_finished);
+        let lower = move || -> () {
+            while !wait_for_higher.load(Ordering::Acquire) {
+                std::thread::yield_now();
+            }
+            panic!("lower-rank panic");
+        };
+        let mark_higher = Arc::clone(&higher_finished);
+        let higher = move || -> () {
+            mark_higher.store(true, Ordering::Release);
+            panic!("higher-rank panic");
+        };
+        let mut runtime = Runtime::new();
+        let _ = runtime.add_systems(ParallelSchedule, (lower, higher));
+        let payload = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _ = runtime.run_schedule_parallel::<ParallelSchedule>(&mut World::new(), 2);
+        }))
+        .expect_err("the lowest-rank user panic must be resumed");
+        assert_eq!(
+            payload.downcast_ref::<&'static str>(),
+            Some(&"lower-rank panic")
+        );
+    }
+
+    #[test]
+    fn higher_rank_framework_invariants_dominate_ordinary_failures() {
+        let mut world = World::new();
+        let entity = world.spawn((A(1), B(2))).unwrap();
+        let scope = world.scope_id();
+        world.set_change_cursor_for_test(ChangeCursor::from_parts(scope, u64::MAX, u64::MAX - 1));
+        let lower = || -> io::Result<()> { Err(io::Error::other("ordinary failure")) };
+        let higher = move |mut query: Query<(&mut A, &mut B)>| {
+            let _ = query.get(entity).unwrap();
+        };
+        let mut runtime = Runtime::new();
+        let _ = runtime.add_systems(ParallelSchedule, (lower, higher));
+        let payload = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _ = runtime.run_schedule_parallel::<ParallelSchedule>(&mut world, 2);
+        }))
+        .expect_err("framework invariant must dominate an ordinary error");
+        assert_eq!(
+            framework_invariant_kind(payload.as_ref()),
+            Some(FrameworkInvariantKind::ChangeCursorExhausted)
+        );
+    }
+
+    #[test]
+    fn higher_rank_framework_invariants_dominate_user_panics_and_are_not_text_classified() {
+        let mut world = World::new();
+        let entity = world.spawn((A(1), B(2))).unwrap();
+        let lower = || -> () {
+            panic!("ECS change cursor exhausted");
+        };
+        let scope = world.scope_id();
+        world.set_change_cursor_for_test(ChangeCursor::from_parts(scope, u64::MAX, u64::MAX - 1));
+        let higher = move |mut query: Query<(&mut A, &mut B)>| {
+            let _ = query.get(entity).unwrap();
+        };
+        let mut runtime = Runtime::new();
+        let _ = runtime.add_systems(ParallelSchedule, (lower, higher));
+        let payload = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _ = runtime.run_schedule_parallel::<ParallelSchedule>(&mut world, 2);
+        }))
+        .expect_err("framework invariant must dominate a same-text user panic");
+        assert_eq!(
+            framework_invariant_kind(payload.as_ref()),
+            Some(FrameworkInvariantKind::ChangeCursorExhausted)
+        );
+    }
+
+    #[test]
+    fn rank_associated_framework_invariants_use_lowest_rank() {
+        let mut world = World::new();
+        let entity = world.spawn((A(1), B(2))).unwrap();
+        let higher_started = Arc::new(AtomicBool::new(false));
+        let wait_for_higher = Arc::clone(&higher_started);
+        let lower = move || -> () {
+            while !wait_for_higher.load(Ordering::Acquire) {
+                std::thread::yield_now();
+            }
+            crate::world::panic_worker_projection_violation("lower-rank invariant");
+        };
+        let mark_higher = Arc::clone(&higher_started);
+        let scope = world.scope_id();
+        world.set_change_cursor_for_test(ChangeCursor::from_parts(scope, u64::MAX, u64::MAX - 1));
+        let higher = move |mut query: Query<(&mut A, &mut B)>| {
+            mark_higher.store(true, Ordering::Release);
+            let _ = query.get(entity).unwrap();
+        };
+        let mut runtime = Runtime::new();
+        let _ = runtime.add_systems(ParallelSchedule, (lower, higher));
+        let payload = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _ = runtime.run_schedule_parallel::<ParallelSchedule>(&mut world, 2);
+        }))
+        .expect_err("the lowest-rank framework invariant must be selected");
+        assert_eq!(
+            framework_invariant_kind(payload.as_ref()),
+            Some(FrameworkInvariantKind::WorkerProjectionViolation)
+        );
+    }
+
+    #[test]
+    fn admitted_journal_events_reconcile_on_user_panic_without_double_exhaustion() {
+        let mut world = World::new();
+        let entity = world.spawn(A(1)).unwrap();
+        let scope = world.scope_id();
+        let before = ChangeCursor::from_parts(scope, u64::MAX, u64::MAX - 1);
+        world.set_change_cursor_for_test(before);
+        let system = move |mut query: Query<&mut A>| -> () {
+            let _ = query.get(entity).unwrap();
+            panic!("user panic after admitted mutation");
+        };
+        let mut runtime = Runtime::new();
+        let _ = runtime.add_systems(ParallelSchedule, system);
+        let payload = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _ = runtime.run_schedule_parallel::<ParallelSchedule>(&mut world, 1);
+        }))
+        .expect_err("the user panic must be resumed after reconciliation");
+        assert_eq!(
+            payload.downcast_ref::<&'static str>(),
+            Some(&"user panic after admitted mutation")
+        );
+        assert_eq!(world.current_change_cursor().tick(), u64::MAX);
+        assert!(world.component_changed_since::<A>(before).unwrap());
+    }
+
+    #[test]
+    fn repeated_component_and_resource_observations_preserve_event_multiplicity() {
+        let mut world = World::new();
+        let entity = world.spawn(A(1)).unwrap();
+        world.insert_resource(Counter(0));
+        let before = world.current_change_cursor();
+        let mut runtime = Runtime::new();
+        let _ = runtime.add_systems(
+            ParallelSchedule,
+            move |mut query: Query<&mut A>, mut counter: ResMut<Counter>| {
+                let _ = query.get(entity).unwrap();
+                let _ = query.get(entity).unwrap();
+                let _ = &mut *counter;
+                let _ = &mut *counter;
+            },
+        );
+        runtime
+            .run_schedule_parallel::<ParallelSchedule>(&mut world, 1)
+            .unwrap();
+        assert_eq!(world.current_change_cursor().tick(), before.tick() + 4);
+        assert!(world.component_changed_since::<A>(before).unwrap());
+        assert!(world.resource_changed_since::<Counter>(before).unwrap());
+    }
+
+    #[test]
+    fn failed_parallel_journals_preserve_repeated_event_order() {
+        let mut world = World::new();
+        let entity = world.spawn(A(1)).unwrap();
+        let before = world.current_change_cursor();
+        let mut runtime = Runtime::new();
+        let _ = runtime.add_systems(
+            ParallelSchedule,
+            move |mut query: Query<&mut A>| -> io::Result<()> {
+                let _ = query.get(entity).unwrap();
+                let _ = query.get(entity).unwrap();
+                Err(io::Error::other("after two observations"))
+            },
+        );
+        let _ = runtime.run_schedule_parallel::<ParallelSchedule>(&mut world, 1);
+        assert_eq!(world.current_change_cursor().tick(), before.tick() + 2);
+        assert!(world.component_changed_since::<A>(before).unwrap());
+    }
+
+    #[test]
+    fn queued_command_failure_abandons_remainder_and_runtime_reuse_is_clean() {
+        let mut world = World::new();
+        world.insert_resource(Sequence(Vec::new()));
+        let foreign = World::new().spawn(A(0)).unwrap();
+        let first = Arc::new(AtomicBool::new(true));
+        let run_once = Arc::clone(&first);
+        let mut runtime = Runtime::new();
+        let _ = runtime.add_systems(ParallelSchedule, move |mut commands: Commands| {
+            commands.queue(|world| {
+                world.resource_mut::<Sequence>().unwrap().0.push(1);
+                Ok(())
+            });
+            if run_once.swap(false, Ordering::AcqRel) {
+                commands.despawn(foreign);
+                commands.queue(|world| {
+                    world.resource_mut::<Sequence>().unwrap().0.push(99);
+                    Ok(())
+                });
+            } else {
+                commands.queue(|world| {
+                    world.resource_mut::<Sequence>().unwrap().0.push(2);
+                    Ok(())
+                });
+            }
+        });
+        assert!(matches!(
+            runtime.run_schedule_parallel::<ParallelSchedule>(&mut world, 1),
+            Err(RuntimeError::Command(_))
+        ));
+        assert_eq!(world.resource::<Sequence>().unwrap().0, vec![1]);
+        runtime
+            .run_schedule_parallel::<ParallelSchedule>(&mut world, 1)
+            .unwrap();
+        assert_eq!(world.resource::<Sequence>().unwrap().0, vec![1, 1, 2]);
+    }
+
+    #[test]
+    fn queued_command_panic_resumes_and_runtime_reuse_is_clean() {
+        let mut world = World::new();
+        world.insert_resource(Sequence(Vec::new()));
+        let first = Arc::new(AtomicBool::new(true));
+        let run_once = Arc::clone(&first);
+        let mut runtime = Runtime::new();
+        let _ = runtime.add_systems(ParallelSchedule, move |mut commands: Commands| {
+            commands.queue(|world| {
+                world.resource_mut::<Sequence>().unwrap().0.push(1);
+                Ok(())
+            });
+            if run_once.swap(false, Ordering::AcqRel) {
+                commands.queue(|world| {
+                    world.resource_mut::<Sequence>().unwrap().0.push(99);
+                    panic!("queued command panic");
+                });
+                commands.queue(|world| {
+                    world.resource_mut::<Sequence>().unwrap().0.push(100);
+                    Ok(())
+                });
+            } else {
+                commands.queue(|world| {
+                    world.resource_mut::<Sequence>().unwrap().0.push(2);
+                    Ok(())
+                });
+            }
+        });
+        let payload = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _ = runtime.run_schedule_parallel::<ParallelSchedule>(&mut world, 1);
+        }))
+        .expect_err("queued command panic must resume on the invoker");
+        assert_eq!(
+            payload.downcast_ref::<&'static str>(),
+            Some(&"queued command panic")
+        );
+        assert_eq!(world.resource::<Sequence>().unwrap().0, vec![1, 99]);
+        runtime
+            .run_schedule_parallel::<ParallelSchedule>(&mut world, 1)
+            .unwrap();
+        assert_eq!(world.resource::<Sequence>().unwrap().0, vec![1, 99, 1, 2]);
+    }
+
+    #[test]
+    fn ordinary_worker_error_and_panic_allow_clean_runtime_reuse() {
+        fn run(panic_mode: bool) {
+            let mut world = World::new();
+            world.insert_resource(Sequence(Vec::new()));
+            let first = Arc::new(AtomicBool::new(true));
+            let run_once = Arc::clone(&first);
+            let mut runtime = Runtime::new();
+            let _ = runtime.add_systems(
+                ParallelSchedule,
+                move |mut sequence: ResMut<Sequence>, mut commands: Commands| -> io::Result<()> {
+                    let first_run = run_once.swap(false, Ordering::AcqRel);
+                    if first_run {
+                        sequence.0.push(1);
+                        commands.queue(|world| {
+                            world.resource_mut::<Sequence>().unwrap().0.push(99);
+                            Ok(())
+                        });
+                        if panic_mode {
+                            panic!("worker failure for reuse");
+                        }
+                        return Err(io::Error::other("worker error for reuse"));
+                    }
+                    sequence.0.push(2);
+                    commands.queue(|world| {
+                        world.resource_mut::<Sequence>().unwrap().0.push(3);
+                        Ok(())
+                    });
+                    Ok(())
+                },
+            );
+            if panic_mode {
+                let payload = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    let _ = runtime.run_schedule_parallel::<ParallelSchedule>(&mut world, 1);
+                }))
+                .expect_err("worker panic must resume on the invoker");
+                assert_eq!(
+                    payload.downcast_ref::<&'static str>(),
+                    Some(&"worker failure for reuse")
+                );
+            } else {
+                assert!(matches!(
+                    runtime.run_schedule_parallel::<ParallelSchedule>(&mut world, 1),
+                    Err(RuntimeError::System { .. })
+                ));
+            }
+            assert_eq!(world.resource::<Sequence>().unwrap().0, vec![1]);
+            runtime
+                .run_schedule_parallel::<ParallelSchedule>(&mut world, 1)
+                .unwrap();
+            assert_eq!(world.resource::<Sequence>().unwrap().0, vec![1, 2, 3]);
+        }
+
+        run(false);
+        run(true);
+    }
+
+    #[test]
+    fn boundary_callback_failure_commits_frontier_and_stops_later_work() {
+        let mut world = World::new();
+        world.insert_resource(Sequence(Vec::new()));
+        let later_ran = Arc::new(AtomicBool::new(false));
+        let later_flag = Arc::clone(&later_ran);
+        let mut runtime = Runtime::new();
+        let _ = runtime.add_systems(
+            ParallelSchedule,
+            (
+                (|mut commands: Commands| {
+                    commands.queue(|world| {
+                        world.resource_mut::<Sequence>().unwrap().0.push(1);
+                        Ok(())
+                    });
+                })
+                .in_set(ProducerSet),
+                (move || later_flag.store(true, Ordering::Release)).after(ProducerSet),
+            ),
+        );
+        let error = runtime
+            .run_schedule_parallel_with_deferred_publication_frontier::<ParallelSchedule, _, _>(
+                &mut world,
+                2,
+                |_frontier, _world| Err::<(), _>(io::Error::other("callback failed")),
+            )
+            .expect_err("callback error must stop the schedule");
+        assert!(matches!(error, RuntimeError::Boundary { .. }));
+        assert_eq!(world.resource::<Sequence>().unwrap().0, vec![1]);
+        assert!(!later_ran.load(Ordering::Acquire));
+    }
+
+    #[test]
+    fn boundary_callback_panic_preserves_payload_and_stops_later_work() {
+        let mut world = World::new();
+        world.insert_resource(Sequence(Vec::new()));
+        let later_ran = Arc::new(AtomicBool::new(false));
+        let later_flag = Arc::clone(&later_ran);
+        let mut runtime = Runtime::new();
+        let _ = runtime.add_systems(
+            ParallelSchedule,
+            (
+                (|mut commands: Commands| {
+                    commands.queue(|world| {
+                        world.resource_mut::<Sequence>().unwrap().0.push(1);
+                        Ok(())
+                    });
+                })
+                .in_set(ProducerSet),
+                (move || later_flag.store(true, Ordering::Release)).after(ProducerSet),
+            ),
+        );
+        let payload = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _ = runtime.run_schedule_parallel_with_deferred_publication_frontier::<
+                ParallelSchedule,
+                _,
+                io::Error,
+            >(&mut world, 2, |_frontier, _world| {
+                panic!("boundary callback panic");
+            });
+        }))
+        .expect_err("callback panic must resume on the invoker");
+        assert_eq!(
+            payload.downcast_ref::<&'static str>(),
+            Some(&"boundary callback panic")
+        );
+        assert_eq!(world.resource::<Sequence>().unwrap().0, vec![1]);
+        assert!(!later_ran.load(Ordering::Acquire));
     }
 }
