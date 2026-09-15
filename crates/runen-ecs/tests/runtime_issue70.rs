@@ -1,5 +1,7 @@
 use runen_ecs::prelude::*;
-use runen_ecs::{Commands, LocalCommands, RemovedQuery, RuntimeError};
+use runen_ecs::{
+    Commands, LocalCommands, RemovedQuery, RuntimeError, ScheduleValidationError,
+};
 
 #[derive(Copy, Clone)]
 struct Update;
