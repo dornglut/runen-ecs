@@ -4,35 +4,19 @@ use runen_ecs::prelude::*;
 #[derive(Copy, Clone)]
 struct Update;
 
-impl ScheduleLabel for Update {
-    fn name() -> &'static str {
-        "Update"
-    }
-}
+impl ScheduleLabel for Update {}
 
 #[derive(Copy, Clone)]
 struct Spawn;
-impl SystemSet for Spawn {
-    fn name() -> &'static str {
-        "Spawn"
-    }
-}
+impl SystemSet for Spawn {}
 
 #[derive(Copy, Clone)]
 struct Simulate;
-impl SystemSet for Simulate {
-    fn name() -> &'static str {
-        "Simulate"
-    }
-}
+impl SystemSet for Simulate {}
 
 #[derive(Copy, Clone)]
 struct Observe;
-impl SystemSet for Observe {
-    fn name() -> &'static str {
-        "Observe"
-    }
-}
+impl SystemSet for Observe {}
 
 #[derive(Debug, Component)]
 struct Position(i32);

@@ -3,41 +3,29 @@ use runen_ecs::prelude::*;
 #[derive(Copy, Clone)]
 struct Update;
 
-impl ScheduleLabel for Update {
-    fn name() -> &'static str {
-        "Update"
-    }
-}
+impl ScheduleLabel for Update {}
 
 #[derive(Copy, Clone)]
 struct Mutate;
-impl SystemSet for Mutate {
-    fn name() -> &'static str {
-        "Mutate"
-    }
-}
+impl SystemSet for Mutate {}
 
 #[derive(Copy, Clone)]
 struct Observe;
-impl SystemSet for Observe {
-    fn name() -> &'static str {
-        "Observe"
-    }
-}
+impl SystemSet for Observe {}
 
-#[derive(Debug, runen_ecs::Component)]
+#[derive(Debug, Component)]
 struct Actor;
 
-#[derive(Debug, runen_ecs::Component)]
+#[derive(Debug, Component)]
 struct Health(i32);
 
-#[derive(Debug, runen_ecs::Resource)]
+#[derive(Debug, Resource)]
 struct Target(Entity);
 
-#[derive(Debug, runen_ecs::Resource)]
+#[derive(Debug, Resource)]
 struct Phase(u8);
 
-#[derive(Debug, Default, runen_ecs::Resource)]
+#[derive(Debug, Default, Resource)]
 struct Observations {
     added: Vec<usize>,
     changed: Vec<usize>,

@@ -3,25 +3,21 @@ use runen_ecs::prelude::*;
 #[derive(Copy, Clone)]
 struct Update;
 
-impl ScheduleLabel for Update {
-    fn name() -> &'static str {
-        "Update"
-    }
-}
+impl ScheduleLabel for Update {}
 
-#[derive(Debug, runen_ecs::Component)]
+#[derive(Debug, Component)]
 struct Position(f32);
 
-#[derive(Debug, runen_ecs::Component)]
+#[derive(Debug, Component)]
 struct Velocity(f32);
 
-#[derive(Debug, runen_ecs::Component)]
+#[derive(Debug, Component)]
 struct Active;
 
-#[derive(Debug, runen_ecs::Resource)]
+#[derive(Debug, Resource)]
 struct DeltaTime(f32);
 
-#[derive(Debug, runen_ecs::Resource)]
+#[derive(Debug, Resource)]
 struct Frame(u32);
 
 fn integrate(

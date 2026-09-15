@@ -3,25 +3,21 @@ use runen_ecs::prelude::*;
 #[derive(Copy, Clone)]
 struct Update;
 
-impl ScheduleLabel for Update {
-    fn name() -> &'static str {
-        "Update"
-    }
-}
+impl ScheduleLabel for Update {}
 
-#[derive(Debug, runen_ecs::Component)]
+#[derive(Debug, Component)]
 struct Position(i32);
 
-#[derive(Debug, runen_ecs::Component)]
+#[derive(Debug, Component)]
 struct Ready;
 
-#[derive(Debug, runen_ecs::Component)]
+#[derive(Debug, Component)]
 struct Spawned;
 
-#[derive(Debug, runen_ecs::Resource)]
+#[derive(Debug, Resource)]
 struct Target(Entity);
 
-#[derive(Debug, Default, runen_ecs::Resource)]
+#[derive(Debug, Default, Resource)]
 struct Visibility {
     ready_before: usize,
     ready_after_queue: usize,
