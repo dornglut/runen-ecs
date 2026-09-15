@@ -817,14 +817,14 @@ fn command_queued_spawn_is_visible_after_publication_and_not_readded_next_run() 
     world.insert_resource(AddedHealthCounts(Vec::new()));
 
     let mut runtime = Runtime::new();
-    runtime.add_systems::<WorldUpdate, _, _>(
-        &mut world,
+    let _ = runtime.add_systems(
+        WorldUpdate,
         queue_spawn_once
             .on_invoker_thread()
             .in_set(SpawnProducerSet),
     );
-    runtime.add_systems::<WorldUpdate, _, _>(
-        &mut world,
+    let _ = runtime.add_systems(
+        WorldUpdate,
         observe_added
             .in_set(ObservePublicationSet)
             .after(SpawnProducerSet),
@@ -846,10 +846,7 @@ fn world_for_param_access_checks() {
     world.insert_resource(Frame(0));
 
     let query_state =
-        <Query<'static, 'static, (&mut Position, &Velocity)> as SystemParam>::init_state(
-            &mut world,
-        )
-        .unwrap();
+        <Query<'static, 'static, (&mut Position, &Velocity)> as SystemParam>::init_state().unwrap();
     let query_access =
         <Query<'static, 'static, (&mut Position, &Velocity)> as SystemParam>::access(&query_state);
     assert!(contains_type(

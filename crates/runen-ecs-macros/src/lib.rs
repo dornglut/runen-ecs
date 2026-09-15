@@ -145,9 +145,9 @@ pub fn system_param_derive(input: TokenStream) -> TokenStream {
             );
             type Item<'world, 'state> = #item_type;
 
-            fn init_state(world: &mut #ecs::World) -> Result<Self::State, #ecs::SystemParamError> {
+            fn init_state() -> Result<Self::State, #ecs::SystemParamError> {
                 Ok((
-                    #(<#field_types as #ecs::SystemParam>::init_state(world)?,)*
+                    #(<#field_types as #ecs::SystemParam>::init_state()?,)*
                 ))
             }
 

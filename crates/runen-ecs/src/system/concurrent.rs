@@ -140,12 +140,12 @@ mod tests {
         commands: Commands<'w>,
     }
 
-    fn register<S, MarkerT>(world: &mut World, system: S) -> RegisteredSystem
+    fn register<S, MarkerT>(_world: &mut World, system: S) -> RegisteredSystem
     where
         S: IntoSystem<MarkerT>,
     {
         system
-            .into_registered_system::<HarnessSchedule>(world)
+            .into_registered_system::<HarnessSchedule>()
             .expect("test system should register")
     }
 

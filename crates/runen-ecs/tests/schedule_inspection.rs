@@ -72,10 +72,9 @@ fn schedule_error(error: RuntimeError) -> ScheduleValidationError {
 
 #[test]
 fn inspection_projects_required_optional_and_absent_resolutions() {
-    let mut world = World::new();
     let mut runtime = Runtime::new();
-    runtime.add_systems::<Update, _, _>(&mut world, target.in_set(Alpha));
-    runtime.add_systems::<Update, _, _>(&mut world, source.before(Alpha).before_if_present(Beta));
+    let _ = runtime.add_systems(Update, target.in_set(Alpha));
+    let _ = runtime.add_systems(Update, source.before(Alpha).before_if_present(Beta));
 
     let inspection = runtime.inspect_schedule::<Update>().unwrap().unwrap();
     let source_descriptor = descriptor(&inspection, "::source");
@@ -116,10 +115,9 @@ fn inspection_projects_required_optional_and_absent_resolutions() {
 
 #[test]
 fn one_edge_retains_multiple_normalized_reasons() {
-    let mut world = World::new();
     let mut runtime = Runtime::new();
-    runtime.add_systems::<Update, _, _>(&mut world, source.before(Alpha).before_if_present(Beta));
-    runtime.add_systems::<Update, _, _>(&mut world, target.in_set(Alpha).in_set(Beta));
+    let _ = runtime.add_systems(Update, source.before(Alpha).before_if_present(Beta));
+    let _ = runtime.add_systems(Update, target.in_set(Alpha).in_set(Beta));
 
     let inspection = runtime.inspect_schedule::<Update>().unwrap().unwrap();
     let edge = inspection
@@ -147,12 +145,10 @@ fn one_edge_retains_multiple_normalized_reasons() {
 
 #[test]
 fn transitive_precedence_is_reason_carrying_and_suppresses_ambiguity() {
-    let mut world = World::new();
-    world.insert_resource(Shared(0));
     let mut runtime = Runtime::new();
-    runtime.add_systems::<Update, _, _>(&mut world, write_left.in_set(Alpha));
-    runtime.add_systems::<Update, _, _>(&mut world, middle.in_set(Beta).after(Alpha));
-    runtime.add_systems::<Update, _, _>(&mut world, write_right.in_set(Gamma).after(Beta));
+    let _ = runtime.add_systems(Update, write_left.in_set(Alpha));
+    let _ = runtime.add_systems(Update, middle.in_set(Beta).after(Alpha));
+    let _ = runtime.add_systems(Update, write_right.in_set(Gamma).after(Beta));
     let inspection = runtime.inspect_schedule::<Update>().unwrap().unwrap();
     let source_descriptor = descriptor(&inspection, "::write_left");
     let target_descriptor = descriptor(&inspection, "::write_right");
@@ -173,11 +169,9 @@ fn transitive_precedence_is_reason_carrying_and_suppresses_ambiguity() {
 
 #[test]
 fn access_ambiguity_and_pairwise_assessment_preserve_both_facts() {
-    let mut world = World::new();
-    world.insert_resource(Shared(0));
     let mut unordered = Runtime::new();
-    unordered.add_systems::<Update, _, _>(&mut world, write_left);
-    unordered.add_systems::<Update, _, _>(&mut world, write_right);
+    let _ = unordered.add_systems(Update, write_left);
+    let _ = unordered.add_systems(Update, write_right);
     let inspection = unordered.inspect_schedule::<Update>().unwrap().unwrap();
     let left = descriptor(&inspection, "::write_left");
     let right = descriptor(&inspection, "::write_right");
@@ -192,8 +186,8 @@ fn access_ambiguity_and_pairwise_assessment_preserve_both_facts() {
     assert!(assessment.precedence_path().is_none());
 
     let mut ordered = Runtime::new();
-    ordered.add_systems::<Update, _, _>(&mut world, write_left.before(Alpha));
-    ordered.add_systems::<Update, _, _>(&mut world, write_right.in_set(Alpha));
+    let _ = ordered.add_systems(Update, write_left.before(Alpha));
+    let _ = ordered.add_systems(Update, write_right.in_set(Alpha));
     let ordered_inspection = ordered.inspect_schedule::<Update>().unwrap().unwrap();
     let left = descriptor(&ordered_inspection, "::write_left");
     let right = descriptor(&ordered_inspection, "::write_right");
@@ -211,10 +205,9 @@ fn access_ambiguity_and_pairwise_assessment_preserve_both_facts() {
 
 #[test]
 fn unconstrained_pairs_are_not_described_as_parallel() {
-    let mut world = World::new();
     let mut runtime = Runtime::new();
-    runtime.add_systems::<Update, _, _>(&mut world, source);
-    runtime.add_systems::<Update, _, _>(&mut world, target);
+    let _ = runtime.add_systems(Update, source);
+    let _ = runtime.add_systems(Update, target);
     let inspection = runtime.inspect_schedule::<Update>().unwrap().unwrap();
     let first = descriptor(&inspection, "::source");
     let second = descriptor(&inspection, "::target");
@@ -226,16 +219,15 @@ fn unconstrained_pairs_are_not_described_as_parallel() {
 
 #[test]
 fn publication_projection_reuses_exact_frontier_associations() {
-    let mut world = World::new();
     let mut runtime = Runtime::new();
-    runtime.add_systems::<Update, _, _>(
-        &mut world,
+    let _ = runtime.add_systems(
+        Update,
         deferred_producer
             .on_invoker_thread()
             .in_set(Alpha)
             .after_if_present(Beta),
     );
-    runtime.add_systems::<Update, _, _>(&mut world, target.after(Alpha));
+    let _ = runtime.add_systems(Update, target.after(Alpha));
     let inspection = runtime.inspect_schedule::<Update>().unwrap().unwrap();
     assert_eq!(inspection.publication_frontiers().len(), 1);
     let frontier = &inspection.publication_frontiers()[0];
@@ -263,17 +255,10 @@ fn publication_projection_reuses_exact_frontier_associations() {
 
 #[test]
 fn a_frontier_does_not_create_unrelated_pairwise_precedence() {
-    let mut world = World::new();
     let mut runtime = Runtime::new();
-    runtime.add_systems::<Update, _, _>(
-        &mut world,
-        unrelated_deferred.on_invoker_thread().in_set(Alpha),
-    );
-    runtime.add_systems::<Update, _, _>(
-        &mut world,
-        deferred_producer.on_invoker_thread().in_set(Beta),
-    );
-    runtime.add_systems::<Update, _, _>(&mut world, target.after(Beta));
+    let _ = runtime.add_systems(Update, unrelated_deferred.on_invoker_thread().in_set(Alpha));
+    let _ = runtime.add_systems(Update, deferred_producer.on_invoker_thread().in_set(Beta));
+    let _ = runtime.add_systems(Update, target.after(Beta));
     let inspection = runtime.inspect_schedule::<Update>().unwrap().unwrap();
     let unrelated = descriptor(&inspection, "::unrelated_deferred");
     let target = descriptor(&inspection, "::target");
@@ -286,9 +271,8 @@ fn a_frontier_does_not_create_unrelated_pairwise_precedence() {
 
 #[test]
 fn completion_only_projection_has_one_frontier_without_a_cut() {
-    let mut world = World::new();
     let mut runtime = Runtime::new();
-    runtime.add_systems::<Update, _, _>(&mut world, deferred_producer.on_invoker_thread());
+    let _ = runtime.add_systems(Update, deferred_producer.on_invoker_thread());
     let inspection = runtime.inspect_schedule::<Update>().unwrap().unwrap();
     assert_eq!(inspection.publication_frontiers().len(), 1);
     assert!(matches!(
@@ -302,7 +286,7 @@ fn inspection_is_observational_and_missing_schedules_are_empty() {
     let mut world = World::new();
     world.insert_resource(Counter::default());
     let mut runtime = Runtime::new();
-    runtime.add_systems::<Update, _, _>(&mut world, increments);
+    let _ = runtime.add_systems(Update, increments);
     assert!(runtime.inspect_schedule::<Unused>().unwrap().is_none());
     let _ = runtime.inspect_schedule::<Update>().unwrap();
     assert_eq!(world.resource::<Counter>().unwrap().0, 0);
@@ -311,23 +295,21 @@ fn inspection_is_observational_and_missing_schedules_are_empty() {
 }
 
 fn cycle_error(reverse: bool) -> ScheduleValidationError {
-    let mut world = World::new();
     let mut runtime = Runtime::new();
     if reverse {
-        runtime.add_systems::<Update, _, _>(&mut world, cycle_b.in_set(Beta).after(Alpha));
-        runtime.add_systems::<Update, _, _>(&mut world, cycle_a.in_set(Alpha).after(Beta));
+        let _ = runtime.add_systems(Update, cycle_b.in_set(Beta).after(Alpha));
+        let _ = runtime.add_systems(Update, cycle_a.in_set(Alpha).after(Beta));
     } else {
-        runtime.add_systems::<Update, _, _>(&mut world, cycle_a.in_set(Alpha).after(Beta));
-        runtime.add_systems::<Update, _, _>(&mut world, cycle_b.in_set(Beta).after(Alpha));
+        let _ = runtime.add_systems(Update, cycle_a.in_set(Alpha).after(Beta));
+        let _ = runtime.add_systems(Update, cycle_b.in_set(Beta).after(Alpha));
     }
     schedule_error(runtime.inspect_schedule::<Update>().unwrap_err())
 }
 
 #[test]
 fn inspection_reports_registration_mobility_without_changing_ordering() {
-    let mut transferable_world = World::new();
     let mut transferable_runtime = Runtime::new();
-    transferable_runtime.add_systems::<Update, _, _>(&mut transferable_world, mobility_target);
+    let _ = transferable_runtime.add_systems(Update, mobility_target);
     let transferable = transferable_runtime
         .inspect_schedule::<Update>()
         .unwrap()
@@ -338,17 +320,16 @@ fn inspection_reports_registration_mobility_without_changing_ordering() {
         Some(ExecutionMobility::Transferable)
     );
 
-    let mut local_world = World::new();
     let mut local_runtime = Runtime::new();
-    local_runtime.add_systems::<Update, _, _>(
-        &mut local_world,
+    let _ = local_runtime.add_systems(
+        Update,
         mobility_target
             .on_invoker_thread()
             .in_set(Alpha)
             .after(Beta)
             .before_if_present(Gamma),
     );
-    local_runtime.add_systems::<Update, _, _>(&mut local_world, target.in_set(Beta));
+    let _ = local_runtime.add_systems(Update, target.in_set(Beta));
     let local = local_runtime.inspect_schedule::<Update>().unwrap().unwrap();
     let local_descriptor = descriptor(&local, "::mobility_target");
     assert_eq!(
@@ -378,18 +359,17 @@ fn cycles_are_structured_and_declaration_permutations_are_equal() {
 
 #[test]
 fn cycle_reason_selection_keeps_one_canonical_reason_per_edge() {
-    let mut world = World::new();
     let mut runtime = Runtime::new();
-    runtime.add_systems::<Update, _, _>(
-        &mut world,
+    let _ = runtime.add_systems(
+        Update,
         cycle_a
             .in_set(Alpha)
             .before(Beta)
             .before_if_present(Gamma)
             .after(Beta),
     );
-    runtime.add_systems::<Update, _, _>(&mut world, cycle_b.in_set(Beta).after(Alpha));
-    runtime.add_systems::<Update, _, _>(&mut world, cycle_c.in_set(Gamma));
+    let _ = runtime.add_systems(Update, cycle_b.in_set(Beta).after(Alpha));
+    let _ = runtime.add_systems(Update, cycle_c.in_set(Gamma));
     let error = schedule_error(runtime.inspect_schedule::<Update>().unwrap_err());
     let ScheduleValidationError::OrderingCycle { cycle, .. } = error else {
         panic!("expected structured cycle");

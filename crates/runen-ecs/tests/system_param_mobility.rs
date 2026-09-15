@@ -156,8 +156,8 @@ fn explicit_local_registration_remains_permissive() {
     let ran = Rc::new(RefCell::new(false));
     let captured = Rc::clone(&ran);
     let mut runtime = Runtime::new();
-    runtime.add_systems::<Update, _, _>(
-        &mut world,
+    let _ = runtime.add_systems(
+        Update,
         (move || {
             *captured.borrow_mut() = true;
         })

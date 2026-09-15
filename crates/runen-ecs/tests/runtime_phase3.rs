@@ -66,7 +66,7 @@ unsafe impl<'a> SystemParam for LifetimeMarkerParam<'a> {
     type State = ();
     type Item<'world, 'state> = LifetimeMarkerParam<'world>;
 
-    fn init_state(_world: &mut World) -> Result<Self::State, SystemParamError> {
+    fn init_state() -> Result<Self::State, SystemParamError> {
         Ok(())
     }
 
@@ -107,7 +107,7 @@ unsafe impl SystemParam for StructuralPretender {
     type State = ();
     type Item<'world, 'state> = StructuralPretender;
 
-    fn init_state(_: &mut World) -> Result<Self::State, SystemParamError> {
+    fn init_state() -> Result<Self::State, SystemParamError> {
         Ok(())
     }
 
@@ -175,9 +175,9 @@ fn runtime_honors_in_set_before_and_after_ordering() {
     clear_run_order();
     let mut world = World::new();
     let mut runtime = Runtime::new();
-    runtime.add_systems::<Update, _, _>(&mut world, run_in_set.in_set(GameplaySet));
-    runtime.add_systems::<Update, _, _>(&mut world, run_before_set.before(GameplaySet));
-    runtime.add_systems::<Update, _, _>(&mut world, run_after_set.after(GameplaySet));
+    let _ = runtime.add_systems(Update, run_in_set.in_set(GameplaySet));
+    let _ = runtime.add_systems(Update, run_before_set.before(GameplaySet));
+    let _ = runtime.add_systems(Update, run_after_set.after(GameplaySet));
 
     runtime.run_schedule::<Update>(&mut world).unwrap();
     assert_eq!(snapshot_run_order(), vec!["before", "in_set", "after"]);
@@ -190,12 +190,8 @@ fn semantic_ordering_cycle_is_rejected_deterministically() {
 
     let mut world = World::new();
     let mut runtime = Runtime::new();
-    runtime
-        .add_systems::<Update, _, _>(&mut world, first.in_set(GameplaySet).after(PostGameplaySet));
-    runtime.add_systems::<Update, _, _>(
-        &mut world,
-        second.in_set(PostGameplaySet).after(GameplaySet),
-    );
+    let _ = runtime.add_systems(Update, first.in_set(GameplaySet).after(PostGameplaySet));
+    let _ = runtime.add_systems(Update, second.in_set(PostGameplaySet).after(GameplaySet));
 
     let error = runtime
         .run_schedule::<Update>(&mut world)
@@ -215,7 +211,7 @@ fn derive_handles_user_lifetime_named_w() {
     world.insert_resource(SeenCount(0));
 
     let mut runtime = Runtime::new();
-    runtime.add_systems::<Update, _, _>(&mut world, use_lifetime_group.on_invoker_thread());
+    let _ = runtime.add_systems(Update, use_lifetime_group.on_invoker_thread());
     runtime.run_schedule::<Update>(&mut world).unwrap();
 
     assert_eq!(world.resource::<SeenCount>().unwrap().0, 42);
@@ -230,11 +226,11 @@ fn grouped_conflicting_resource_borrows_are_rejected() {
     let mut world = World::new();
     world.insert_resource(Step(0));
     let mut runtime = Runtime::new();
-    runtime.add_systems::<Update, _, _>(&mut world, invalid_group);
-
     let err = runtime
-        .run_schedule::<Update>(&mut world)
-        .expect_err("read/write group for one resource should fail registration");
+        .add_systems(Update, invalid_group)
+        .err()
+        .expect("conflicting group registration must fail");
+
     let message = format!("{err:#}");
     assert!(message.contains("conflicting param borrows"), "{message}");
 }
@@ -257,8 +253,8 @@ fn unordered_command_systems_merge_deterministically_without_visibility() {
     world.insert_resource(SeenCount(99));
 
     let mut runtime = Runtime::new();
-    runtime.add_systems::<Update, _, _>(
-        &mut world,
+    let _ = runtime.add_systems(
+        Update,
         (
             enqueue_first.on_invoker_thread(),
             enqueue_second.on_invoker_thread(),
@@ -291,12 +287,12 @@ fn deferred_commands_publish_before_semantic_frontier_callback() {
     world.insert_resource(SeenCount(0));
 
     let mut runtime = Runtime::new();
-    runtime.add_systems::<Update, _, _>(
-        &mut world,
+    let _ = runtime.add_systems(
+        Update,
         enqueue_producer.on_invoker_thread().in_set(GameplaySet),
     );
-    runtime.add_systems::<Update, _, _>(
-        &mut world,
+    let _ = runtime.add_systems(
+        Update,
         observe_successor.in_set(PostGameplaySet).after(GameplaySet),
     );
 
@@ -361,7 +357,7 @@ fn structural_access_does_not_infer_deferred_production() {
 
     let mut world = World::new();
     let mut runtime = Runtime::new();
-    runtime.add_systems::<Update, _, _>(&mut world, structural_only.on_invoker_thread());
+    let _ = runtime.add_systems(Update, structural_only.on_invoker_thread());
 
     let mut frontiers = Vec::new();
     runtime
@@ -381,7 +377,7 @@ fn structural_access_does_not_infer_deferred_production() {
 fn schedule_without_deferred_parameters_has_no_frontier_callback() {
     let mut world = World::new();
     let mut runtime = Runtime::new();
-    runtime.add_systems::<Update, _, _>(&mut world, || {});
+    let _ = runtime.add_systems(Update, || {});
 
     let mut frontiers = Vec::new();
     runtime
@@ -403,7 +399,7 @@ fn empty_deferred_buffer_still_reaches_its_structural_frontier() {
 
     let mut world = World::new();
     let mut runtime = Runtime::new();
-    runtime.add_systems::<Update, _, _>(&mut world, empty_commands.on_invoker_thread());
+    let _ = runtime.add_systems(Update, empty_commands.on_invoker_thread());
 
     let mut frontiers = Vec::new();
     runtime
@@ -431,11 +427,11 @@ fn queue_empty_and_nonempty_runs_share_the_same_frontier_sequence() {
     let mut world = World::new();
     world.insert_resource(EmitCommands(true));
     let mut runtime = Runtime::new();
-    runtime.add_systems::<Update, _, _>(
-        &mut world,
+    let _ = runtime.add_systems(
+        Update,
         conditional_producer.on_invoker_thread().in_set(GameplaySet),
     );
-    runtime.add_systems::<Update, _, _>(&mut world, successor.after(GameplaySet));
+    let _ = runtime.add_systems(Update, successor.after(GameplaySet));
 
     let mut nonempty_frontiers = Vec::new();
     runtime
@@ -476,9 +472,8 @@ fn frontier_callback_error_keeps_publication_and_stops_later_systems() {
     let mut world = World::new();
     world.insert_resource(SeenCount(0));
     let mut runtime = Runtime::new();
-    runtime
-        .add_systems::<Update, _, _>(&mut world, producer.on_invoker_thread().in_set(GameplaySet));
-    runtime.add_systems::<Update, _, _>(&mut world, later.after(GameplaySet));
+    let _ = runtime.add_systems(Update, producer.on_invoker_thread().in_set(GameplaySet));
+    let _ = runtime.add_systems(Update, later.after(GameplaySet));
 
     let result = runtime.run_schedule_with_deferred_publication_frontier::<Update, _, _>(
         &mut world,
@@ -505,9 +500,8 @@ fn frontier_callback_panic_preserves_publication_and_runtime_reuse() {
     let mut world = World::new();
     world.insert_resource(SeenCount(0));
     let mut runtime = Runtime::new();
-    runtime
-        .add_systems::<Update, _, _>(&mut world, producer.on_invoker_thread().in_set(GameplaySet));
-    runtime.add_systems::<Update, _, _>(&mut world, later.after(GameplaySet));
+    let _ = runtime.add_systems(Update, producer.on_invoker_thread().in_set(GameplaySet));
+    let _ = runtime.add_systems(Update, later.after(GameplaySet));
 
     let first = catch_unwind(AssertUnwindSafe(|| {
         runtime.run_schedule_with_deferred_publication_frontier::<Update, _, _>(
@@ -541,15 +535,15 @@ fn system_error_before_unreached_frontier_skips_callback_and_later_systems() {
     let mut world = World::new();
     world.insert_resource(SeenCount(0));
     let mut runtime = Runtime::new();
-    runtime.add_systems::<Update, _, _>(&mut world, fail.in_set(GameplaySet));
-    runtime.add_systems::<Update, _, _>(
-        &mut world,
+    let _ = runtime.add_systems(Update, fail.in_set(GameplaySet));
+    let _ = runtime.add_systems(
+        Update,
         producer
             .on_invoker_thread()
             .in_set(PostGameplaySet)
             .after(GameplaySet),
     );
-    runtime.add_systems::<Update, _, _>(&mut world, later.after(PostGameplaySet));
+    let _ = runtime.add_systems(Update, later.after(PostGameplaySet));
 
     let mut callbacks = 0;
     let result = runtime.run_schedule_with_deferred_publication_frontier::<Update, _, _>(
@@ -589,9 +583,8 @@ fn deferred_application_error_is_fail_stop_after_prior_commands() {
     world.insert_resource(TargetEntity(target));
     world.insert_resource(SeenCount(0));
     let mut runtime = Runtime::new();
-    runtime
-        .add_systems::<Update, _, _>(&mut world, producer.on_invoker_thread().in_set(GameplaySet));
-    runtime.add_systems::<Update, _, _>(&mut world, later.after(GameplaySet));
+    let _ = runtime.add_systems(Update, producer.on_invoker_thread().in_set(GameplaySet));
+    let _ = runtime.add_systems(Update, later.after(GameplaySet));
 
     let mut callbacks = 0;
     let result = runtime.run_schedule_with_deferred_publication_frontier::<Update, _, _>(
@@ -626,7 +619,7 @@ fn deferred_application_panic_is_fail_stop_without_leaking_later_commands() {
     let mut world = World::new();
     world.insert_resource(SpawnGate(false));
     let mut runtime = Runtime::new();
-    runtime.add_systems::<Update, _, _>(&mut world, producer.on_invoker_thread());
+    let _ = runtime.add_systems(Update, producer.on_invoker_thread());
 
     let first = catch_unwind(AssertUnwindSafe(|| {
         runtime.run_schedule::<Update>(&mut world)
@@ -659,7 +652,7 @@ fn frontier_callback_runs_on_invoking_thread_with_exclusive_world() {
     let mut world = World::new();
     world.insert_resource(SeenCount(0));
     let mut runtime = Runtime::new();
-    runtime.add_systems::<Update, _, _>(&mut world, producer.on_invoker_thread());
+    let _ = runtime.add_systems(Update, producer.on_invoker_thread());
 
     runtime
         .run_schedule_with_deferred_publication_frontier::<Update, _, _>(
@@ -690,20 +683,20 @@ fn canonical_frontiers_are_multiple_and_later_frontier_may_be_empty() {
     let mut world = World::new();
     world.insert_resource(SeenCount(0));
     let mut runtime = Runtime::new();
-    runtime.add_systems::<Update, _, _>(
-        &mut world,
+    let _ = runtime.add_systems(
+        Update,
         first_producer.on_invoker_thread().in_set(GameplaySet),
     );
-    runtime.add_systems::<Update, _, _>(&mut world, first_successor.after(GameplaySet));
-    runtime.add_systems::<Update, _, _>(&mut world, prepare.in_set(LateObserveSet));
-    runtime.add_systems::<Update, _, _>(
-        &mut world,
+    let _ = runtime.add_systems(Update, first_successor.after(GameplaySet));
+    let _ = runtime.add_systems(Update, prepare.in_set(LateObserveSet));
+    let _ = runtime.add_systems(
+        Update,
         second_producer
             .on_invoker_thread()
             .in_set(PostGameplaySet)
             .after(LateObserveSet),
     );
-    runtime.add_systems::<Update, _, _>(&mut world, second_successor.after(PostGameplaySet));
+    let _ = runtime.add_systems(Update, second_successor.after(PostGameplaySet));
 
     let mut frontiers = Vec::new();
     runtime
@@ -833,8 +826,8 @@ fn batch_commands_do_not_mutate_before_publication() {
     world.insert_resource(SeenCount(99));
 
     let mut runtime = Runtime::new();
-    runtime.add_systems::<Update, _, _>(
-        &mut world,
+    let _ = runtime.add_systems(
+        Update,
         (enqueue_batch.on_invoker_thread(), observe_unpublished_state),
     );
     runtime.run_schedule::<Update>(&mut world).unwrap();
@@ -937,8 +930,8 @@ fn multiple_batches_in_one_schedule_keep_deterministic_system_order() {
 
     let mut world = World::new();
     let mut runtime = Runtime::new();
-    runtime.add_systems::<Update, _, _>(
-        &mut world,
+    let _ = runtime.add_systems(
+        Update,
         (
             enqueue_batch_a.on_invoker_thread(),
             enqueue_batch_b.on_invoker_thread(),
@@ -971,8 +964,8 @@ fn typed_commands_do_not_mutate_before_publication() {
     world.insert_resource(SeenCount(99));
 
     let mut runtime = Runtime::new();
-    runtime.add_systems::<Update, _, _>(
-        &mut world,
+    let _ = runtime.add_systems(
+        Update,
         (enqueue_typed.on_invoker_thread(), observe_unpublished_state),
     );
     runtime.run_schedule::<Update>(&mut world).unwrap();
@@ -1001,14 +994,14 @@ fn typed_commands_follow_semantic_frontier_visibility_contract() {
     world.insert_resource(SeenCount(0));
 
     let mut runtime = Runtime::new();
-    runtime.add_systems::<Update, _, _>(
-        &mut world,
+    let _ = runtime.add_systems(
+        Update,
         enqueue_typed_producer
             .on_invoker_thread()
             .in_set(GameplaySet),
     );
-    runtime.add_systems::<Update, _, _>(
-        &mut world,
+    let _ = runtime.add_systems(
+        Update,
         observe_successor.in_set(PostGameplaySet).after(GameplaySet),
     );
 
@@ -1036,8 +1029,8 @@ fn borrowed_command_owner_is_stable_across_repeated_runs() {
 
     let mut world = World::new();
     let mut runtime = Runtime::new();
-    runtime.add_systems::<Update, _, _>(
-        &mut world,
+    let _ = runtime.add_systems(
+        Update,
         (enqueue_a.on_invoker_thread(), enqueue_b.on_invoker_thread()),
     );
 
@@ -1073,7 +1066,7 @@ fn failed_schedule_drops_unpublished_deferred_commands_instead_of_replaying_next
     world.insert_resource(SpawnGate(false));
 
     let mut runtime = Runtime::new();
-    runtime.add_systems::<Update, _, _>(&mut world, enqueue_then_fail_once.on_invoker_thread());
+    let _ = runtime.add_systems(Update, enqueue_then_fail_once.on_invoker_thread());
 
     let error = runtime.run_schedule::<Update>(&mut world).unwrap_err();
     assert!(matches!(error, RuntimeError::System { .. }));
@@ -1094,7 +1087,7 @@ unsafe impl SystemParam for StatefulParam {
     type State = u32;
     type Item<'world, 'state> = StatefulParam;
 
-    fn init_state(_world: &mut World) -> Result<Self::State, SystemParamError> {
+    fn init_state() -> Result<Self::State, SystemParamError> {
         PARAM_INIT_CALLS.fetch_add(1, Ordering::SeqCst);
         Ok(0)
     }
@@ -1126,7 +1119,7 @@ fn cached_system_param_state_reuse_is_stable_over_many_runs() {
     world.insert_resource(SeenCount(0));
 
     let mut runtime = Runtime::new();
-    runtime.add_systems::<Update, _, _>(&mut world, accumulate_state.on_invoker_thread());
+    let _ = runtime.add_systems(Update, accumulate_state.on_invoker_thread());
 
     for _ in 0..5 {
         runtime.run_schedule::<Update>(&mut world).unwrap();
@@ -1170,12 +1163,12 @@ fn publication_structural_migration_is_visible_in_semantic_successor() {
     world.insert_resource(CountHistory(Vec::new()));
 
     let mut runtime = Runtime::new();
-    runtime.add_systems::<Update, _, _>(
-        &mut world,
+    let _ = runtime.add_systems(
+        Update,
         queue_migration.on_invoker_thread().in_set(GameplaySet),
     );
-    runtime.add_systems::<Update, _, _>(
-        &mut world,
+    let _ = runtime.add_systems(
+        Update,
         observe_marker_extra
             .in_set(PostGameplaySet)
             .after(GameplaySet),
@@ -1220,16 +1213,16 @@ fn system_order_controls_added_and_changed_visibility() {
     world.insert_resource(AddedChangedHistory(Vec::new()));
 
     let mut runtime = Runtime::new();
-    runtime.add_systems::<Update, _, _>(
-        &mut world,
+    let _ = runtime.add_systems(
+        Update,
         queue_spawn_once.on_invoker_thread().in_set(GameplaySet),
     );
-    runtime.add_systems::<Update, _, _>(
-        &mut world,
+    let _ = runtime.add_systems(
+        Update,
         mutate_markers.in_set(PostGameplaySet).after(GameplaySet),
     );
-    runtime.add_systems::<Update, _, _>(
-        &mut world,
+    let _ = runtime.add_systems(
+        Update,
         observe_added_changed
             .in_set(LateObserveSet)
             .after(PostGameplaySet),
@@ -1272,7 +1265,7 @@ fn deferred_commands_keep_secondary_indexes_correct_after_apply() {
     world.insert_resource(Step(0));
 
     let mut runtime = Runtime::new();
-    runtime.add_systems::<Update, _, _>(&mut world, queue_index_updates.on_invoker_thread());
+    let _ = runtime.add_systems(Update, queue_index_updates.on_invoker_thread());
 
     runtime.run_schedule::<Update>(&mut world).unwrap();
     assert_eq!(

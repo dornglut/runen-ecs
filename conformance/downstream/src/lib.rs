@@ -59,7 +59,9 @@ pub fn run_conformance() -> Result<(), RuntimeError> {
         .unwrap();
 
     let mut runtime = Runtime::new();
-    runtime.add_systems::<Update, _, _>(&mut world, (advance, touch_world.on_invoker_thread()));
+    runtime
+        .add_systems(Update, (advance, touch_world.on_invoker_thread()))
+        .unwrap();
     runtime.run_schedule::<Update>(&mut world)?;
 
     assert_eq!(world.resource::<Frame>().unwrap().value, 2);

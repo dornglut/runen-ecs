@@ -127,6 +127,7 @@ impl ScheduleRegistry {
         }
     }
 
+    #[allow(dead_code)]
     pub fn add_system(
         &mut self,
         mut system: RegisteredSystem,
@@ -144,6 +145,38 @@ impl ScheduleRegistry {
         self.systems.push(system);
         self.dirty = true;
         Ok(index)
+    }
+
+    pub fn add_systems(
+        &mut self,
+        mut systems: Vec<RegisteredSystem>,
+    ) -> Result<(), ScheduleValidationError> {
+        let mut next_id = self.next_system_id;
+        for index in 0..systems.len() {
+            let id = next_id.ok_or(ScheduleValidationError::SystemIdentityExhausted)?;
+            next_id = id.get().checked_add(1).and_then(std::num::NonZeroU64::new);
+            if index + 1 < systems.len() && next_id.is_none() {
+                return Err(ScheduleValidationError::SystemIdentityExhausted);
+            }
+        }
+
+        let mut assigned_next = self.next_system_id;
+        for system in systems.iter_mut() {
+            let id = assigned_next.expect("system id capacity was preflighted");
+            system.assign_id(SystemId::new(id));
+            assigned_next = id.get().checked_add(1).and_then(std::num::NonZeroU64::new);
+        }
+        self.next_system_id = assigned_next;
+        let had_systems = !systems.is_empty();
+        self.systems.append(&mut systems);
+        if had_systems {
+            self.dirty = true;
+        }
+        Ok(())
+    }
+
+    pub fn validate(&mut self) -> Result<(), ScheduleValidationError> {
+        self.rebuild_if_dirty()
     }
 
     pub fn systems_mut(&mut self) -> &mut [RegisteredSystem] {
@@ -659,7 +692,7 @@ fn compare_publication_reasons(
 mod tests {
     use super::{
         OrderingResolutionKind, PublicationFrontierPlan, PublicationObligationReason,
-        ScheduleRegistry,
+        ScheduleRegistry, ScheduleValidationError,
     };
     use crate::scheduler::access::SystemAccess;
     use crate::scheduler::label::{ScheduleLabel, SystemSet};
@@ -681,6 +714,20 @@ mod tests {
     fn system(name: &'static str) -> RegisteredSystem {
         RegisteredSystem::new::<Update>(name, SystemAccess::new(), |_world| Ok(()))
             .expect("test system should be valid")
+    }
+
+    #[test]
+    fn batch_id_capacity_is_preflighted_without_partial_append() {
+        let mut registry = ScheduleRegistry::new();
+        registry.next_system_id = std::num::NonZeroU64::new(u64::MAX);
+
+        let result = registry.add_systems(vec![system("first"), system("second")]);
+        assert_eq!(
+            result,
+            Err(ScheduleValidationError::SystemIdentityExhausted)
+        );
+        assert!(registry.systems.is_empty());
+        assert_eq!(registry.next_system_id, std::num::NonZeroU64::new(u64::MAX));
     }
 
     #[test]

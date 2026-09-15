@@ -93,7 +93,7 @@ fn docs_runtime_execution_snippet_runs() {
     world.insert_resource(Frame(0));
 
     let mut runtime = Runtime::new();
-    runtime.add_systems::<Update, _, _>(&mut world, advance);
+    let _ = runtime.add_systems(Update, advance);
     runtime.run_schedule::<Update>(&mut world).unwrap();
 
     let pos = world.query_state::<&Position, ()>().single(&world).unwrap();

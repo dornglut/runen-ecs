@@ -70,8 +70,12 @@ pub enum RuntimeError {
     Setup { message: String },
     #[error(transparent)]
     Schedule(#[from] ScheduleValidationError),
-    #[error(transparent)]
-    Param(#[from] SystemParamError),
+    #[error("system '{system}' parameter failed: {source}")]
+    Param {
+        system: String,
+        #[source]
+        source: SystemParamError,
+    },
     #[error(transparent)]
     Command(#[from] CommandError),
     #[error("system '{system}' failed: {source}")]

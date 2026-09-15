@@ -1,3 +1,4 @@
+use crate::errors::QueryError;
 use crate::query::QueryAccess;
 use crate::scheduler::system::ParamSlotDescriptor;
 use crate::world::{
@@ -12,6 +13,8 @@ use thiserror::Error;
 pub enum SystemParamError {
     #[error(transparent)]
     Resource(#[from] ResourceError),
+    #[error(transparent)]
+    Query(#[from] QueryError),
     #[error("invalid system param extraction for {param}: {reason}")]
     InvalidExtraction {
         param: &'static str,
@@ -268,7 +271,7 @@ pub unsafe trait SystemParam: Sized {
     type State: 'static;
     type Item<'world, 'state>;
 
-    fn init_state(world: &mut World) -> Result<Self::State, SystemParamError>;
+    fn init_state() -> Result<Self::State, SystemParamError>;
     fn deferred_recorder_class() -> Result<DeferredRecorderClass, DeferredRecorderConflict> {
         Ok(DeferredRecorderClass::None)
     }

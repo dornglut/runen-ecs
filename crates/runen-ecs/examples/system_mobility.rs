@@ -26,9 +26,9 @@ fn main() {
     let captured = Rc::clone(&local_ran);
 
     let mut runtime = Runtime::new();
-    runtime.add_systems::<Update, _, _>(&mut world, advance);
-    runtime.add_systems::<Update, _, _>(
-        &mut world,
+    runtime.add_systems(Update, advance).unwrap();
+    let _ = runtime.add_systems(
+        Update,
         (move |mut commands: LocalCommands| {
             let deferred_capture = Rc::clone(&captured);
             commands.queue(move |_world| {

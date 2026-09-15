@@ -108,13 +108,13 @@ fn explicit_remove_is_not_visible_before_publication_and_visible_after_publicati
     world.insert_resource(PublicationWindowCounts::default());
 
     let mut runtime = Runtime::new();
-    runtime.add_systems::<Update, _, _>(
-        &mut world,
+    let _ = runtime.add_systems(
+        Update,
         queue_remove_once.on_invoker_thread().in_set(QueueSet),
     );
-    runtime.add_systems::<Update, _, _>(&mut world, observe_before_frontier.in_set(QueueSet));
-    runtime.add_systems::<Update, _, _>(
-        &mut world,
+    let _ = runtime.add_systems(Update, observe_before_frontier.in_set(QueueSet));
+    let _ = runtime.add_systems(
+        Update,
         observe_after_frontier.in_set(ObserveSet).after(QueueSet),
     );
 
@@ -153,12 +153,12 @@ fn despawn_with_component_is_visible_after_publication() {
     world.insert_resource(PublicationWindowCounts::default());
 
     let mut runtime = Runtime::new();
-    runtime.add_systems::<Update, _, _>(
-        &mut world,
+    let _ = runtime.add_systems(
+        Update,
         queue_despawn_once.on_invoker_thread().in_set(QueueSet),
     );
-    runtime.add_systems::<Update, _, _>(
-        &mut world,
+    let _ = runtime.add_systems(
+        Update,
         observe_after_frontier.in_set(ObserveSet).after(QueueSet),
     );
 
@@ -199,16 +199,16 @@ fn removed_records_remain_visible_until_the_next_publication_frontier() {
     world.insert_resource(PublicationWindowCounts::default());
 
     let mut runtime = Runtime::new();
-    runtime.add_systems::<Update, _, _>(
-        &mut world,
+    let _ = runtime.add_systems(
+        Update,
         queue_remove_once.on_invoker_thread().in_set(QueueSet),
     );
-    runtime.add_systems::<Update, _, _>(
-        &mut world,
+    let _ = runtime.add_systems(
+        Update,
         observe_after_frontier.in_set(ObserveSet).after(QueueSet),
     );
-    runtime.add_systems::<Update, _, _>(
-        &mut world,
+    let _ = runtime.add_systems(
+        Update,
         observe_later_frontier
             .in_set(LateObserveSet)
             .after(ObserveSet),
@@ -253,14 +253,11 @@ fn multiple_removals_in_one_publication_window_are_reported() {
     world.insert_resource(EntityHistory::default());
 
     let mut runtime = Runtime::new();
-    runtime.add_systems::<Update, _, _>(
-        &mut world,
+    let _ = runtime.add_systems(
+        Update,
         queue_remove_pair_once.on_invoker_thread().in_set(QueueSet),
     );
-    runtime.add_systems::<Update, _, _>(
-        &mut world,
-        observe_entities.in_set(ObserveSet).after(QueueSet),
-    );
+    let _ = runtime.add_systems(Update, observe_entities.in_set(ObserveSet).after(QueueSet));
 
     runtime.run_schedule::<Update>(&mut world).unwrap();
 
@@ -301,14 +298,14 @@ fn query_removed_is_component_type_isolated() {
     world.insert_resource(TypeIsolationCounts::default());
 
     let mut runtime = Runtime::new();
-    runtime.add_systems::<Update, _, _>(
-        &mut world,
+    let _ = runtime.add_systems(
+        Update,
         queue_type_specific_removes_once
             .on_invoker_thread()
             .in_set(QueueSet),
     );
-    runtime.add_systems::<Update, _, _>(
-        &mut world,
+    let _ = runtime.add_systems(
+        Update,
         observe_type_isolation.in_set(ObserveSet).after(QueueSet),
     );
 
@@ -343,12 +340,12 @@ fn removed_entries_do_not_repeat_across_later_runs() {
     world.insert_resource(PublicationWindowCounts::default());
 
     let mut runtime = Runtime::new();
-    runtime.add_systems::<Update, _, _>(
-        &mut world,
+    let _ = runtime.add_systems(
+        Update,
         queue_remove_once.on_invoker_thread().in_set(QueueSet),
     );
-    runtime.add_systems::<Update, _, _>(
-        &mut world,
+    let _ = runtime.add_systems(
+        Update,
         observe_after_frontier.in_set(ObserveSet).after(QueueSet),
     );
 
@@ -382,12 +379,11 @@ fn repeated_iter_calls_return_same_window_snapshot() {
     world.insert_resource(DoubleReadCounts::default());
 
     let mut runtime = Runtime::new();
-    runtime.add_systems::<Update, _, _>(
-        &mut world,
+    let _ = runtime.add_systems(
+        Update,
         queue_remove_once.on_invoker_thread().in_set(QueueSet),
     );
-    runtime
-        .add_systems::<Update, _, _>(&mut world, observe_twice.in_set(ObserveSet).after(QueueSet));
+    let _ = runtime.add_systems(Update, observe_twice.in_set(ObserveSet).after(QueueSet));
 
     runtime.run_schedule::<Update>(&mut world).unwrap();
 
@@ -426,16 +422,13 @@ fn remove_then_reinsert_in_one_publication_still_reports_removed_removal() {
     world.insert_resource(WindowSnapshot::default());
 
     let mut runtime = Runtime::new();
-    runtime.add_systems::<Update, _, _>(
-        &mut world,
+    let _ = runtime.add_systems(
+        Update,
         queue_remove_then_reinsert_once
             .on_invoker_thread()
             .in_set(QueueSet),
     );
-    runtime.add_systems::<Update, _, _>(
-        &mut world,
-        observe_window.in_set(ObserveSet).after(QueueSet),
-    );
+    let _ = runtime.add_systems(Update, observe_window.in_set(ObserveSet).after(QueueSet));
 
     runtime.run_schedule::<Update>(&mut world).unwrap();
 
@@ -469,8 +462,8 @@ fn previous_run_removed_window_is_visible_in_next_run_first_frontier_only() {
     world.insert_resource(PublicationWindowCounts::default());
 
     let mut runtime = Runtime::new();
-    runtime.add_systems::<Update, _, _>(
-        &mut world,
+    let _ = runtime.add_systems(
+        Update,
         (
             queue_remove_once.on_invoker_thread().in_set(QueueSet),
             observe_before_frontier.in_set(QueueSet),
@@ -502,7 +495,7 @@ fn query_removed_does_not_conflict_with_live_mut_query_access() {
     world.insert_resource(PublicationWindowCounts::default());
 
     let mut runtime = Runtime::new();
-    runtime.add_systems::<Update, _, _>(&mut world, (mutate_live, observe_removed));
+    let _ = runtime.add_systems(Update, (mutate_live, observe_removed));
 
     runtime.run_schedule::<Update>(&mut world).unwrap();
 
@@ -555,13 +548,13 @@ fn batch_remove_and_despawn_preserve_removed_publication_window_semantics() {
     world.insert_resource(PublicationWindowCounts::default());
 
     let mut runtime = Runtime::new();
-    runtime.add_systems::<Update, _, _>(
-        &mut world,
+    let _ = runtime.add_systems(
+        Update,
         queue_batch_once.on_invoker_thread().in_set(QueueSet),
     );
-    runtime.add_systems::<Update, _, _>(&mut world, observe_before_frontier.in_set(QueueSet));
-    runtime.add_systems::<Update, _, _>(
-        &mut world,
+    let _ = runtime.add_systems(Update, observe_before_frontier.in_set(QueueSet));
+    let _ = runtime.add_systems(
+        Update,
         observe_after_frontier.in_set(ObserveSet).after(QueueSet),
     );
 

@@ -77,8 +77,8 @@ fn main() -> Result<(), RuntimeError> {
     world.spawn((Position(0), Velocity(1))).unwrap();
 
     let mut runtime = Runtime::new();
-    runtime.add_systems::<Update, _, _>(
-        &mut world,
+    let _ = runtime.add_systems(
+        Update,
         (
             queue_arrival.in_set(Spawn),
             integrate.in_set(Simulate).after(Spawn),

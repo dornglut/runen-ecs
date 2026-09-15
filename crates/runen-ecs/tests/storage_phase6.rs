@@ -84,10 +84,7 @@ fn command_publication_frontier_preserves_storage_visibility() {
     let mut world = World::new();
     world.insert_resource(SeenCounts(Vec::new()));
     let mut runtime = Runtime::new();
-    runtime.add_systems::<Update, _, _>(
-        &mut world,
-        (queue_spawn.on_invoker_thread(), record_a_count),
-    );
+    let _ = runtime.add_systems(Update, (queue_spawn.on_invoker_thread(), record_a_count));
 
     runtime.run_schedule::<Update>(&mut world).unwrap();
     runtime.run_schedule::<Update>(&mut world).unwrap();

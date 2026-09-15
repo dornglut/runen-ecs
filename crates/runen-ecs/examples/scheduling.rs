@@ -52,8 +52,8 @@ fn main() {
     // precedence, not registration order or the shared write conflict, decides.
     // `Prepare` is a present required reference. `DebugOutput` is deliberately
     // absent: optional ordering references remain valid when their target is absent.
-    runtime.add_systems::<Update, _, _>(
-        &mut world,
+    let _ = runtime.add_systems(
+        Update,
         (
             simulate
                 .in_set(Simulation)

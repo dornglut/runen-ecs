@@ -147,7 +147,7 @@ fn unresolved_target(error: &ScheduleValidationError) -> SystemSetDiagnosticDesc
 fn required_missing_before_target_is_structured_error() {
     let mut world = World::new();
     let mut runtime = Runtime::new();
-    runtime.add_systems::<Update, _, _>(&mut world, source.before(TargetA));
+    let _ = runtime.add_systems(Update, source.before(TargetA));
 
     let error = schedule_error(runtime.run_schedule::<Update>(&mut world).unwrap_err());
     match error {
@@ -175,7 +175,7 @@ fn required_missing_before_target_is_structured_error() {
 fn required_missing_after_target_is_structured_error() {
     let mut world = World::new();
     let mut runtime = Runtime::new();
-    runtime.add_systems::<Update, _, _>(&mut world, source.after(TargetA));
+    let _ = runtime.add_systems(Update, source.after(TargetA));
 
     let error = schedule_error(runtime.run_schedule::<Update>(&mut world).unwrap_err());
     match error {
@@ -195,7 +195,7 @@ fn required_missing_after_target_is_structured_error() {
 fn self_membership_does_not_satisfy_required_target() {
     let mut world = World::new();
     let mut runtime = Runtime::new();
-    runtime.add_systems::<Update, _, _>(&mut world, source.in_set(TargetA).before(TargetA));
+    let _ = runtime.add_systems(Update, source.in_set(TargetA).before(TargetA));
 
     let error = schedule_error(runtime.run_schedule::<Update>(&mut world).unwrap_err());
     assert!(matches!(
@@ -211,8 +211,8 @@ fn self_membership_does_not_satisfy_required_target() {
 fn optional_missing_target_is_accepted_and_repetition_is_idempotent() {
     let mut world = World::new();
     let mut runtime = Runtime::new();
-    runtime.add_systems::<Update, _, _>(
-        &mut world,
+    let _ = runtime.add_systems(
+        Update,
         source.before_if_present(TargetA).before_if_present(TargetA),
     );
 
@@ -224,8 +224,8 @@ fn optional_present_target_has_normal_precedence() {
     let mut world = World::new();
     world.insert_resource(Order::default());
     let mut runtime = Runtime::new();
-    runtime.add_systems::<Update, _, _>(&mut world, record_target.in_set(TargetA));
-    runtime.add_systems::<Update, _, _>(&mut world, record_source.before_if_present(TargetA));
+    let _ = runtime.add_systems(Update, record_target.in_set(TargetA));
+    let _ = runtime.add_systems(Update, record_source.before_if_present(TargetA));
 
     runtime.run_schedule::<Update>(&mut world).unwrap();
     assert_eq!(
@@ -239,20 +239,14 @@ fn required_dominates_optional_independent_of_builder_call_order() {
     let first = {
         let mut world = World::new();
         let mut runtime = Runtime::new();
-        runtime.add_systems::<Update, _, _>(
-            &mut world,
-            source.before_if_present(TargetA).before(TargetA),
-        );
+        let _ = runtime.add_systems(Update, source.before_if_present(TargetA).before(TargetA));
         schedule_error(runtime.run_schedule::<Update>(&mut world).unwrap_err())
     };
 
     let second = {
         let mut world = World::new();
         let mut runtime = Runtime::new();
-        runtime.add_systems::<Update, _, _>(
-            &mut world,
-            source.before(TargetA).before_if_present(TargetA),
-        );
+        let _ = runtime.add_systems(Update, source.before(TargetA).before_if_present(TargetA));
         schedule_error(runtime.run_schedule::<Update>(&mut world).unwrap_err())
     };
 
@@ -264,14 +258,14 @@ fn unresolved_selection_is_deterministic_under_builder_permutation() {
     let first = {
         let mut world = World::new();
         let mut runtime = Runtime::new();
-        runtime.add_systems::<Update, _, _>(&mut world, source.after(TargetA).before(TargetB));
+        let _ = runtime.add_systems(Update, source.after(TargetA).before(TargetB));
         schedule_error(runtime.run_schedule::<Update>(&mut world).unwrap_err())
     };
 
     let second = {
         let mut world = World::new();
         let mut runtime = Runtime::new();
-        runtime.add_systems::<Update, _, _>(&mut world, source.before(TargetB).after(TargetA));
+        let _ = runtime.add_systems(Update, source.before(TargetB).after(TargetA));
         schedule_error(runtime.run_schedule::<Update>(&mut world).unwrap_err())
     };
 
@@ -290,8 +284,8 @@ fn colliding_target_labels_are_distinct_and_builder_order_independent() {
     let first = {
         let mut world = World::new();
         let mut runtime = Runtime::new();
-        runtime.add_systems::<Update, _, _>(
-            &mut world,
+        let _ = runtime.add_systems(
+            Update,
             source.before(CollidingTargetB).before(CollidingTargetA),
         );
         schedule_error(runtime.run_schedule::<Update>(&mut world).unwrap_err())
@@ -299,8 +293,8 @@ fn colliding_target_labels_are_distinct_and_builder_order_independent() {
     let second = {
         let mut world = World::new();
         let mut runtime = Runtime::new();
-        runtime.add_systems::<Update, _, _>(
-            &mut world,
+        let _ = runtime.add_systems(
+            Update,
             source.before(CollidingTargetA).before(CollidingTargetB),
         );
         schedule_error(runtime.run_schedule::<Update>(&mut world).unwrap_err())
@@ -310,13 +304,13 @@ fn colliding_target_labels_are_distinct_and_builder_order_independent() {
     let only_a = {
         let mut world = World::new();
         let mut runtime = Runtime::new();
-        runtime.add_systems::<Update, _, _>(&mut world, source.before(CollidingTargetA));
+        let _ = runtime.add_systems(Update, source.before(CollidingTargetA));
         schedule_error(runtime.run_schedule::<Update>(&mut world).unwrap_err())
     };
     let only_b = {
         let mut world = World::new();
         let mut runtime = Runtime::new();
-        runtime.add_systems::<Update, _, _>(&mut world, source.before(CollidingTargetB));
+        let _ = runtime.add_systems(Update, source.before(CollidingTargetB));
         schedule_error(runtime.run_schedule::<Update>(&mut world).unwrap_err())
     };
     let descriptor_a = unresolved_target(&only_a);
@@ -332,8 +326,8 @@ fn colliding_schedule_labels_are_distinct() {
     let schedule_a_error = {
         let mut world = World::new();
         let mut runtime = Runtime::new();
-        runtime.add_systems::<CollidingScheduleA, _, _>(&mut world, source.before(TargetA));
-        runtime.add_systems::<CollidingScheduleB, _, _>(&mut world, other);
+        let _ = runtime.add_systems(CollidingScheduleA, source.before(TargetA));
+        let _ = runtime.add_systems(CollidingScheduleB, other);
         schedule_error(
             runtime
                 .run_schedule::<CollidingScheduleA>(&mut world)
@@ -343,8 +337,8 @@ fn colliding_schedule_labels_are_distinct() {
     let schedule_b_error = {
         let mut world = World::new();
         let mut runtime = Runtime::new();
-        runtime.add_systems::<CollidingScheduleB, _, _>(&mut world, source.before(TargetA));
-        runtime.add_systems::<CollidingScheduleA, _, _>(&mut world, other);
+        let _ = runtime.add_systems(CollidingScheduleB, source.before(TargetA));
+        let _ = runtime.add_systems(CollidingScheduleA, other);
         schedule_error(
             runtime
                 .run_schedule::<CollidingScheduleB>(&mut world)
@@ -365,8 +359,8 @@ fn diagnostic_identity_follows_returned_semantic_keys_not_wrapper_types() {
     let set_error = {
         let mut world = World::new();
         let mut runtime = Runtime::new();
-        runtime.add_systems::<Update, _, _>(
-            &mut world,
+        let _ = runtime.add_systems(
+            Update,
             source
                 .before_if_present(TargetAliasOptional)
                 .before(TargetAliasRequired),
@@ -380,7 +374,7 @@ fn diagnostic_identity_follows_returned_semantic_keys_not_wrapper_types() {
     let schedule_error_value = {
         let mut world = World::new();
         let mut runtime = Runtime::new();
-        runtime.add_systems::<ScheduleAlias, _, _>(&mut world, source.before(TargetA));
+        let _ = runtime.add_systems(ScheduleAlias, source.before(TargetA));
         schedule_error(
             runtime
                 .run_schedule::<ScheduleAlias>(&mut world)
@@ -396,10 +390,10 @@ fn diagnostic_identity_follows_returned_semantic_keys_not_wrapper_types() {
 fn unresolved_reference_is_reported_before_cycle_derivation() {
     let mut world = World::new();
     let mut runtime = Runtime::new();
-    runtime.add_systems::<Update, _, _>(&mut world, source.before(TargetA));
-    runtime.add_systems::<Update, _, _>(&mut world, cycle_a.in_set(CycleA).after(CycleB));
-    runtime.add_systems::<Update, _, _>(&mut world, cycle_b.in_set(CycleB).after(CycleA));
-    runtime.add_systems::<Update, _, _>(&mut world, other);
+    let _ = runtime.add_systems(Update, source.before(TargetA));
+    let _ = runtime.add_systems(Update, cycle_a.in_set(CycleA).after(CycleB));
+    let _ = runtime.add_systems(Update, cycle_b.in_set(CycleB).after(CycleA));
+    let _ = runtime.add_systems(Update, other);
 
     let error = schedule_error(runtime.run_schedule::<Update>(&mut world).unwrap_err());
     assert!(matches!(
