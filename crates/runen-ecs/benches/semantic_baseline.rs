@@ -1,6 +1,10 @@
-use criterion::{Criterion, criterion_group, criterion_main};
+use criterion::{BatchSize, Criterion, criterion_group, criterion_main};
 use runen_ecs::prelude::*;
+use std::any::TypeId;
 use std::hint::black_box;
+
+const ENTITY_COMPONENT_COUNT: usize = 1000;
+const QUERY_ENTITY_COUNT: usize = 10_000;
 
 #[derive(Debug, Copy, Clone, Component)]
 struct Position(u32);
@@ -8,8 +12,8 @@ struct Position(u32);
 #[derive(Debug, Copy, Clone, Component)]
 struct Velocity(u32);
 
-#[derive(Debug, Default, Resource)]
-struct Count(usize);
+#[derive(Debug, Copy, Clone, Component)]
+struct TransitionMarker;
 
 #[derive(Copy, Clone)]
 struct Update;
@@ -30,17 +34,19 @@ fn build_world(count: usize) -> World {
 
 fn bench_entity_component_insertion(c: &mut Criterion) {
     c.bench_function("entity_component_insertion_1000", |b| {
-        b.iter(|| {
-            let mut world = World::new();
-            for index in 0..1000 {
-                black_box(world.spawn((Position(index), Velocity(1))).unwrap());
-            }
-        });
+        b.iter_batched_ref(World::new, insert_entities, BatchSize::SmallInput);
     });
 }
 
+fn insert_entities(world: &mut World) {
+    for index in 0..ENTITY_COMPONENT_COUNT {
+        world.spawn((Position(index as u32), Velocity(1))).unwrap();
+    }
+    black_box(world);
+}
+
 fn bench_query_iteration(c: &mut Criterion) {
-    let world = build_world(10_000);
+    let world = build_world(QUERY_ENTITY_COUNT);
     let query = world.query_state::<(&Position, &Velocity), ()>();
     c.bench_function("query_iteration_10000", |b| {
         b.iter(|| {
@@ -53,20 +59,60 @@ fn bench_query_iteration(c: &mut Criterion) {
     });
 }
 
+struct TransitionFixture {
+    world: World,
+    entities: Vec<Entity>,
+}
+
+fn build_transition_fixture() -> TransitionFixture {
+    let mut world = World::new();
+    let mut entities = Vec::with_capacity(ENTITY_COMPONENT_COUNT);
+    for index in 0..ENTITY_COMPONENT_COUNT {
+        entities.push(world.spawn((Position(index as u32), Velocity(1))).unwrap());
+    }
+    TransitionFixture { world, entities }
+}
+
+fn apply_transition(fixture: &mut TransitionFixture) {
+    for entity in fixture.entities.iter().copied() {
+        fixture.world.insert(entity, TransitionMarker).unwrap();
+    }
+    black_box(&mut fixture.world);
+}
+
+fn assert_transition_fixture(fixture: &TransitionFixture, marker_present: bool) {
+    assert_eq!(fixture.entities.len(), ENTITY_COMPONENT_COUNT);
+    assert_eq!(
+        fixture
+            .world
+            .query_state::<(&Position, &Velocity), ()>()
+            .iter(&fixture.world)
+            .count(),
+        ENTITY_COMPONENT_COUNT
+    );
+    assert!(fixture.entities.iter().copied().all(|entity| {
+        fixture
+            .world
+            .entity_has_component_type(entity, TypeId::of::<TransitionMarker>())
+            == marker_present
+    }));
+}
+
+fn prove_transition_fixture() {
+    let mut fixture = build_transition_fixture();
+    assert_transition_fixture(&fixture, false);
+    apply_transition(&mut fixture);
+    assert_transition_fixture(&fixture, true);
+}
+
 fn bench_archetype_transition(c: &mut Criterion) {
+    prove_transition_fixture();
     c.bench_function("archetype_transition_1000", |b| {
-        b.iter(|| {
-            let mut world = build_world(1000);
-            let entities = world
-                .query_state::<(Entity, &Position), ()>()
-                .iter(&world)
-                .map(|(entity, _)| entity)
-                .collect::<Vec<_>>();
-            for entity in entities {
-                world.insert(entity, Position(2)).unwrap();
-            }
-            black_box(world.query_state::<&Position, ()>().iter(&world).count());
-        });
+        b.iter_batched_ref(
+            build_transition_fixture,
+            apply_transition,
+            BatchSize::SmallInput,
+        );
     });
 }
 
@@ -77,7 +123,7 @@ fn increment(mut query: Query<&mut Position>) {
 }
 
 fn bench_serial_schedule_execution(c: &mut Criterion) {
-    let mut world = build_world(10_000);
+    let mut world = build_world(QUERY_ENTITY_COUNT);
     let mut runtime = Runtime::new();
     runtime.add_systems(Update, increment).unwrap();
     c.bench_function("serial_schedule_execution_10000", |b| {
@@ -89,19 +135,54 @@ fn queue_spawn(mut commands: Commands) {
     commands.spawn((Position(3), Velocity(4)));
 }
 
-fn count_entities(mut query: Query<&Position>, mut count: ResMut<Count>) {
-    count.0 = query.iter().count();
+struct DeferredFixture {
+    world: World,
+    runtime: Runtime,
+}
+
+fn build_deferred_fixture() -> DeferredFixture {
+    let mut runtime = Runtime::new();
+    runtime.add_systems(Update, queue_spawn).unwrap();
+    runtime.validate().unwrap();
+    DeferredFixture {
+        world: World::new(),
+        runtime,
+    }
+}
+
+fn run_deferred_once(fixture: &mut DeferredFixture) {
+    fixture
+        .runtime
+        .run_schedule::<Update>(&mut fixture.world)
+        .unwrap();
+    black_box(&mut fixture.world);
+}
+
+fn count_position_velocity(world: &World) -> usize {
+    world
+        .query_state::<(&Position, &Velocity), ()>()
+        .iter(world)
+        .count()
+}
+
+fn prove_deferred_fixture() {
+    let mut fixture = build_deferred_fixture();
+    assert_eq!(count_position_velocity(&fixture.world), 0);
+    run_deferred_once(&mut fixture);
+    assert_eq!(count_position_velocity(&fixture.world), 1);
+
+    let second_fixture = build_deferred_fixture();
+    assert_eq!(count_position_velocity(&second_fixture.world), 0);
 }
 
 fn bench_deferred_command_application(c: &mut Criterion) {
-    let mut world = World::new();
-    world.insert_resource(Count::default());
-    let mut runtime = Runtime::new();
-    runtime
-        .add_systems(Update, (queue_spawn, count_entities))
-        .unwrap();
+    prove_deferred_fixture();
     c.bench_function("deferred_command_application", |b| {
-        b.iter(|| runtime.run_schedule::<Update>(&mut world).unwrap());
+        b.iter_batched_ref(
+            build_deferred_fixture,
+            run_deferred_once,
+            BatchSize::SmallInput,
+        );
     });
 }
 
