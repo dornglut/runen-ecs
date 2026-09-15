@@ -99,12 +99,32 @@ impl Hash for SystemSetKey {
     }
 }
 
+/// A value that identifies a set used for system membership and ordering.
+///
+/// Ordinary unit markers use type-based identity by default. A derived fieldless
+/// enum gives each variant a distinct set identity while retaining the enum's
+/// [`TypeId`](std::any::TypeId), with names such as `CoreSet::Simulation`.
+/// Names are diagnostic and scheduler set-key data; they are not persistence or
+/// network identity.
+///
+/// ```
+/// use runen_ecs::prelude::*;
+///
+/// #[derive(Copy, Clone, SystemSet)]
+/// enum CoreSet {
+///     Input,
+///     Simulation,
+/// }
+///
+/// let set = CoreSet::Simulation;
+/// assert_eq!(set.key().name(), "CoreSet::Simulation");
+/// ```
 pub trait SystemSet: Copy + 'static {
-    fn name() -> &'static str {
+    fn name(&self) -> &'static str {
         type_name::<Self>()
     }
 
-    fn key() -> SystemSetKey {
-        SystemSetKey::of::<Self>(Self::name())
+    fn key(&self) -> SystemSetKey {
+        SystemSetKey::of::<Self>(self.name())
     }
 }

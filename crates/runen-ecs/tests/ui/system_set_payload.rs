@@ -1,6 +1,6 @@
 use runen_ecs::prelude::*;
 
-#[derive(IntoSystemSetKey)]
+#[derive(SystemSet)]
 enum Payload {
     Unit,
     Value(u32),

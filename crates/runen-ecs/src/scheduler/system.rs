@@ -417,8 +417,8 @@ impl RegisteredSystem {
         })
     }
 
-    pub fn with_set<S: SystemSet>(mut self) -> Self {
-        self.with_set_key(S::key());
+    pub fn with_set<S: SystemSet>(mut self, set: S) -> Self {
+        self.with_set_key(set.key());
         self
     }
 
@@ -429,8 +429,8 @@ impl RegisteredSystem {
         self
     }
 
-    pub fn before_set<S: SystemSet>(mut self) -> Self {
-        self.before_set_key(S::key());
+    pub fn before_set<S: SystemSet>(mut self, set: S) -> Self {
+        self.before_set_key(set.key());
         self
     }
 
@@ -442,8 +442,8 @@ impl RegisteredSystem {
         self
     }
 
-    pub fn after_set<S: SystemSet>(mut self) -> Self {
-        self.after_set_key(S::key());
+    pub fn after_set<S: SystemSet>(mut self, set: S) -> Self {
+        self.after_set_key(set.key());
         self
     }
 

@@ -1,5 +1,0 @@
-error: IntoSystemSetKey derive only supports fieldless enums
- --> tests/ui/into_system_set_key_union.rs:4:7
-  |
-4 | union NotAnEnum {
-  |       ^^^^^^^^^

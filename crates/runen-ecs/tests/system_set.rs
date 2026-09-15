@@ -8,7 +8,7 @@ struct Update;
 
 impl ScheduleLabel for Update {}
 
-#[derive(Copy, Clone, IntoSystemSetKey)]
+#[derive(Copy, Clone, SystemSet)]
 enum Phase {
     Prepare,
     Simulate,
@@ -22,17 +22,52 @@ fn after_system() {}
 fn optional_before_system() {}
 fn optional_after_system() {}
 
+#[derive(Copy, Clone, SystemSet)]
+struct DerivedPrepare;
+
+#[derive(Copy, Clone)]
+struct ManualNamedSet;
+
+impl SystemSet for ManualNamedSet {
+    fn name(&self) -> &'static str {
+        "ManualPrepare"
+    }
+}
+
+#[derive(Copy, Clone)]
+struct DefaultMarker;
+
+impl SystemSet for DefaultMarker {}
+
 #[test]
 fn derived_keys_are_value_aware_and_stable() {
-    let prepare = Phase::Prepare.system_set_key();
-    let simulate = Phase::Simulate.system_set_key();
+    let prepare = Phase::Prepare.key();
+    let simulate = Phase::Simulate.key();
 
     assert_eq!(prepare.name(), "Phase::Prepare");
     assert_eq!(simulate.name(), "Phase::Simulate");
     assert_eq!(prepare.type_id(), TypeId::of::<Phase>());
     assert_eq!(simulate.type_id(), TypeId::of::<Phase>());
     assert_ne!(prepare, simulate);
-    assert_eq!(prepare, Phase::Prepare.system_set_key());
+    assert_eq!(prepare, Phase::Prepare.key());
+}
+
+#[test]
+fn unit_markers_keep_type_based_identity_and_manual_names() {
+    let default_marker = DefaultMarker.key();
+    assert_eq!(
+        default_marker.name(),
+        std::any::type_name::<DefaultMarker>()
+    );
+    assert_eq!(default_marker.type_id(), TypeId::of::<DefaultMarker>());
+
+    let derived = DerivedPrepare.key();
+    assert_eq!(derived.name(), std::any::type_name::<DerivedPrepare>());
+    assert_eq!(derived.type_id(), TypeId::of::<DerivedPrepare>());
+
+    let manual = ManualNamedSet.key();
+    assert_eq!(manual.name(), "ManualPrepare");
+    assert_eq!(manual.type_id(), TypeId::of::<ManualNamedSet>());
 }
 
 #[test]
@@ -123,9 +158,10 @@ fn derived_keys_drive_all_system_configuration_ordering_forms() {
 }
 
 #[test]
-fn into_system_set_key_rejects_non_fieldless_inputs() {
+fn system_set_derive_rejects_non_supported_inputs() {
     let cases = trybuild::TestCases::new();
-    cases.compile_fail("tests/ui/into_system_set_key_payload.rs");
-    cases.compile_fail("tests/ui/into_system_set_key_struct.rs");
-    cases.compile_fail("tests/ui/into_system_set_key_union.rs");
+    cases.compile_fail("tests/ui/system_set_payload.rs");
+    cases.compile_fail("tests/ui/system_set_named_struct.rs");
+    cases.compile_fail("tests/ui/system_set_tuple_struct.rs");
+    cases.compile_fail("tests/ui/system_set_union.rs");
 }

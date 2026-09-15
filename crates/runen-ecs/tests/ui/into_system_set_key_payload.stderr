@@ -1,5 +1,0 @@
-error: IntoSystemSetKey derive only supports fieldless enums
- --> tests/ui/into_system_set_key_payload.rs:6:10
-  |
-6 |     Value(u32),
-  |          ^^^^^

@@ -140,6 +140,16 @@ fn downstream_macro_support_contracts_remain_root_reachable() {
 }
 
 #[test]
+fn system_set_is_the_only_public_system_set_authoring_surface() {
+    assert!(LIB_RS.contains("SystemSet"));
+    assert!(PRELUDE_RS.contains("SystemSet"));
+    assert!(SYSTEM_MOD_RS.contains("SystemSet"));
+    assert!(!LIB_RS.contains("IntoSystemSetKey"));
+    assert!(!PRELUDE_RS.contains("IntoSystemSetKey"));
+    assert!(!SYSTEM_MOD_RS.contains("IntoSystemSetKey"));
+}
+
+#[test]
 fn deferred_recorder_metadata_is_hidden_but_macro_reachable() {
     assert!(LIB_RS.contains("DeferredRecorderClass"));
     assert!(SYSTEM_EXTRACT_RS.contains("#[doc(hidden)]\n#[derive(Debug, Copy, Clone, PartialEq, Eq)]\npub enum DeferredRecorderClass"));

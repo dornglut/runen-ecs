@@ -1,0 +1,5 @@
+error: SystemSet derive only supports fieldless enum variants; payload-bearing variants are not supported
+ --> tests/ui/system_set_payload.rs:6:10
+  |
+6 |     Value(u32),
+  |          ^^^^^

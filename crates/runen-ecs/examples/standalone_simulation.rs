@@ -6,17 +6,14 @@ struct Update;
 
 impl ScheduleLabel for Update {}
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, SystemSet)]
 struct Spawn;
-impl SystemSet for Spawn {}
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, SystemSet)]
 struct Simulate;
-impl SystemSet for Simulate {}
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, SystemSet)]
 struct Observe;
-impl SystemSet for Observe {}
 
 #[derive(Debug, Component)]
 struct Position(i32);

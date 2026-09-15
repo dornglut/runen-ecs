@@ -19,7 +19,7 @@ impl ScheduleLabel for Update {
 struct GameplaySet;
 
 impl SystemSet for GameplaySet {
-    fn name() -> &'static str {
+    fn name(&self) -> &'static str {
         "GameplaySet"
     }
 }
@@ -28,7 +28,7 @@ impl SystemSet for GameplaySet {
 struct PostGameplaySet;
 
 impl SystemSet for PostGameplaySet {
-    fn name() -> &'static str {
+    fn name(&self) -> &'static str {
         "PostGameplaySet"
     }
 }
@@ -37,7 +37,7 @@ impl SystemSet for PostGameplaySet {
 struct LateObserveSet;
 
 impl SystemSet for LateObserveSet {
-    fn name() -> &'static str {
+    fn name(&self) -> &'static str {
         "LateObserveSet"
     }
 }

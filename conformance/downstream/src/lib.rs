@@ -37,7 +37,7 @@ impl ScheduleLabel for Update {
     }
 }
 
-#[derive(Copy, Clone, IntoSystemSetKey)]
+#[derive(Copy, Clone, SystemSet)]
 enum Phase {
     Prepare,
     Simulate,
@@ -55,12 +55,12 @@ fn touch_world(mut world: WorldMut<'_>) {
 }
 
 pub fn run_conformance() -> Result<(), RuntimeError> {
-    let prepare = Phase::Prepare.system_set_key();
-    let simulate = Phase::Simulate.system_set_key();
+    let prepare = Phase::Prepare.key();
+    let simulate = Phase::Simulate.key();
     assert_eq!(prepare.name(), "Phase::Prepare");
     assert_eq!(simulate.name(), "Phase::Simulate");
     assert_ne!(prepare, simulate);
-    assert_eq!(prepare, Phase::Prepare.system_set_key());
+    assert_eq!(prepare, Phase::Prepare.key());
 
     let mut world = World::new();
     world.insert_resource(Frame::default());

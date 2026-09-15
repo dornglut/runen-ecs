@@ -1,0 +1,8 @@
+error: SystemSet derive only supports unit structs or fieldless enums; named-field structs are not supported
+ --> tests/ui/system_set_named_struct.rs:4:23
+  |
+4 |   struct NotAUnitStruct {
+  |  _______________________^
+5 | |     value: u32,
+6 | | }
+  | |_^

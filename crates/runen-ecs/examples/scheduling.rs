@@ -4,17 +4,14 @@ use runen_ecs::prelude::*;
 struct Update;
 impl ScheduleLabel for Update {}
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, SystemSet)]
 struct Prepare;
-impl SystemSet for Prepare {}
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, SystemSet)]
 struct Simulation;
-impl SystemSet for Simulation {}
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, SystemSet)]
 struct DebugOutput;
-impl SystemSet for DebugOutput {}
 
 #[derive(Debug, Default, Resource)]
 struct Order(Vec<&'static str>);
