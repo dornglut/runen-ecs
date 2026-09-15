@@ -112,6 +112,8 @@ reinterpret or replace the H2 predecessor evidence above.
 - Criterion configuration: normal optimized Criterion run with default 3-second
   warm-up and 100-sample collection; Gnuplot was unavailable, so Criterion
   used its Plotters backend.
+- Reset-fixture batch choice: `BatchSize::SmallInput` for insertion, transition
+  and deferred application, matching the measured harness source.
 
 Observed exact-H medians:
 
@@ -123,6 +125,12 @@ Observed exact-H medians:
 | Serial schedule execution (10000) | 10,000 mutable `Position` components per invocation | 1.1314 ms |
 | Deferred command application | one `Commands` spawn published by one `Update` invocation | 2.1106 µs |
 
-This evidence commit changes benchmark documentation only. `H..E` contains no
-benchmark-source, runtime-source, test-source, or API-source mutation affecting
+These exact-H figures are migration provenance only. They were not produced as
+a controlled paired H2-versus-H comparison, so their differences from the H2
+medians do not establish an ECS performance regression or improvement and do
+not replace H2 as a performance threshold. Any such claim requires separately
+controlled comparative measurement.
+
+All commits after H in this candidate change benchmark documentation only; no
+benchmark-source, runtime-source, test-source, or API-source mutation affects
 the measured harness.
