@@ -1,5 +1,7 @@
 use runen_ecs::LocalCommands;
 use runen_ecs::prelude::*;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, runen_ecs::Component, runen_ecs::Resource)]
 struct A(i32);
@@ -9,6 +11,37 @@ struct B(i32);
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, runen_ecs::Component, runen_ecs::Resource)]
 struct C(i32);
+
+struct DropProbe {
+    id: u32,
+    drops: Arc<AtomicUsize>,
+}
+
+impl DropProbe {
+    fn new(id: u32, drops: &Arc<AtomicUsize>) -> Self {
+        Self {
+            id,
+            drops: Arc::clone(drops),
+        }
+    }
+}
+
+impl Drop for DropProbe {
+    fn drop(&mut self) {
+        self.drops.fetch_add(1, Ordering::Relaxed);
+    }
+}
+
+impl Component for DropProbe {}
+
+#[repr(align(64))]
+struct OverAligned(u64);
+
+impl Component for OverAligned {}
+
+struct ZeroSized;
+
+impl Component for ZeroSized {}
 
 #[derive(Debug, PartialEq, Eq, runen_ecs::Component, runen_ecs::Resource)]
 struct SeenCounts(Vec<usize>);
@@ -318,4 +351,66 @@ fn despawn_after_multiple_migrations_preserves_swapped_entity_consistency() {
         .expect("partner should remain tracked after swap-remove despawn");
     assert_eq!(partner_after.0, partner_before.0);
     assert_eq!(partner_after.1, migrating_before.1);
+}
+
+#[test]
+fn non_copy_values_move_once_through_replacement_migration_and_despawn() {
+    let mut world = World::new();
+    let drops = Arc::new(AtomicUsize::new(0));
+    let entity = world
+        .spawn(DropProbe::new(1, &drops))
+        .expect("spawn should succeed");
+
+    world.insert(entity, DropProbe::new(2, &drops)).unwrap();
+    assert_eq!(drops.load(Ordering::Relaxed), 1);
+    assert_eq!(world.require::<DropProbe>(entity).unwrap().id, 2);
+
+    for value in 0..8 {
+        world.insert(entity, B(value)).unwrap();
+        assert_eq!(world.require::<DropProbe>(entity).unwrap().id, 2);
+        let _: B = world.remove(entity).unwrap();
+    }
+
+    world.despawn(entity).unwrap();
+    assert_eq!(drops.load(Ordering::Relaxed), 2);
+}
+
+#[test]
+fn growth_after_a_borrow_scope_keeps_dense_values_valid() {
+    let mut world = World::new();
+    let first = world.spawn(A(11)).unwrap();
+
+    {
+        let value = world.get::<A>(first).expect("A should be present");
+        assert_eq!(value.0, 11);
+    }
+
+    let mut entities = Vec::new();
+    for value in 0..128 {
+        entities.push(world.spawn(A(value)).unwrap());
+    }
+
+    assert_eq!(world.require::<A>(first).unwrap().0, 11);
+    for (value, entity) in entities.into_iter().enumerate() {
+        assert_eq!(world.require::<A>(entity).unwrap().0, value as i32);
+    }
+}
+
+#[test]
+fn zero_sized_and_over_aligned_components_remain_valid_across_migration() {
+    let mut world = World::new();
+    let entity = world
+        .spawn((ZeroSized, OverAligned(7)))
+        .expect("spawn should succeed");
+
+    assert!(world.get::<ZeroSized>(entity).is_some());
+    assert_eq!(world.require::<OverAligned>(entity).unwrap().0, 7);
+    assert_eq!(std::mem::align_of::<OverAligned>(), 64);
+
+    world.insert(entity, B(9)).unwrap();
+    assert!(world.get::<ZeroSized>(entity).is_some());
+    assert_eq!(world.require::<OverAligned>(entity).unwrap().0, 7);
+    let _: B = world.remove(entity).unwrap();
+    assert!(world.get::<ZeroSized>(entity).is_some());
+    assert_eq!(world.require::<OverAligned>(entity).unwrap().0, 7);
 }
