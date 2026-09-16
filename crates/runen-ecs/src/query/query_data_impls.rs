@@ -40,6 +40,10 @@ fn collect_rows_from_bindings(
 impl<T: Component> QueryData for &T {
     type Item<'w> = &'w T;
 
+    fn supports_contiguous_segments() -> bool {
+        true
+    }
+
     fn query_types() -> Vec<TypeId> {
         vec![TypeId::of::<T>()]
     }
@@ -77,6 +81,10 @@ impl<T: Component> QueryData for &T {
 
 impl<T: Component> QueryData for &mut T {
     type Item<'w> = &'w mut T;
+
+    fn supports_contiguous_segments() -> bool {
+        true
+    }
 
     fn query_types() -> Vec<TypeId> {
         vec![TypeId::of::<T>()]
@@ -154,6 +162,10 @@ impl<T: Component> QueryData for &mut T {
 impl<T: Component> QueryData for (Entity, &T) {
     type Item<'w> = (Entity, &'w T);
 
+    fn supports_contiguous_segments() -> bool {
+        true
+    }
+
     fn query_types() -> Vec<TypeId> {
         vec![TypeId::of::<T>()]
     }
@@ -169,6 +181,10 @@ impl<T: Component> QueryData for (Entity, &T) {
 
 impl<T: Component> QueryData for (Entity, &mut T) {
     type Item<'w> = (Entity, &'w mut T);
+
+    fn supports_contiguous_segments() -> bool {
+        true
+    }
 
     fn query_types() -> Vec<TypeId> {
         vec![TypeId::of::<T>()]
@@ -191,6 +207,10 @@ impl<T: Component> QueryData for (Entity, &mut T) {
 impl<A: Component, B: Component> QueryData for (&A, &B) {
     type Item<'w> = (&'w A, &'w B);
 
+    fn supports_contiguous_segments() -> bool {
+        true
+    }
+
     fn query_types() -> Vec<TypeId> {
         vec![TypeId::of::<A>(), TypeId::of::<B>()]
     }
@@ -209,6 +229,10 @@ impl<A: Component, B: Component> QueryData for (&A, &B) {
 
 impl<A: Component, B: Component> QueryData for (&mut A, &B) {
     type Item<'w> = (&'w mut A, &'w B);
+
+    fn supports_contiguous_segments() -> bool {
+        true
+    }
 
     fn query_types() -> Vec<TypeId> {
         vec![TypeId::of::<A>(), TypeId::of::<B>()]
@@ -307,6 +331,10 @@ impl<A: Component, B: Component> QueryData for (&mut A, &B) {
 impl<A: Component, B: Component> QueryData for (&A, &mut B) {
     type Item<'w> = (&'w A, &'w mut B);
 
+    fn supports_contiguous_segments() -> bool {
+        true
+    }
+
     fn query_types() -> Vec<TypeId> {
         vec![TypeId::of::<A>(), TypeId::of::<B>()]
     }
@@ -339,6 +367,10 @@ impl<A: Component, B: Component> QueryData for (&A, &mut B) {
 
 impl<A: Component, B: Component> QueryData for (&mut A, &mut B) {
     type Item<'w> = (&'w mut A, &'w mut B);
+
+    fn supports_contiguous_segments() -> bool {
+        true
+    }
 
     fn query_types() -> Vec<TypeId> {
         vec![TypeId::of::<A>(), TypeId::of::<B>()]

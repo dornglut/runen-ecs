@@ -6,6 +6,15 @@ struct A(i32);
 #[derive(Debug, Copy, Clone, Component)]
 struct B(i32);
 
+#[derive(Debug, Copy, Clone, Component)]
+struct Extra;
+
+#[derive(Debug, Copy, Clone, Component)]
+struct ZeroA;
+
+#[derive(Debug, Copy, Clone, Component)]
+struct ZeroB;
+
 #[derive(Debug, Copy, Clone, Resource)]
 struct ResourceA(i32);
 
@@ -135,4 +144,35 @@ fn migrated_archetype_query_still_yields_unique_mutable_items() {
     first.0 += 10;
     second.0 += 20;
     assert!(iter.next().is_none());
+}
+
+#[test]
+fn mutable_contiguous_segments_remain_disjoint_while_slices_are_retained() {
+    let mut world = World::new();
+    world.spawn((A(1), B(10))).unwrap();
+    world.spawn((A(2), B(20), Extra)).unwrap();
+
+    let query = world.query::<(&mut A, &mut B)>();
+    let mut segments = query.try_contiguous_segments(&mut world).unwrap();
+    assert_eq!(segments.len(), 2);
+
+    let mut first_segment = segments.next().unwrap();
+    let (first_a, first_b) = first_segment.component_pair_mut::<A, B>().unwrap();
+    let mut second_segment = segments.next().unwrap();
+    let (second_a, second_b) = second_segment.component_pair_mut::<A, B>().unwrap();
+
+    first_a[0].0 += 1;
+    first_b[0].0 += 2;
+    second_a[0].0 += 3;
+    second_b[0].0 += 4;
+    assert!(segments.next().is_none());
+
+    let mut zst_world = World::new();
+    zst_world.spawn((ZeroA, ZeroB)).unwrap();
+    let zst_query = zst_world.query::<(&mut ZeroA, &mut ZeroB)>();
+    let mut zst_segments = zst_query.try_contiguous_segments(&mut zst_world).unwrap();
+    let mut zst_segment = zst_segments.next().unwrap();
+    let (zero_a, zero_b) = zst_segment.component_pair_mut::<ZeroA, ZeroB>().unwrap();
+    zero_a[0] = ZeroA;
+    zero_b[0] = ZeroB;
 }

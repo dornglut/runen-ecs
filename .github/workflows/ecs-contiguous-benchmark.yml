@@ -1,0 +1,93 @@
+name: RunenECS contiguous query benchmark
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'crates/runen-ecs/benches/semantic_baseline.rs'
+      - 'crates/runen-ecs/src/query/**'
+      - 'crates/runen-ecs/src/storage/**'
+      - 'crates/runen-ecs/src/world/capability.rs'
+      - 'crates/runen-ecs/tests/contiguous_query_segments.rs'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.github/workflows/ecs-contiguous-benchmark.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ecs-contiguous-benchmark-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  benchmark:
+    name: Scalar versus contiguous query, 10,000 rows
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Resolve expected revision
+        id: revision
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_SHA: ${{ github.sha }}
+          PULL_REQUEST_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          case "$EVENT_NAME" in
+            pull_request) expected_revision="$PULL_REQUEST_HEAD_SHA" ;;
+            workflow_dispatch) expected_revision="$EVENT_SHA" ;;
+            *) echo "Unsupported event: $EVENT_NAME" >&2; exit 1 ;;
+          esac
+          test -n "$expected_revision"
+          echo "expected_revision=$expected_revision" >> "$GITHUB_OUTPUT"
+
+      - name: Check out exact revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ steps.revision.outputs.expected_revision }}
+          clean: true
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Prove checked-out revision
+        env:
+          EXPECTED_REVISION: ${{ steps.revision.outputs.expected_revision }}
+        run: |
+          set -euo pipefail
+          actual_revision="$(git rev-parse HEAD)"
+          echo "Expected revision: $EXPECTED_REVISION"
+          echo "Actual checked-out revision: $actual_revision"
+          test "$actual_revision" = "$EXPECTED_REVISION"
+
+      - name: Record host and toolchain
+        run: |
+          set -euo pipefail
+          {
+            echo "Revision: $(git rev-parse HEAD)"
+            echo "Runner: $RUNNER_OS / $RUNNER_ARCH"
+            uname -a
+            lscpu
+            rustc -Vv
+            cargo -V
+          } | tee benchmark-environment.txt
+
+      - name: Run corrected semantic benchmark pair
+        run: |
+          set -euo pipefail
+          cargo bench -p runen-ecs --bench semantic_baseline --locked -- \
+            --noplot --warm-up-time 3 --measurement-time 10 --sample-size 100 \
+            query_iteration_10000 2>&1 | tee benchmark-results.txt
+
+      - name: Upload measurements and Criterion samples
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ecs-contiguous-benchmark-${{ steps.revision.outputs.expected_revision }}
+          if-no-files-found: error
+          path: |
+            benchmark-environment.txt
+            benchmark-results.txt
+            target/criterion/scalar_query_iteration_10000/new/**
+            target/criterion/contiguous_query_iteration_10000/new/**

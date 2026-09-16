@@ -1,4 +1,5 @@
 use criterion::{BatchSize, Criterion, criterion_group, criterion_main};
+use runen_ecs::QueryState;
 use runen_ecs::prelude::*;
 use std::any::TypeId;
 use std::hint::black_box;
@@ -48,7 +49,7 @@ fn insert_entities(world: &mut World) {
 fn bench_query_iteration(c: &mut Criterion) {
     let world = build_world(QUERY_ENTITY_COUNT);
     let query = world.query::<(&Position, &Velocity)>();
-    c.bench_function("query_iteration_10000", |b| {
+    c.bench_function("scalar_query_iteration_10000", |b| {
         b.iter(|| {
             let checksum = query
                 .iter(&world)
@@ -56,6 +57,49 @@ fn bench_query_iteration(c: &mut Criterion) {
                 .sum::<u32>();
             black_box(checksum);
         });
+    });
+}
+
+fn contiguous_query_checksum(query: &QueryState<(&Position, &Velocity)>, world: &World) -> u64 {
+    let mut checksum = 0_u64;
+    for segment in query
+        .try_contiguous_segments(world)
+        .expect("the benchmark query has a supported contiguous shape")
+    {
+        let (positions, velocities) = segment
+            .component_pair::<Position, Velocity>()
+            .expect("both benchmark components are projected");
+        checksum += positions
+            .iter()
+            .zip(velocities)
+            .map(|(position, velocity)| u64::from(position.0 + velocity.0))
+            .sum::<u64>();
+    }
+    checksum
+}
+
+fn prove_contiguous_query_fixture() {
+    let scalar_world = build_world(QUERY_ENTITY_COUNT);
+    let scalar_query = scalar_world.query::<(&Position, &Velocity)>();
+    let scalar_checksum = scalar_query
+        .iter(&scalar_world)
+        .map(|(position, velocity)| u64::from(position.0 + velocity.0))
+        .sum::<u64>();
+
+    let contiguous_world = build_world(QUERY_ENTITY_COUNT);
+    let contiguous_query = contiguous_world.query::<(&Position, &Velocity)>();
+    assert_eq!(
+        contiguous_query_checksum(&contiguous_query, &contiguous_world),
+        scalar_checksum
+    );
+}
+
+fn bench_contiguous_query_iteration(c: &mut Criterion) {
+    prove_contiguous_query_fixture();
+    let world = build_world(QUERY_ENTITY_COUNT);
+    let query = world.query::<(&Position, &Velocity)>();
+    c.bench_function("contiguous_query_iteration_10000", |b| {
+        b.iter(|| black_box(contiguous_query_checksum(&query, &world)));
     });
 }
 
@@ -187,6 +231,7 @@ criterion_group!(
     semantic_baseline,
     bench_entity_component_insertion,
     bench_query_iteration,
+    bench_contiguous_query_iteration,
     bench_archetype_transition,
     bench_serial_schedule_execution,
     bench_deferred_command_application,

@@ -11,8 +11,10 @@ use super::mutation_journal::MutationJournal;
 use super::parallel::WorkerQueryCapability;
 use crate::component::Component;
 use crate::entity::{Entity, WorldScopeId};
-use crate::errors::ResourceError;
-use crate::storage::{ArchetypeExecutionBinding, ArchetypeRegistry, EntityLocationMap};
+use crate::errors::{ContiguousQueryError, ResourceError};
+use crate::storage::{
+    ArchetypeExecutionBinding, ArchetypeRegistry, ContiguousArchetypeSpan, EntityLocationMap,
+};
 use std::any::{TypeId, type_name};
 use std::cell::RefCell;
 use std::collections::{BTreeSet, HashMap};
@@ -71,6 +73,9 @@ impl<'world> WorldAuthority<'world> {
 #[derive(Copy, Clone)]
 struct SerialQueryCapability<'world> {
     world_scope: WorldScopeId,
+    // Set only at the direct boundary that produced this capability; shared
+    // serial queries must use immutable column bases, never `as_mut`.
+    world_mutable: bool,
     alive_entities: NonNull<BTreeSet<Entity>>,
     archetype_registry: NonNull<ArchetypeRegistry>,
     entity_locations: NonNull<EntityLocationMap>,
@@ -108,6 +113,7 @@ impl<'world> QueryCapability<'world> {
         Self {
             backing: QueryCapabilityBacking::Serial(SerialQueryCapability {
                 world_scope: world.scope_id(),
+                world_mutable: false,
                 alive_entities: NonNull::from(&world.alive_entities),
                 archetype_registry: NonNull::from(&world.archetype_registry),
                 entity_locations: NonNull::from(&world.entity_locations),
@@ -125,6 +131,7 @@ impl<'world> QueryCapability<'world> {
         Self {
             backing: QueryCapabilityBacking::Serial(SerialQueryCapability {
                 world_scope: world.scope_id(),
+                world_mutable: true,
                 alive_entities: NonNull::from(&mut world.alive_entities),
                 archetype_registry: NonNull::from(&mut world.archetype_registry),
                 entity_locations: NonNull::from(&mut world.entity_locations),
@@ -153,6 +160,7 @@ impl<'world> QueryCapability<'world> {
         Self {
             backing: QueryCapabilityBacking::Serial(SerialQueryCapability {
                 world_scope: unsafe { (*world_ptr).scope_id() },
+                world_mutable: true,
                 alive_entities: unsafe {
                     NonNull::new_unchecked(std::ptr::addr_of_mut!((*world_ptr).alive_entities))
                 },
@@ -238,6 +246,72 @@ impl<'world> QueryCapability<'world> {
             },
             QueryCapabilityBacking::Worker(worker) => {
                 worker.matching_archetype_bindings_into(required_present, excluded, out)
+            }
+        }
+    }
+
+    pub(crate) fn collect_contiguous_spans(
+        self,
+        required_present: &[TypeId],
+        excluded: &[TypeId],
+        component_types: &[TypeId],
+        mutable_types: &[TypeId],
+    ) -> Result<Vec<ContiguousArchetypeSpan>, ContiguousQueryError> {
+        // Worker projections contain borrowed row access, not Vec allocation
+        // ownership; contiguous spans remain direct-serial only.
+        match self.backing {
+            QueryCapabilityBacking::Serial(mut serial) => {
+                if serial.world_mutable {
+                    unsafe {
+                        serial.archetype_registry.as_mut().collect_contiguous_spans(
+                            required_present,
+                            excluded,
+                            component_types,
+                            mutable_types,
+                        )
+                    }
+                    .map_err(|()| ContiguousQueryError::StorageInvariant)
+                } else {
+                    unsafe {
+                        serial
+                            .archetype_registry
+                            .as_ref()
+                            .collect_contiguous_spans_shared(
+                                required_present,
+                                excluded,
+                                component_types,
+                                mutable_types,
+                            )
+                    }
+                    .map_err(|()| ContiguousQueryError::StorageInvariant)
+                }
+            }
+            QueryCapabilityBacking::Worker(_) => Err(ContiguousQueryError::WorkerCapability),
+        }
+    }
+
+    pub(crate) fn mark_contiguous_component_modified(
+        self,
+        entity: Entity,
+        component_type: TypeId,
+        changed_tick: NonNull<ChangeCursor>,
+    ) {
+        match self.backing {
+            QueryCapabilityBacking::Serial(mut serial) if serial.world_mutable => {
+                debug_assert!(serial.mutation_journal.is_none());
+                let tick = Self::record_serial_component_change(
+                    &mut serial,
+                    entity,
+                    component_type,
+                    false,
+                );
+                // Safety: `changed_tick` addresses this component row's metadata
+                // captured during segment preflight. The World borrow excludes
+                // structural changes, and each (row, component) is recorded once.
+                unsafe { changed_tick.as_ptr().write(tick) };
+            }
+            QueryCapabilityBacking::Serial(_) | QueryCapabilityBacking::Worker(_) => {
+                unreachable!("mutable contiguous spans require a direct exclusive World borrow")
             }
         }
     }

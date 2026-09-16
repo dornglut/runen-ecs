@@ -63,6 +63,29 @@ pub enum QueryError {
     },
 }
 
+/// A contiguous query segment could not be projected without changing query
+/// semantics. Contiguous queries fail explicitly; they never fall back to
+/// scalar iteration.
+#[derive(Debug, Error, Copy, Clone, PartialEq, Eq)]
+pub enum ContiguousQueryError {
+    #[error("query data shape does not support contiguous segments")]
+    UnsupportedQueryShape,
+    #[error("query filter shape is not archetype-uniform")]
+    UnsupportedFilterShape,
+    #[error("contiguous query component types must be distinct")]
+    AliasedComponentType,
+    #[error("contiguous segments are unavailable from worker query capabilities")]
+    WorkerCapability,
+    #[error("mutable contiguous projections require an exclusive World borrow")]
+    MutableWorldRequired,
+    #[error("component storage is not aligned with its archetype entity rows")]
+    StorageInvariant,
+    #[error("component type is not projected by this query")]
+    ComponentNotProjected,
+    #[error("component is not mutably projected by this query")]
+    ComponentNotMutable,
+}
+
 /// Structured envelope for failures owned by the ECS runtime boundary.
 #[derive(Debug, Error)]
 pub enum RuntimeError {

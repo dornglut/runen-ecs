@@ -6,11 +6,27 @@ use crate::storage::dense::{DenseColumn, DenseEntityColumn, DenseRowMetadata};
 use crate::world::ChangeCursor;
 use std::any::{Any, TypeId};
 use std::collections::HashMap;
+use std::ptr::NonNull;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub(crate) struct ArchetypeExecutionBinding {
     pub(crate) archetype_index: usize,
     pub(crate) row_count: usize,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct ContiguousComponentSpan {
+    pub(crate) component_type: TypeId,
+    pub(crate) values: NonNull<()>,
+    pub(crate) row_count: usize,
+    pub(crate) changed_ticks: Vec<NonNull<ChangeCursor>>,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct ContiguousArchetypeSpan {
+    pub(crate) entities: NonNull<Entity>,
+    pub(crate) row_count: usize,
+    pub(crate) components: Vec<ContiguousComponentSpan>,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
@@ -75,6 +91,12 @@ impl ErasedDenseRow {
 
 trait ArchetypeComponentColumn {
     fn len(&self) -> usize;
+    fn metadata_len(&self) -> usize;
+    fn changed_tick_ptr(&mut self, row: usize) -> Option<NonNull<ChangeCursor>>;
+    // These expose allocation bases only to the crate-private segment proof;
+    // callers must retain the World borrow and must not structurally mutate.
+    fn as_ptr(&self) -> *const ();
+    fn as_mut_ptr(&mut self) -> *mut ();
     fn get_ptr(&self, row: usize) -> Option<*const ()>;
     fn get_mut_ptr(&mut self, row: usize) -> Option<*mut ()>;
     fn metadata(&self, row: usize) -> Option<DenseRowMetadata>;
@@ -98,6 +120,22 @@ impl<T: Component> Default for TypedArchetypeColumn<T> {
 impl<T: Component> ArchetypeComponentColumn for TypedArchetypeColumn<T> {
     fn len(&self) -> usize {
         self.dense.len()
+    }
+
+    fn metadata_len(&self) -> usize {
+        self.dense.metadata_len()
+    }
+
+    fn changed_tick_ptr(&mut self, row: usize) -> Option<NonNull<ChangeCursor>> {
+        self.dense.changed_tick_ptr(row)
+    }
+
+    fn as_ptr(&self) -> *const () {
+        self.dense.as_ptr().cast::<()>()
+    }
+
+    fn as_mut_ptr(&mut self) -> *mut () {
+        self.dense.as_mut_ptr().cast::<()>()
     }
 
     fn get_ptr(&self, row: usize) -> Option<*const ()> {
@@ -373,6 +411,107 @@ impl ArchetypeRegistry {
             });
         }
         true
+    }
+
+    /// Capture private allocation bases after checking every matching payload
+    /// and metadata column against its entity-row count. The caller must retain
+    /// the exclusive World borrow for every later dereference of these pointers.
+    pub(crate) fn collect_contiguous_spans(
+        &mut self,
+        required_present: &[TypeId],
+        excluded: &[TypeId],
+        component_types: &[TypeId],
+        mutable_types: &[TypeId],
+    ) -> Result<Vec<ContiguousArchetypeSpan>, ()> {
+        let mut bindings = Vec::new();
+        self.collect_matching_bindings(required_present, excluded, &mut bindings);
+
+        let mut spans = Vec::with_capacity(bindings.len());
+        for binding in bindings {
+            let archetype = self.archetypes.get_mut(binding.archetype_index).ok_or(())?;
+            let row_count = archetype.entities.len();
+            if row_count != binding.row_count || row_count == 0 {
+                return Err(());
+            }
+
+            let entities = NonNull::new(archetype.entities.as_ptr().cast_mut()).ok_or(())?;
+            let mut components = Vec::with_capacity(component_types.len());
+            for component_type in component_types {
+                let column = archetype.columns.get_mut(component_type).ok_or(())?;
+                if column.len() != row_count || column.metadata_len() != row_count {
+                    return Err(());
+                }
+                let values = NonNull::new(column.as_mut_ptr()).ok_or(())?;
+                let changed_ticks = if mutable_types.contains(component_type) {
+                    (0..row_count)
+                        .map(|row| column.changed_tick_ptr(row).ok_or(()))
+                        .collect::<Result<Vec<_>, _>>()?
+                } else {
+                    Vec::new()
+                };
+                components.push(ContiguousComponentSpan {
+                    component_type: *component_type,
+                    values,
+                    row_count,
+                    changed_ticks,
+                });
+            }
+
+            spans.push(ContiguousArchetypeSpan {
+                entities,
+                row_count,
+                components,
+            });
+        }
+        Ok(spans)
+    }
+
+    /// Shared counterpart of `collect_contiguous_spans`; all later dereferences
+    /// must remain shared and the caller must retain the World borrow.
+    pub(crate) fn collect_contiguous_spans_shared(
+        &self,
+        required_present: &[TypeId],
+        excluded: &[TypeId],
+        component_types: &[TypeId],
+        mutable_types: &[TypeId],
+    ) -> Result<Vec<ContiguousArchetypeSpan>, ()> {
+        if !mutable_types.is_empty() {
+            return Err(());
+        }
+        let mut bindings = Vec::new();
+        self.collect_matching_bindings(required_present, excluded, &mut bindings);
+
+        let mut spans = Vec::with_capacity(bindings.len());
+        for binding in bindings {
+            let archetype = self.archetypes.get(binding.archetype_index).ok_or(())?;
+            let row_count = archetype.entities.len();
+            if row_count != binding.row_count || row_count == 0 {
+                return Err(());
+            }
+
+            let entities = NonNull::new(archetype.entities.as_ptr().cast_mut()).ok_or(())?;
+            let mut components = Vec::with_capacity(component_types.len());
+            for component_type in component_types {
+                let column = archetype.columns.get(component_type).ok_or(())?;
+                if column.len() != row_count || column.metadata_len() != row_count {
+                    return Err(());
+                }
+                let values = NonNull::new(column.as_ptr().cast_mut()).ok_or(())?;
+                components.push(ContiguousComponentSpan {
+                    component_type: *component_type,
+                    values,
+                    row_count,
+                    changed_ticks: Vec::new(),
+                });
+            }
+
+            spans.push(ContiguousArchetypeSpan {
+                entities,
+                row_count,
+                components,
+            });
+        }
+        Ok(spans)
     }
 
     pub(crate) fn set_entity_components(
