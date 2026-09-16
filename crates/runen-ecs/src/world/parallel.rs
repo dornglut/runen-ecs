@@ -19,7 +19,8 @@ struct SharedComponentProjection<T: Component> {
 }
 
 // Safety: this projection only produces shared `&T` values. Construction is
-// restricted to `T: Sync`, and the structural lease keeps all addresses stable.
+// restricted to `T: Sync`, and the structural lease prevents structural
+// mutation or dense-column reallocation while these addresses are observed.
 unsafe impl<T: Component + Sync> Send for SharedComponentProjection<T> {}
 
 struct MutableComponentProjection<T: Component> {
@@ -51,7 +52,9 @@ unsafe impl<T: Resource + Send> Send for MutableResourceProjection<T> {}
 ///
 /// The sole live `World` pointer never leaves this lease. Safe callers cannot
 /// use the borrowed World while the lease exists; worker packages contain only
-/// prepared payload projections and copied ECS metadata.
+/// prepared payload projections and copied ECS metadata. Dense payloads may
+/// relocate in later structural epochs, but not while this lease's workers can
+/// observe their prepared pointers.
 pub(crate) struct ParallelWorldLease<'world> {
     world: NonNull<World>,
     base_cursor: ChangeCursor,
@@ -89,7 +92,9 @@ impl<'world> ParallelWorldLease<'world> {
             "worker journal must belong to the active structural-freeze cohort"
         );
         // Safety: worker threads have already joined before reconciliation and
-        // the lease still owns the unique World authority.
+        // the lease still owns the unique World authority. No structural
+        // publication or dense-column relocation can occur before the lease is
+        // dropped after reconciliation.
         let world = unsafe { self.world.as_mut() };
         assert_eq!(
             world.current_change_cursor(),

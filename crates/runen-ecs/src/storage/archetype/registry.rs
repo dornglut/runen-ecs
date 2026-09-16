@@ -58,17 +58,18 @@ struct ErasedDenseRow {
 impl ErasedDenseRow {
     fn new_added<T: Component>(value: T, tick: ChangeCursor) -> Self {
         Self {
-            value: Box::new(Box::new(value)),
+            // This box is only the temporary type-erasure transport between
+            // archetypes; the destination column moves T into its Vec<T>.
+            value: Box::new(value),
             metadata: DenseRowMetadata::new(tick, tick),
         }
     }
 
     fn into_typed_value<T: Component>(self) -> T {
-        let boxed = self
+        *self
             .value
-            .downcast::<Box<T>>()
-            .expect("archetype row value type mismatch");
-        **boxed
+            .downcast::<T>()
+            .expect("archetype row value type mismatch")
     }
 }
 
@@ -118,14 +119,16 @@ impl<T: Component> ArchetypeComponentColumn for TypedArchetypeColumn<T> {
     fn push_erased(&mut self, row: ErasedDenseRow) {
         let value = row
             .value
-            .downcast::<Box<T>>()
+            .downcast::<T>()
             .expect("archetype row value type mismatch");
-        let _ = self.dense.push_boxed(*value, row.metadata);
+        let _ = self.dense.push(*value, row.metadata);
     }
 
     fn swap_remove_erased(&mut self, row: usize) -> Option<ErasedDenseRow> {
-        let removed = self.dense.swap_remove_boxed(row)?;
+        let removed = self.dense.swap_remove(row)?;
         Some(ErasedDenseRow {
+            // This box is only temporary type-erasure transport for the next
+            // destination column or the removal API.
             value: Box::new(removed.removed_value),
             metadata: removed.removed_metadata,
         })

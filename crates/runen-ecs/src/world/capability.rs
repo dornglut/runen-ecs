@@ -53,7 +53,8 @@ impl<'world> WorldAuthority<'world> {
         self,
     ) -> Result<ResourceCapability<'world, T>, ResourceError> {
         // Safety: the authority lifetime is the invocation lifetime and the
-        // resource bridge retains only the stable boxed payload address.
+        // resource bridge retains only the resource payload address; resource
+        // structural mutation is excluded for the invocation lifetime.
         unsafe { World::resource_capability_from_ptr(self.world, false, None) }
     }
 

@@ -34,14 +34,6 @@ pub(crate) struct DenseColumnSwapRemove<T> {
     pub(crate) swap: DenseSwapRemove,
 }
 
-#[allow(dead_code)]
-#[derive(Debug, PartialEq, Eq)]
-pub(crate) struct DenseColumnSwapRemoveBoxed<T> {
-    pub(crate) removed_value: Box<T>,
-    pub(crate) removed_metadata: DenseRowMetadata,
-    pub(crate) swap: DenseSwapRemove,
-}
-
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub(crate) struct DenseEntitySwapRemove {
     pub(crate) removed_entity: Entity,
@@ -100,7 +92,10 @@ impl DenseEntityColumn {
 #[allow(dead_code)]
 #[derive(Debug)]
 pub(crate) struct DenseColumn<T> {
-    values: Vec<Box<T>>,
+    // Component values are stored directly in one typed buffer. The separate
+    // metadata buffer stays row-aligned with it, so structural mutation moves
+    // values and their observation state as one logical row.
+    values: Vec<T>,
     metadata: Vec<DenseRowMetadata>,
 }
 
@@ -124,21 +119,27 @@ impl<T> DenseColumn<T> {
     }
 
     pub(crate) fn get(&self, row: usize) -> Option<&T> {
-        self.values.get(row).map(Box::as_ref)
+        self.values.get(row)
     }
 
     pub(crate) fn get_mut(&mut self, row: usize) -> Option<&mut T> {
-        self.values.get_mut(row).map(Box::as_mut)
+        self.values.get_mut(row)
     }
 
     pub(crate) fn get_ptr(&self, row: usize) -> Option<*const T> {
-        self.values.get(row).map(|value| value.as_ref() as *const T)
+        self.values.get(row).map(|value| value as *const T)
     }
 
     pub(crate) fn get_mut_ptr(&mut self, row: usize) -> Option<*mut T> {
-        self.values
-            .get_mut(row)
-            .map(|value| value.as_mut() as *mut T)
+        if row >= self.values.len() {
+            return None;
+        }
+
+        // Safety: the explicit length check proves that the element exists.
+        // Projecting the raw element pointer avoids creating a temporary
+        // unique reference to the whole Vec<T> allocation, which would retag
+        // and invalidate other disjoint mutable query items already yielded.
+        Some(unsafe { self.values.as_mut_ptr().add(row) })
     }
 
     pub(crate) fn metadata(&self, row: usize) -> Option<DenseRowMetadata> {
@@ -146,10 +147,6 @@ impl<T> DenseColumn<T> {
     }
 
     pub(crate) fn push(&mut self, value: T, metadata: DenseRowMetadata) -> usize {
-        self.push_boxed(Box::new(value), metadata)
-    }
-
-    pub(crate) fn push_boxed(&mut self, value: Box<T>, metadata: DenseRowMetadata) -> usize {
         let row = self.values.len();
         self.values.push(value);
         self.metadata.push(metadata);
@@ -164,10 +161,7 @@ impl<T> DenseColumn<T> {
         true
     }
 
-    pub(crate) fn swap_remove_boxed(
-        &mut self,
-        row: usize,
-    ) -> Option<DenseColumnSwapRemoveBoxed<T>> {
+    pub(crate) fn swap_remove(&mut self, row: usize) -> Option<DenseColumnSwapRemove<T>> {
         if row >= self.values.len() || row >= self.metadata.len() {
             return None;
         }
@@ -175,22 +169,13 @@ impl<T> DenseColumn<T> {
         let last_row = self.values.len().saturating_sub(1);
         let removed_value = self.values.swap_remove(row);
         let removed_metadata = self.metadata.swap_remove(row);
-        Some(DenseColumnSwapRemoveBoxed {
+        Some(DenseColumnSwapRemove {
             removed_value,
             removed_metadata,
             swap: DenseSwapRemove {
                 removed_row: row,
                 moved_from_row: (row != last_row).then_some(last_row),
             },
-        })
-    }
-
-    pub(crate) fn swap_remove(&mut self, row: usize) -> Option<DenseColumnSwapRemove<T>> {
-        let removed = self.swap_remove_boxed(row)?;
-        Some(DenseColumnSwapRemove {
-            removed_value: *removed.removed_value,
-            removed_metadata: removed.removed_metadata,
-            swap: removed.swap,
         })
     }
 }
@@ -269,5 +254,13 @@ mod tests {
         assert_eq!(removed.moved_from_row, Some(2));
         assert_eq!(column.get(0), Some(third));
         assert_eq!(column.len(), 2);
+    }
+
+    #[test]
+    fn dense_column_persists_direct_typed_values_without_per_row_boxes() {
+        fn require_typed_values<T>(_: &Vec<T>) {}
+
+        let column = DenseColumn::<String>::default();
+        require_typed_values(&column.values);
     }
 }
