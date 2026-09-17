@@ -17,9 +17,18 @@ fn mutable_pair_updates_every_row_and_rebuilds_both_component_indexes() {
     let first = world.spawn((Position(1), Velocity(10))).unwrap();
     let second = world.spawn((Position(2), Velocity(20))).unwrap();
     assert_eq!(world.find_entity_by_index::<Position, i32>(&1), Some(first));
-    assert_eq!(world.find_entity_by_index::<Position, i32>(&2), Some(second));
-    assert_eq!(world.find_entity_by_index::<Velocity, i32>(&10), Some(first));
-    assert_eq!(world.find_entity_by_index::<Velocity, i32>(&20), Some(second));
+    assert_eq!(
+        world.find_entity_by_index::<Position, i32>(&2),
+        Some(second)
+    );
+    assert_eq!(
+        world.find_entity_by_index::<Velocity, i32>(&10),
+        Some(first)
+    );
+    assert_eq!(
+        world.find_entity_by_index::<Velocity, i32>(&20),
+        Some(second)
+    );
 
     let before = [
         world.__entity_component_ticks::<Position>(first).unwrap(),
@@ -68,8 +77,20 @@ fn mutable_pair_updates_every_row_and_rebuilds_both_component_indexes() {
     assert_eq!(world.find_entity_by_index::<Position, i32>(&2), None);
     assert_eq!(world.find_entity_by_index::<Velocity, i32>(&10), None);
     assert_eq!(world.find_entity_by_index::<Velocity, i32>(&20), None);
-    assert_eq!(world.find_entity_by_index::<Position, i32>(&11), Some(first));
-    assert_eq!(world.find_entity_by_index::<Position, i32>(&12), Some(second));
-    assert_eq!(world.find_entity_by_index::<Velocity, i32>(&110), Some(first));
-    assert_eq!(world.find_entity_by_index::<Velocity, i32>(&120), Some(second));
+    assert_eq!(
+        world.find_entity_by_index::<Position, i32>(&11),
+        Some(first)
+    );
+    assert_eq!(
+        world.find_entity_by_index::<Position, i32>(&12),
+        Some(second)
+    );
+    assert_eq!(
+        world.find_entity_by_index::<Velocity, i32>(&110),
+        Some(first)
+    );
+    assert_eq!(
+        world.find_entity_by_index::<Velocity, i32>(&120),
+        Some(second)
+    );
 }
