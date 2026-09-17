@@ -37,12 +37,12 @@ pub use commands::{BatchCommands, Commands, LocalBatchCommands, LocalCommands};
 pub use component::{Component, Resource};
 pub use entity::Entity;
 pub use errors::{
-    ChangeCursorError, CommandError, EntityAllocationError, EntityError, QueryError, ResourceError,
-    RuntimeError,
+    ChangeCursorError, CommandError, ContiguousQueryError, EntityAllocationError, EntityError,
+    QueryError, ResourceError, RuntimeError,
 };
 pub use query::{
-    Added, Changed, Query, QueryAccess, QueryState, QueryTypeAccess, Removed, RemovedQuery,
-    RemovedState, With, Without,
+    Added, Changed, ContiguousSegment, ContiguousSegments, Query, QueryAccess, QueryState,
+    QueryTypeAccess, Removed, RemovedQuery, RemovedState, With, Without,
 };
 pub use reflect::{
     EnumInfo, EnumVariantInfo, FieldInfo, Reflect, ReflectShape, ReflectValueMut, ReflectValueRef,

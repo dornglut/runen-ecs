@@ -1,6 +1,7 @@
 // Owner: RunenECS Storage - Dense Row-Aligned Storage Primitives
 use crate::entity::Entity;
 use crate::world::ChangeCursor;
+use std::ptr::NonNull;
 
 #[allow(dead_code)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -62,6 +63,10 @@ impl DenseEntityColumn {
         self.entities.get(row).copied()
     }
 
+    pub(crate) fn as_ptr(&self) -> *const Entity {
+        self.entities.as_ptr()
+    }
+
     pub(crate) fn push(&mut self, entity: Entity) -> usize {
         let row = self.entities.len();
         self.entities.push(entity);
@@ -112,6 +117,32 @@ impl<T> Default for DenseColumn<T> {
 impl<T> DenseColumn<T> {
     pub(crate) fn len(&self) -> usize {
         self.values.len()
+    }
+
+    pub(crate) fn metadata_len(&self) -> usize {
+        self.metadata.len()
+    }
+
+    /// Capture one row's change-metadata address for a direct mutable segment.
+    /// It remains valid only while structural mutation of this column is frozen.
+    pub(crate) fn changed_tick_ptr(&mut self, row: usize) -> Option<NonNull<ChangeCursor>> {
+        if row >= self.metadata.len() {
+            return None;
+        }
+        // Safety: the row is initialized and in bounds. Vec::as_mut_ptr does
+        // not create a mutable slice borrow that could invalidate raw pointers
+        // previously captured for other rows of the same metadata allocation.
+        // The World borrow excludes structural mutation until all spans expire.
+        let row_ptr = unsafe { self.metadata.as_mut_ptr().add(row) };
+        Some(unsafe { NonNull::new_unchecked(std::ptr::addr_of_mut!((*row_ptr).changed_tick)) })
+    }
+
+    pub(crate) fn as_ptr(&self) -> *const T {
+        self.values.as_ptr()
+    }
+
+    pub(crate) fn as_mut_ptr(&mut self) -> *mut T {
+        self.values.as_mut_ptr()
     }
 
     pub(crate) fn is_empty(&self) -> bool {
