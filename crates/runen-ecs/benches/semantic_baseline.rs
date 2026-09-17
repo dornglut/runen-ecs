@@ -53,8 +53,8 @@ fn bench_query_iteration(c: &mut Criterion) {
         b.iter(|| {
             let checksum = query
                 .iter(&world)
-                .map(|(position, velocity)| position.0 + velocity.0)
-                .sum::<u32>();
+                .map(|(position, velocity)| u64::from(position.0 + velocity.0))
+                .sum::<u64>();
             black_box(checksum);
         });
     });
