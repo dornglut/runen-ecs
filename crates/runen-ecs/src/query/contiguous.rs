@@ -188,6 +188,29 @@ impl ContiguousSegment<'_> {
         Ok(unsafe { slice::from_raw_parts_mut(span.values.cast::<T>().as_ptr(), span.row_count) })
     }
 
+    /// Entity identities and one mutable component column aligned by row.
+    /// Both slices borrow this segment together, so callers can retain and zip
+    /// them without copying entity identities. Change/index bookkeeping is
+    /// recorded before the mutable component slice becomes observable.
+    pub fn entity_component_mut<T: Component>(
+        &mut self,
+    ) -> Result<(&[Entity], &mut [T]), ContiguousQueryError> {
+        let span = self.component_span::<T>()?;
+        if !span.mutable {
+            return Err(ContiguousQueryError::ComponentNotMutable);
+        }
+        self.record_mutations();
+        // Safety: entity identities and the exact typed component column are
+        // separate row-aligned allocations. The exclusive segment borrow
+        // prevents competing views for the lifetime of both returned slices.
+        Ok(unsafe {
+            (
+                slice::from_raw_parts(self.entities.as_ptr(), self.row_count),
+                slice::from_raw_parts_mut(span.values.cast::<T>().as_ptr(), span.row_count),
+            )
+        })
+    }
+
     /// Two shared columns with row-for-row alignment.
     pub fn component_pair<A: Component, B: Component>(
         &self,

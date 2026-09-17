@@ -126,7 +126,15 @@ impl<T> DenseColumn<T> {
     /// Capture one row's change-metadata address for a direct mutable segment.
     /// It remains valid only while structural mutation of this column is frozen.
     pub(crate) fn changed_tick_ptr(&mut self, row: usize) -> Option<NonNull<ChangeCursor>> {
-        Some(NonNull::from(&mut self.metadata.get_mut(row)?.changed_tick))
+        if row >= self.metadata.len() {
+            return None;
+        }
+        // Safety: the row is initialized and in bounds. Vec::as_mut_ptr does
+        // not create a mutable slice borrow that could invalidate raw pointers
+        // previously captured for other rows of the same metadata allocation.
+        // The World borrow excludes structural mutation until all spans expire.
+        let row_ptr = unsafe { self.metadata.as_mut_ptr().add(row) };
+        Some(unsafe { NonNull::new_unchecked(std::ptr::addr_of_mut!((*row_ptr).changed_tick)) })
     }
 
     pub(crate) fn as_ptr(&self) -> *const T {
