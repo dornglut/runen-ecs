@@ -257,7 +257,10 @@ fn mutable_relation_param_preserves_remove_clear_and_self_policy() {
         target: first,
     });
     world.relations_mut::<Owns>().insert(source, first).unwrap();
-    world.relations_mut::<Owns>().insert(source, second).unwrap();
+    world
+        .relations_mut::<Owns>()
+        .insert(source, second)
+        .unwrap();
 
     let mut runtime = Runtime::new();
     runtime
@@ -273,9 +276,7 @@ fn mutable_relation_param_preserves_remove_clear_and_self_policy() {
     runtime.run_schedule::<Update>(&mut world).unwrap();
 
     assert!(world.relations::<Owns>().is_empty());
-    assert!(world
-        .relations::<SelfAllowed>()
-        .contains(source, source));
+    assert!(world.relations::<SelfAllowed>().contains(source, source));
 
     let mut forbidden = Runtime::new();
     forbidden

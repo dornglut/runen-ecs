@@ -404,9 +404,8 @@ impl<'world, R: Relation> RelationWriteCapability<'world, R> {
         let world_ptr = world.as_ptr();
         let allocator = unsafe { &*std::ptr::addr_of!((*world_ptr).allocator) };
         let alive_entities = unsafe { &*std::ptr::addr_of!((*world_ptr).alive_entities) };
-        let stores = unsafe {
-            NonNull::new_unchecked(std::ptr::addr_of_mut!((*world_ptr).relation_stores))
-        };
+        let stores =
+            unsafe { NonNull::new_unchecked(std::ptr::addr_of_mut!((*world_ptr).relation_stores)) };
         Self {
             validation: EntityValidationCapability::serial(allocator, alive_entities),
             backing: RelationWriteBacking::Serial {
