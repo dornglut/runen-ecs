@@ -5,11 +5,13 @@
 //! semantics. RunenGraph is a private structural substrate for one authoritative
 //! edge set per relation type.
 use super::World;
-use crate::entity::Entity;
-use crate::errors::RelationError;
+use crate::entity::{Entity, EntityAllocator, EntityValidationSnapshot};
+use crate::errors::{EntityError, RelationError};
 use runen_graph::{Change, DirectedGraph, SelfRelationshipPolicy, SymmetricGraph};
 use std::any::{TypeId, type_name};
+use std::collections::{BTreeSet, HashMap};
 use std::marker::PhantomData;
+use std::ptr::NonNull;
 
 mod sealed {
     pub trait Sealed {}
@@ -79,7 +81,7 @@ impl RelationStore {
         Self { graph }
     }
 
-    fn assert_kind<R: Relation>(&self) {
+    pub(super) fn assert_kind<R: Relation>(&self) {
         let kind = TypeId::of::<R::Kind>();
         let matches = if kind == TypeId::of::<Directed>() {
             matches!(&self.graph, RelationGraph::Directed(_))
@@ -187,34 +189,307 @@ impl RelationStore {
     }
 }
 
+#[derive(Copy, Clone)]
+enum EntityValidationBacking<'world> {
+    Serial {
+        allocator: NonNull<EntityAllocator>,
+        alive_entities: NonNull<BTreeSet<Entity>>,
+        _marker: PhantomData<&'world ()>,
+    },
+    Worker {
+        snapshot: NonNull<EntityValidationSnapshot>,
+        alive_entities: NonNull<BTreeSet<Entity>>,
+        _marker: PhantomData<&'world ()>,
+    },
+}
+
+#[derive(Copy, Clone)]
+pub(super) struct EntityValidationCapability<'world> {
+    backing: EntityValidationBacking<'world>,
+}
+
+impl<'world> EntityValidationCapability<'world> {
+    fn serial(allocator: &'world EntityAllocator, alive_entities: &'world BTreeSet<Entity>) -> Self {
+        Self {
+            backing: EntityValidationBacking::Serial {
+                allocator: NonNull::from(allocator),
+                alive_entities: NonNull::from(alive_entities),
+                _marker: PhantomData,
+            },
+        }
+    }
+
+    pub(super) fn worker(
+        snapshot: NonNull<EntityValidationSnapshot>,
+        alive_entities: NonNull<BTreeSet<Entity>>,
+    ) -> Self {
+        Self {
+            backing: EntityValidationBacking::Worker {
+                snapshot,
+                alive_entities,
+                _marker: PhantomData,
+            },
+        }
+    }
+
+    fn validate(self, entity: Entity) -> Result<(), EntityError> {
+        let (result, alive) = match self.backing {
+            EntityValidationBacking::Serial {
+                allocator,
+                alive_entities,
+                ..
+            } => (
+                unsafe { allocator.as_ref().validate(entity) },
+                unsafe { alive_entities.as_ref() },
+            ),
+            EntityValidationBacking::Worker {
+                snapshot,
+                alive_entities,
+                ..
+            } => (
+                unsafe { snapshot.as_ref().validate(entity) },
+                unsafe { alive_entities.as_ref() },
+            ),
+        };
+        result?;
+        if alive.contains(&entity) {
+            Ok(())
+        } else {
+            Err(EntityError::UnknownEntity { entity })
+        }
+    }
+
+    fn contains(self, entity: Entity) -> bool {
+        self.validate(entity).is_ok()
+    }
+
+    fn reborrow(&self) -> EntityValidationCapability<'_> {
+        match self.backing {
+            EntityValidationBacking::Serial {
+                allocator,
+                alive_entities,
+                ..
+            } => EntityValidationCapability {
+                backing: EntityValidationBacking::Serial {
+                    allocator,
+                    alive_entities,
+                    _marker: PhantomData,
+                },
+            },
+            EntityValidationBacking::Worker {
+                snapshot,
+                alive_entities,
+                ..
+            } => EntityValidationCapability {
+                backing: EntityValidationBacking::Worker {
+                    snapshot,
+                    alive_entities,
+                    _marker: PhantomData,
+                },
+            },
+        }
+    }
+}
+
+#[derive(Copy, Clone)]
+pub(crate) struct RelationReadCapability<'world, R: Relation> {
+    validation: EntityValidationCapability<'world>,
+    store: Option<NonNull<RelationStore>>,
+    _marker: PhantomData<&'world RelationStore>,
+    _relation: PhantomData<fn() -> R>,
+}
+
+impl<'world, R: Relation> RelationReadCapability<'world, R> {
+    fn serial(world: &'world World) -> Self {
+        let store = world.relation_store::<R>().map(NonNull::from);
+        Self {
+            validation: EntityValidationCapability::serial(&world.allocator, &world.alive_entities),
+            store,
+            _marker: PhantomData,
+            _relation: PhantomData,
+        }
+    }
+
+    pub(crate) unsafe fn from_world_ptr(world: NonNull<World>) -> Self {
+        let world = unsafe { world.as_ref() };
+        Self::serial(world)
+    }
+
+    pub(super) fn worker(
+        validation: EntityValidationCapability<'world>,
+        store: Option<NonNull<RelationStore>>,
+    ) -> Self {
+        if let Some(store) = store {
+            unsafe { store.as_ref().assert_kind::<R>() };
+        }
+        Self {
+            validation,
+            store,
+            _marker: PhantomData,
+            _relation: PhantomData,
+        }
+    }
+
+    fn store(self) -> Option<&'world RelationStore> {
+        self.store.map(|store| unsafe { store.as_ref() })
+    }
+
+    fn store_ptr(self) -> Option<NonNull<RelationStore>> {
+        self.store
+    }
+
+    fn validate(self, entity: Entity) -> Result<(), EntityError> {
+        self.validation.validate(entity)
+    }
+
+    fn contains_entity(self, entity: Entity) -> bool {
+        self.validation.contains(entity)
+    }
+}
+
+enum RelationWriteBacking<'world> {
+    Serial {
+        stores: NonNull<HashMap<TypeId, Box<RelationStore>>>,
+        _marker: PhantomData<&'world mut HashMap<TypeId, Box<RelationStore>>>,
+    },
+    Worker {
+        store: NonNull<RelationStore>,
+        _marker: PhantomData<&'world mut RelationStore>,
+    },
+}
+
+pub(crate) struct RelationWriteCapability<'world, R: Relation> {
+    validation: EntityValidationCapability<'world>,
+    backing: RelationWriteBacking<'world>,
+    _relation: PhantomData<fn() -> R>,
+}
+
+impl<'world, R: Relation> RelationWriteCapability<'world, R> {
+    fn serial(world: &'world mut World) -> Self {
+        let validation =
+            EntityValidationCapability::serial(&world.allocator, &world.alive_entities);
+        let stores = NonNull::from(&mut world.relation_stores);
+        Self {
+            validation,
+            backing: RelationWriteBacking::Serial {
+                stores,
+                _marker: PhantomData,
+            },
+            _relation: PhantomData,
+        }
+    }
+
+    pub(crate) unsafe fn from_world_ptr(mut world: NonNull<World>) -> Self {
+        let world = unsafe { world.as_mut() };
+        Self::serial(world)
+    }
+
+    pub(super) fn worker(
+        validation: EntityValidationCapability<'world>,
+        mut store: NonNull<RelationStore>,
+    ) -> Self {
+        unsafe { store.as_mut().assert_kind::<R>() };
+        Self {
+            validation,
+            backing: RelationWriteBacking::Worker {
+                store,
+                _marker: PhantomData,
+            },
+            _relation: PhantomData,
+        }
+    }
+
+    fn store(&self) -> Option<&RelationStore> {
+        match self.backing {
+            RelationWriteBacking::Serial { stores, .. } => unsafe {
+                stores
+                    .as_ref()
+                    .get(&TypeId::of::<R>())
+                    .map(Box::as_ref)
+                    .inspect(|store| store.assert_kind::<R>())
+            },
+            RelationWriteBacking::Worker { store, .. } => {
+                let store = unsafe { store.as_ref() };
+                store.assert_kind::<R>();
+                Some(store)
+            }
+        }
+    }
+
+    fn store_mut(&mut self) -> Option<&mut RelationStore> {
+        match &mut self.backing {
+            RelationWriteBacking::Serial { stores, .. } => unsafe {
+                stores
+                    .as_mut()
+                    .get_mut(&TypeId::of::<R>())
+                    .map(Box::as_mut)
+                    .inspect(|store| store.assert_kind::<R>())
+            },
+            RelationWriteBacking::Worker { store, .. } => {
+                let store = unsafe { store.as_mut() };
+                store.assert_kind::<R>();
+                Some(store)
+            }
+        }
+    }
+
+    fn ensure_store(&mut self) -> &mut RelationStore {
+        match &mut self.backing {
+            RelationWriteBacking::Serial { stores, .. } => {
+                let store = unsafe { stores.as_mut() }
+                    .entry(TypeId::of::<R>())
+                    .or_insert_with(|| Box::new(RelationStore::new::<R>()))
+                    .as_mut();
+                store.assert_kind::<R>();
+                store
+            }
+            RelationWriteBacking::Worker { store, .. } => {
+                let store = unsafe { store.as_mut() };
+                store.assert_kind::<R>();
+                store
+            }
+        }
+    }
+
+    fn read(&self) -> RelationReadCapability<'_, R> {
+        let store = self.store().map(NonNull::from);
+        RelationReadCapability {
+            validation: self.validation.reborrow(),
+            store,
+            _marker: PhantomData,
+            _relation: PhantomData,
+        }
+    }
+
+    fn validate(&self, entity: Entity) -> Result<(), EntityError> {
+        self.validation.validate(entity)
+    }
+}
+
 impl World {
     /// Borrows one typed relation domain for read access.
     pub fn relations<R: Relation>(&self) -> Relations<'_, R> {
-        Relations {
-            world: self,
-            _relation: PhantomData,
-        }
+        Relations::from_capability(RelationReadCapability::serial(self))
     }
 
     /// Borrows one typed relation domain for mutation.
     pub fn relations_mut<R: Relation>(&mut self) -> RelationsMut<'_, R> {
-        RelationsMut {
-            world: self,
-            _relation: PhantomData,
-        }
+        RelationsMut::from_capability(RelationWriteCapability::serial(self))
     }
 
-    fn relation_store<R: Relation>(&self) -> Option<&RelationStore> {
+    pub(super) fn relation_store<R: Relation>(&self) -> Option<&RelationStore> {
         self.relation_stores
             .get(&TypeId::of::<R>())
+            .map(Box::as_ref)
             .inspect(|store| store.assert_kind::<R>())
     }
 
-    fn ensure_relation_store<R: Relation>(&mut self) -> &mut RelationStore {
+    pub(super) fn ensure_relation_store<R: Relation>(&mut self) -> &mut RelationStore {
         let store = self
             .relation_stores
             .entry(TypeId::of::<R>())
-            .or_insert_with(RelationStore::new::<R>);
+            .or_insert_with(|| Box::new(RelationStore::new::<R>()))
+            .as_mut();
         store.assert_kind::<R>();
         store
     }
@@ -228,20 +503,23 @@ impl World {
 
 /// Immutable access to one typed ECS relation domain.
 pub struct Relations<'w, R: Relation> {
-    world: &'w World,
-    _relation: PhantomData<fn() -> R>,
+    capability: RelationReadCapability<'w, R>,
 }
 
-impl<R: Relation> Relations<'_, R> {
+impl<'w, R: Relation> Relations<'w, R> {
+    pub(crate) fn from_capability(capability: RelationReadCapability<'w, R>) -> Self {
+        Self { capability }
+    }
+
     /// Returns whether the relation contains the exact endpoint pair.
     ///
     /// Non-live endpoints are observed as absent.
     pub fn contains(&self, first: Entity, second: Entity) -> bool {
-        relation_contains::<R>(self.world, first, second)
+        relation_contains(self.capability, first, second)
     }
 
     pub fn len(&self) -> usize {
-        relation_len::<R>(self.world)
+        self.capability.store().map_or(0, RelationStore::len)
     }
 
     pub fn is_empty(&self) -> bool {
@@ -250,27 +528,100 @@ impl<R: Relation> Relations<'_, R> {
 
     /// Iterates relation edges in deterministic Entity ordering.
     pub fn iter(&self) -> impl Iterator<Item = (Entity, Entity)> + '_ {
-        relation_pairs::<R>(self.world)
+        relation_pairs(self.capability)
     }
 }
 
 impl<'w, R: Relation<Kind = Directed>> Relations<'w, R> {
     /// Returns an allocation-free view of outgoing targets in deterministic Entity ordering.
     pub fn targets(&self, source: Entity) -> Result<RelationEntities<'w>, RelationError> {
-        self.world.ensure_entity_exists(source)?;
+        self.capability.validate(source)?;
         Ok(RelationEntities::directed_targets(
-            self.world.relation_store::<R>(),
-            self.world,
+            self.capability.store_ptr(),
+            self.capability.validation,
             source,
         ))
     }
 
     /// Returns an allocation-free view of incoming sources in deterministic Entity ordering.
     pub fn sources(&self, target: Entity) -> Result<RelationEntities<'w>, RelationError> {
-        self.world.ensure_entity_exists(target)?;
+        self.capability.validate(target)?;
         Ok(RelationEntities::directed_sources(
-            self.world.relation_store::<R>(),
-            self.world,
+            self.capability.store_ptr(),
+            self.capability.validation,
+            target,
+        ))
+    }
+}
+
+/// Exclusive access to one typed ECS relation domain.
+pub struct RelationsMut<'w, R: Relation> {
+    capability: RelationWriteCapability<'w, R>,
+}
+
+impl<'w, R: Relation> RelationsMut<'w, R> {
+    pub(crate) fn from_capability(capability: RelationWriteCapability<'w, R>) -> Self {
+        Self { capability }
+    }
+
+    pub fn contains(&self, first: Entity, second: Entity) -> bool {
+        relation_contains(self.capability.read(), first, second)
+    }
+
+    pub fn len(&self) -> usize {
+        self.capability.store().map_or(0, RelationStore::len)
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = (Entity, Entity)> + '_ {
+        relation_pairs(self.capability.read())
+    }
+
+    /// Inserts one relation edge after ECS liveness and relation-policy validation.
+    pub fn insert(&mut self, first: Entity, second: Entity) -> Result<bool, RelationError> {
+        validate_pair::<R>(self.capability.validation, first, second)?;
+        Ok(self.capability.ensure_store().insert(first, second))
+    }
+
+    /// Removes one relation edge after ECS liveness and relation-policy validation.
+    pub fn remove(&mut self, first: Entity, second: Entity) -> Result<bool, RelationError> {
+        validate_pair::<R>(self.capability.validation, first, second)?;
+        let Some(store) = self.capability.store_mut() else {
+            return Ok(false);
+        };
+        Ok(store.remove(first, second))
+    }
+
+    /// Removes every incident edge of this relation type for one live entity.
+    pub fn clear_entity(&mut self, entity: Entity) -> Result<usize, RelationError> {
+        self.capability.validate(entity)?;
+        let Some(store) = self.capability.store_mut() else {
+            return Ok(0);
+        };
+        Ok(store.remove_entity(entity))
+    }
+}
+
+impl<R: Relation<Kind = Directed>> RelationsMut<'_, R> {
+    pub fn targets(&self, source: Entity) -> Result<RelationEntities<'_>, RelationError> {
+        let read = self.capability.read();
+        read.validate(source)?;
+        Ok(RelationEntities::directed_targets(
+            read.store_ptr(),
+            read.validation,
+            source,
+        ))
+    }
+
+    pub fn sources(&self, target: Entity) -> Result<RelationEntities<'_>, RelationError> {
+        let read = self.capability.read();
+        read.validate(target)?;
+        Ok(RelationEntities::directed_sources(
+            read.store_ptr(),
+            read.validation,
             target,
         ))
     }
@@ -279,106 +630,34 @@ impl<'w, R: Relation<Kind = Directed>> Relations<'w, R> {
 impl<'w, R: Relation<Kind = Symmetric>> Relations<'w, R> {
     /// Returns an allocation-free view of neighbors in deterministic Entity ordering.
     pub fn neighbors(&self, entity: Entity) -> Result<RelationEntities<'w>, RelationError> {
-        self.world.ensure_entity_exists(entity)?;
+        self.capability.validate(entity)?;
         Ok(RelationEntities::symmetric_neighbors(
-            self.world.relation_store::<R>(),
-            self.world,
+            self.capability.store_ptr(),
+            self.capability.validation,
             entity,
         ))
     }
 }
 
-/// Exclusive access to one typed ECS relation domain.
-pub struct RelationsMut<'w, R: Relation> {
-    world: &'w mut World,
-    _relation: PhantomData<fn() -> R>,
-}
-
-impl<R: Relation> RelationsMut<'_, R> {
-    pub fn contains(&self, first: Entity, second: Entity) -> bool {
-        relation_contains::<R>(&*self.world, first, second)
-    }
-
-    pub fn len(&self) -> usize {
-        relation_len::<R>(&*self.world)
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.len() == 0
-    }
-
-    pub fn iter(&self) -> impl Iterator<Item = (Entity, Entity)> + '_ {
-        relation_pairs::<R>(&*self.world)
-    }
-
-    /// Inserts one relation edge after ECS liveness and relation-policy validation.
-    pub fn insert(&mut self, first: Entity, second: Entity) -> Result<bool, RelationError> {
-        validate_pair::<R>(&*self.world, first, second)?;
-        Ok(self
-            .world
-            .ensure_relation_store::<R>()
-            .insert(first, second))
-    }
-
-    /// Removes one relation edge after ECS liveness and relation-policy validation.
-    pub fn remove(&mut self, first: Entity, second: Entity) -> Result<bool, RelationError> {
-        validate_pair::<R>(&*self.world, first, second)?;
-        let Some(store) = self.world.relation_stores.get_mut(&TypeId::of::<R>()) else {
-            return Ok(false);
-        };
-        store.assert_kind::<R>();
-        Ok(store.remove(first, second))
-    }
-
-    /// Removes every incident edge of this relation type for one live entity.
-    pub fn clear_entity(&mut self, entity: Entity) -> Result<usize, RelationError> {
-        self.world.ensure_entity_exists(entity)?;
-        let Some(store) = self.world.relation_stores.get_mut(&TypeId::of::<R>()) else {
-            return Ok(0);
-        };
-        store.assert_kind::<R>();
-        Ok(store.remove_entity(entity))
-    }
-}
-
-impl<'w, R: Relation<Kind = Directed>> RelationsMut<'w, R> {
-    pub fn targets(&self, source: Entity) -> Result<RelationEntities<'_>, RelationError> {
-        self.world.ensure_entity_exists(source)?;
-        Ok(RelationEntities::directed_targets(
-            self.world.relation_store::<R>(),
-            self.world,
-            source,
-        ))
-    }
-
-    pub fn sources(&self, target: Entity) -> Result<RelationEntities<'_>, RelationError> {
-        self.world.ensure_entity_exists(target)?;
-        Ok(RelationEntities::directed_sources(
-            self.world.relation_store::<R>(),
-            self.world,
-            target,
-        ))
-    }
-}
-
-impl<'w, R: Relation<Kind = Symmetric>> RelationsMut<'w, R> {
+impl<R: Relation<Kind = Symmetric>> RelationsMut<'_, R> {
     pub fn neighbors(&self, entity: Entity) -> Result<RelationEntities<'_>, RelationError> {
-        self.world.ensure_entity_exists(entity)?;
+        let read = self.capability.read();
+        read.validate(entity)?;
         Ok(RelationEntities::symmetric_neighbors(
-            self.world.relation_store::<R>(),
-            self.world,
+            read.store_ptr(),
+            read.validation,
             entity,
         ))
     }
 }
 
 fn validate_pair<R: Relation>(
-    world: &World,
+    validation: EntityValidationCapability<'_>,
     first: Entity,
     second: Entity,
 ) -> Result<(), RelationError> {
-    world.ensure_entity_exists(first)?;
-    world.ensure_entity_exists(second)?;
+    validation.validate(first)?;
+    validation.validate(second)?;
     if first == second && R::SELF == SelfRelation::Forbid {
         return Err(RelationError::SelfReference {
             relation: R::name(),
@@ -388,40 +667,43 @@ fn validate_pair<R: Relation>(
     Ok(())
 }
 
-fn relation_contains<R: Relation>(world: &World, first: Entity, second: Entity) -> bool {
-    if !world.contains(first) || !world.contains(second) {
+fn relation_contains<R: Relation>(
+    capability: RelationReadCapability<'_, R>,
+    first: Entity,
+    second: Entity,
+) -> bool {
+    if !capability.contains_entity(first) || !capability.contains_entity(second) {
         return false;
     }
-    world
-        .relation_store::<R>()
+    capability
+        .store()
         .is_some_and(|store| store.contains(first, second))
 }
 
-fn relation_len<R: Relation>(world: &World) -> usize {
-    world.relation_store::<R>().map_or(0, RelationStore::len)
-}
-
-fn relation_pairs<R: Relation>(world: &World) -> impl Iterator<Item = (Entity, Entity)> + '_ {
-    let store = world.relation_store::<R>();
+fn relation_pairs<R: Relation>(
+    capability: RelationReadCapability<'_, R>,
+) -> impl Iterator<Item = (Entity, Entity)> + '_ {
+    let store = capability.store();
     let directed = store
         .and_then(RelationStore::directed)
         .into_iter()
         .flat_map(|graph| graph.relationships())
-        .map(move |(first, second)| checked_pair(world, *first, *second));
+        .map(move |(first, second)| checked_pair(capability.validation, *first, *second));
     let symmetric = store
         .and_then(RelationStore::symmetric)
         .into_iter()
         .flat_map(|graph| graph.relationships())
-        .map(move |(first, second)| checked_pair(world, *first, *second));
+        .map(move |(first, second)| checked_pair(capability.validation, *first, *second));
     directed.chain(symmetric)
 }
 
 /// Allocation-free read view over one relation adjacency.
 pub struct RelationEntities<'w> {
-    store: Option<&'w RelationStore>,
-    world: &'w World,
+    store: Option<NonNull<RelationStore>>,
+    validation: EntityValidationCapability<'w>,
     endpoint: Entity,
     direction: RelationEntityDirection,
+    _marker: PhantomData<&'w RelationStore>,
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -433,48 +715,55 @@ enum RelationEntityDirection {
 
 impl<'w> RelationEntities<'w> {
     fn directed_targets(
-        store: Option<&'w RelationStore>,
-        world: &'w World,
+        store: Option<NonNull<RelationStore>>,
+        validation: EntityValidationCapability<'w>,
         endpoint: Entity,
     ) -> Self {
         Self {
             store,
-            world,
+            validation,
             endpoint,
             direction: RelationEntityDirection::DirectedTargets,
+            _marker: PhantomData,
         }
     }
 
     fn directed_sources(
-        store: Option<&'w RelationStore>,
-        world: &'w World,
+        store: Option<NonNull<RelationStore>>,
+        validation: EntityValidationCapability<'w>,
         endpoint: Entity,
     ) -> Self {
         Self {
             store,
-            world,
+            validation,
             endpoint,
             direction: RelationEntityDirection::DirectedSources,
+            _marker: PhantomData,
         }
     }
 
     fn symmetric_neighbors(
-        store: Option<&'w RelationStore>,
-        world: &'w World,
+        store: Option<NonNull<RelationStore>>,
+        validation: EntityValidationCapability<'w>,
         endpoint: Entity,
     ) -> Self {
         Self {
             store,
-            world,
+            validation,
             endpoint,
             direction: RelationEntityDirection::SymmetricNeighbors,
+            _marker: PhantomData,
         }
+    }
+
+    fn store(&self) -> Option<&RelationStore> {
+        self.store.map(|store| unsafe { store.as_ref() })
     }
 
     /// Iterates the entities in deterministic Entity ordering.
     pub fn iter(&self) -> impl Iterator<Item = Entity> + '_ {
         let targets = self
-            .store
+            .store()
             .filter(|_| matches!(self.direction, RelationEntityDirection::DirectedTargets))
             .and_then(RelationStore::directed)
             .into_iter()
@@ -487,7 +776,7 @@ impl<'w> RelationEntities<'w> {
             });
 
         let sources = self
-            .store
+            .store()
             .filter(|_| matches!(self.direction, RelationEntityDirection::DirectedSources))
             .and_then(RelationStore::directed)
             .into_iter()
@@ -500,7 +789,7 @@ impl<'w> RelationEntities<'w> {
             });
 
         let neighbors = self
-            .store
+            .store()
             .filter(|_| matches!(self.direction, RelationEntityDirection::SymmetricNeighbors))
             .and_then(RelationStore::symmetric)
             .into_iter()
@@ -515,7 +804,7 @@ impl<'w> RelationEntities<'w> {
         targets
             .chain(sources)
             .chain(neighbors)
-            .map(move |entity| checked_entity(self.world, entity))
+            .map(move |entity| checked_entity(self.validation, entity))
     }
 
     pub fn is_empty(&self) -> bool {
@@ -523,17 +812,21 @@ impl<'w> RelationEntities<'w> {
     }
 }
 
-fn checked_pair(world: &World, first: Entity, second: Entity) -> (Entity, Entity) {
+fn checked_pair(
+    validation: EntityValidationCapability<'_>,
+    first: Entity,
+    second: Entity,
+) -> (Entity, Entity) {
     assert!(
-        world.contains(first) && world.contains(second),
+        validation.contains(first) && validation.contains(second),
         "relation registry contains an edge to a non-live entity"
     );
     (first, second)
 }
 
-fn checked_entity(world: &World, entity: Entity) -> Entity {
+fn checked_entity(validation: EntityValidationCapability<'_>, entity: Entity) -> Entity {
     assert!(
-        world.contains(entity),
+        validation.contains(entity),
         "relation registry contains an edge to a non-live entity"
     );
     entity

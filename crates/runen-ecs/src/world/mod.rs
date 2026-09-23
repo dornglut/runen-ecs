@@ -24,6 +24,7 @@ pub use state::World;
 pub(crate) use capability::{
     QueryCapability, ResourceCapability, ResourceMutationCapability, WorldAuthority,
 };
+pub(crate) use relation::{RelationReadCapability, RelationWriteCapability};
 #[cfg(test)]
 pub(crate) use change_tracking::panic_worker_projection_violation;
 pub(crate) use change_tracking::{

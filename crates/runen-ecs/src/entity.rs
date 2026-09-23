@@ -116,6 +116,18 @@ pub struct EntityAllocator {
     slots: Vec<EntitySlot>,
 }
 
+#[derive(Debug, Clone)]
+pub(crate) struct EntityValidationSnapshot {
+    scope: WorldScopeId,
+    slots: Vec<EntitySlot>,
+}
+
+impl EntityValidationSnapshot {
+    pub(crate) fn validate(&self, entity: Entity) -> Result<(), EntityError> {
+        validate_entity_slots(self.scope, &self.slots, entity)
+    }
+}
+
 impl EntityAllocator {
     pub fn new() -> Self {
         Self {
@@ -162,32 +174,13 @@ impl EntityAllocator {
     }
 
     pub(crate) fn validate(&self, entity: Entity) -> Result<(), EntityError> {
-        if entity.scope != self.scope {
-            return Err(EntityError::ForeignWorld { entity });
-        }
+        validate_entity_slots(self.scope, &self.slots, entity)
+    }
 
-        let Some(slot) = self.slots.get(entity.index as usize) else {
-            return Err(EntityError::UnknownEntity { entity });
-        };
-
-        match slot.state {
-            SlotState::Live if entity.generation == slot.generation => Ok(()),
-            SlotState::Live => Err(EntityError::StaleGeneration {
-                entity,
-                current_generation: slot.generation,
-            }),
-            SlotState::Free | SlotState::Retired
-                if slot.last_freed_generation == Some(entity.generation) =>
-            {
-                Err(EntityError::AlreadyFreed { entity })
-            }
-            SlotState::Free | SlotState::Retired if entity.generation != slot.generation => {
-                Err(EntityError::StaleGeneration {
-                    entity,
-                    current_generation: slot.generation,
-                })
-            }
-            SlotState::Free | SlotState::Retired => Err(EntityError::UnknownEntity { entity }),
+    pub(crate) fn validation_snapshot(&self) -> EntityValidationSnapshot {
+        EntityValidationSnapshot {
+            scope: self.scope,
+            slots: self.slots.clone(),
         }
     }
 
@@ -213,6 +206,40 @@ impl EntityAllocator {
     }
 }
 
+fn validate_entity_slots(
+    scope: WorldScopeId,
+    slots: &[EntitySlot],
+    entity: Entity,
+) -> Result<(), EntityError> {
+    if entity.scope != scope {
+        return Err(EntityError::ForeignWorld { entity });
+    }
+
+    let Some(slot) = slots.get(entity.index as usize) else {
+        return Err(EntityError::UnknownEntity { entity });
+    };
+
+    match slot.state {
+        SlotState::Live if entity.generation == slot.generation => Ok(()),
+        SlotState::Live => Err(EntityError::StaleGeneration {
+            entity,
+            current_generation: slot.generation,
+        }),
+        SlotState::Free | SlotState::Retired
+            if slot.last_freed_generation == Some(entity.generation) =>
+        {
+            Err(EntityError::AlreadyFreed { entity })
+        }
+        SlotState::Free | SlotState::Retired if entity.generation != slot.generation => {
+            Err(EntityError::StaleGeneration {
+                entity,
+                current_generation: slot.generation,
+            })
+        }
+        SlotState::Free | SlotState::Retired => Err(EntityError::UnknownEntity { entity }),
+    }
+}
+
 impl Default for EntityAllocator {
     fn default() -> Self {
         Self::new()
@@ -229,6 +256,43 @@ mod tests {
     #[test]
     fn entity_keeps_required_value_traits() {
         assert_entity_traits::<Entity>();
+    }
+
+    #[test]
+    fn validation_snapshot_preserves_allocator_error_classes() {
+        let mut allocator = EntityAllocator::new();
+        let live = allocator.allocate().unwrap();
+
+        let stale = allocator.allocate().unwrap();
+        allocator.free(stale).unwrap();
+        let replacement = allocator.allocate().unwrap();
+        assert_eq!(stale.index(), replacement.index());
+
+        let freed = allocator.allocate().unwrap();
+        allocator.free(freed).unwrap();
+
+        let unknown = Entity::new(allocator.scope, 99, 0);
+        let mut foreign_allocator = EntityAllocator::new();
+        let foreign = foreign_allocator.allocate().unwrap();
+
+        let snapshot = allocator.validation_snapshot();
+        assert_eq!(snapshot.validate(live), Ok(()));
+        assert!(matches!(
+            snapshot.validate(foreign),
+            Err(EntityError::ForeignWorld { entity }) if entity == foreign
+        ));
+        assert!(matches!(
+            snapshot.validate(unknown),
+            Err(EntityError::UnknownEntity { entity }) if entity == unknown
+        ));
+        assert!(matches!(
+            snapshot.validate(stale),
+            Err(EntityError::StaleGeneration { entity, .. }) if entity == stale
+        ));
+        assert!(matches!(
+            snapshot.validate(freed),
+            Err(EntityError::AlreadyFreed { entity }) if entity == freed
+        ));
     }
 
     #[test]

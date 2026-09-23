@@ -1,7 +1,7 @@
 // Owner: RunenECS - Query Runtime
 use crate::component::{Component, Resource};
 use crate::entity::Entity;
-use crate::world::{ChangeCursor, QueryCapability, WorkerWorldBuilder};
+use crate::world::{ChangeCursor, QueryCapability, Relation, WorkerWorldBuilder};
 use std::any::TypeId;
 use std::marker::PhantomData;
 
@@ -88,10 +88,13 @@ pub struct QueryAccess {
     component_writes: Vec<QueryTypeAccess>,
     resource_reads: Vec<QueryTypeAccess>,
     resource_writes: Vec<QueryTypeAccess>,
+    relation_reads: Vec<QueryTypeAccess>,
+    relation_writes: Vec<QueryTypeAccess>,
     deferred_structural_mutation: bool,
     exclusive_world_accesses: usize,
     component_borrows: Vec<QueryBorrowAccess>,
     resource_borrows: Vec<QueryBorrowAccess>,
+    relation_borrows: Vec<QueryBorrowAccess>,
 }
 
 impl QueryAccess {
@@ -129,6 +132,14 @@ impl QueryAccess {
         &self.resource_writes
     }
 
+    pub fn relation_reads(&self) -> &[QueryTypeAccess] {
+        &self.relation_reads
+    }
+
+    pub fn relation_writes(&self) -> &[QueryTypeAccess] {
+        &self.relation_writes
+    }
+
     pub fn with_component_read<T: Component>(mut self) -> Self {
         self.add_component_read::<T>();
         self
@@ -151,6 +162,16 @@ impl QueryAccess {
 
     pub fn with_resource_write<T: Resource>(mut self) -> Self {
         self.add_resource_write::<T>();
+        self
+    }
+
+    pub fn with_relation_read<R: Relation>(mut self) -> Self {
+        self.add_relation_read::<R>();
+        self
+    }
+
+    pub fn with_relation_write<R: Relation>(mut self) -> Self {
+        self.add_relation_write::<R>();
         self
     }
 
@@ -205,13 +226,36 @@ impl QueryAccess {
         );
     }
 
-    pub(crate) fn borrow_checkpoint(&self) -> (usize, usize) {
-        (self.component_borrows.len(), self.resource_borrows.len())
+    pub(crate) fn add_relation_read<R: Relation>(&mut self) {
+        self.relation_borrows
+            .push(QueryBorrowAccess::shared::<R>(R::name()));
+        push_unique_access(
+            &mut self.relation_reads,
+            QueryTypeAccess::of::<R>(R::name()),
+        );
     }
 
-    pub(crate) fn restore_borrow_checkpoint(&mut self, checkpoint: (usize, usize)) {
+    pub(crate) fn add_relation_write<R: Relation>(&mut self) {
+        self.relation_borrows
+            .push(QueryBorrowAccess::exclusive::<R>(R::name()));
+        push_unique_access(
+            &mut self.relation_writes,
+            QueryTypeAccess::of::<R>(R::name()),
+        );
+    }
+
+    pub(crate) fn borrow_checkpoint(&self) -> (usize, usize, usize) {
+        (
+            self.component_borrows.len(),
+            self.resource_borrows.len(),
+            self.relation_borrows.len(),
+        )
+    }
+
+    pub(crate) fn restore_borrow_checkpoint(&mut self, checkpoint: (usize, usize, usize)) {
         self.component_borrows.truncate(checkpoint.0);
         self.resource_borrows.truncate(checkpoint.1);
+        self.relation_borrows.truncate(checkpoint.2);
     }
 
     pub(crate) fn borrow_conflict(&self) -> Option<QueryBorrowConflict> {
@@ -226,6 +270,7 @@ impl QueryAccess {
 
         find_borrow_conflict("component", &self.component_borrows)
             .or_else(|| find_borrow_conflict("resource", &self.resource_borrows))
+            .or_else(|| find_borrow_conflict("relation", &self.relation_borrows))
     }
 
     fn has_immediate_world_access(&self) -> bool {
@@ -234,6 +279,8 @@ impl QueryAccess {
             || !self.component_writes.is_empty()
             || !self.resource_reads.is_empty()
             || !self.resource_writes.is_empty()
+            || !self.relation_reads.is_empty()
+            || !self.relation_writes.is_empty()
     }
 
     /// Extends this access set with another access set.
@@ -243,6 +290,7 @@ impl QueryAccess {
     pub fn extend(&mut self, other: Self) {
         self.component_borrows.extend(other.component_borrows);
         self.resource_borrows.extend(other.resource_borrows);
+        self.relation_borrows.extend(other.relation_borrows);
         for access in other.component_reads {
             push_unique_access(&mut self.component_reads, access);
         }
@@ -257,6 +305,12 @@ impl QueryAccess {
         }
         for access in other.resource_writes {
             push_unique_access(&mut self.resource_writes, access);
+        }
+        for access in other.relation_reads {
+            push_unique_access(&mut self.relation_reads, access);
+        }
+        for access in other.relation_writes {
+            push_unique_access(&mut self.relation_writes, access);
         }
         self.deferred_structural_mutation |= other.deferred_structural_mutation;
         self.exclusive_world_accesses = self

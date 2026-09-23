@@ -9,6 +9,7 @@ use super::change_tracking::{ChangeCursor, RemovedComponentRecord};
 use super::component_indexes::{ComponentIndexKey, ComponentIndexStorage};
 use super::mutation_journal::MutationJournal;
 use super::parallel::WorkerQueryCapability;
+use super::relation::{Relation, RelationReadCapability, RelationWriteCapability};
 use crate::component::Component;
 use crate::entity::{Entity, WorldScopeId};
 use crate::errors::{ContiguousQueryError, ResourceError};
@@ -67,6 +68,18 @@ impl<'world> WorldAuthority<'world> {
         // Safety: access validation rejects overlapping resource borrows before
         // this projection is manufactured.
         unsafe { World::resource_capability_from_ptr(self.world, true, Some(journal)) }
+    }
+
+    pub(crate) fn relation<R: Relation>(self) -> RelationReadCapability<'world, R> {
+        // Safety: the authority lifetime is the current invocation and access
+        // validation has already established this relation-type shared borrow.
+        unsafe { RelationReadCapability::from_world_ptr(self.world) }
+    }
+
+    pub(crate) fn relation_mut<R: Relation>(self) -> RelationWriteCapability<'world, R> {
+        // Safety: the authority lifetime is the current invocation and access
+        // validation has already established this relation-type exclusive borrow.
+        unsafe { RelationWriteCapability::from_world_ptr(self.world) }
     }
 }
 

@@ -277,6 +277,7 @@ impl ScheduleInspection {
                     AccessDomain::Component => ScheduleAccessDomain::Component,
                     AccessDomain::RemovedComponent => ScheduleAccessDomain::RemovedComponent,
                     AccessDomain::Resource => ScheduleAccessDomain::Resource,
+                    AccessDomain::Relation => ScheduleAccessDomain::Relation,
                     AccessDomain::Structural => ScheduleAccessDomain::Structural,
                     AccessDomain::World => ScheduleAccessDomain::World,
                 },
@@ -511,6 +512,7 @@ pub enum ScheduleAccessDomain {
     Component,
     RemovedComponent,
     Resource,
+    Relation,
     Structural,
     World,
 }

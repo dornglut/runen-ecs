@@ -1,8 +1,12 @@
 use super::change_tracking::panic_worker_projection_violation;
 use super::mutation_journal::{ConcurrentMutationCapacity, MutationJournal};
+use super::relation::{
+    EntityValidationCapability, Relation, RelationReadCapability, RelationStore,
+    RelationWriteCapability,
+};
 use super::{ChangeCursor, QueryCapability, ResourceCapability, World};
 use crate::component::{Component, Resource};
-use crate::entity::{Entity, WorldScopeId};
+use crate::entity::{Entity, EntityValidationSnapshot, WorldScopeId};
 use crate::errors::ResourceError;
 use crate::storage::ArchetypeExecutionBinding;
 use std::any::{Any, TypeId, type_name};
@@ -47,6 +51,24 @@ struct MutableResourceProjection<T: Resource> {
 // Safety: this projection is owned by one worker invocation and is constructed
 // only for `T: Send` after scheduler conflict validation.
 unsafe impl<T: Resource + Send> Send for MutableResourceProjection<T> {}
+
+struct SharedRelationProjection {
+    store: Option<NonNull<RelationStore>>,
+}
+
+// Safety: a shared projection only observes one boxed relation store while the
+// structural lease prevents its removal. Scheduler access validation excludes
+// a concurrent writer for the same relation type.
+unsafe impl Send for SharedRelationProjection {}
+
+struct MutableRelationProjection {
+    store: NonNull<RelationStore>,
+}
+
+// Safety: one worker invocation owns this exclusive projection after scheduler
+// validation. Relation stores contain only Entity structural identities, and
+// boxed storage keeps the allocation stable across relation-registry rehashes.
+unsafe impl Send for MutableRelationProjection {}
 
 /// Invoker-owned structural freeze for one controlled worker cohort.
 ///
@@ -117,6 +139,7 @@ pub(crate) struct WorkerWorldBuilder<'world> {
     world_scope: WorldScopeId,
     change_cursor: ChangeCursor,
     alive_entities: BTreeSet<Entity>,
+    entity_validation: EntityValidationSnapshot,
     membership: HashMap<TypeId, BTreeSet<Entity>>,
     component_reads: HashMap<TypeId, ErasedWorkerProjection>,
     component_writes: HashMap<TypeId, ErasedWorkerProjection>,
@@ -124,6 +147,8 @@ pub(crate) struct WorkerWorldBuilder<'world> {
     removed_records: HashMap<TypeId, Vec<(Entity, ChangeCursor)>>,
     resource_reads: HashMap<TypeId, ErasedWorkerProjection>,
     resource_writes: HashMap<TypeId, ErasedWorkerProjection>,
+    relation_reads: HashMap<TypeId, SharedRelationProjection>,
+    relation_writes: HashMap<TypeId, MutableRelationProjection>,
     _marker: PhantomData<&'world mut World>,
 }
 
@@ -136,6 +161,7 @@ impl<'world> WorkerWorldBuilder<'world> {
             world_scope: world_ref.scope_id(),
             change_cursor,
             alive_entities: world_ref.alive_entities.clone(),
+            entity_validation: world_ref.allocator.validation_snapshot(),
             membership: HashMap::new(),
             component_reads: HashMap::new(),
             component_writes: HashMap::new(),
@@ -143,6 +169,8 @@ impl<'world> WorkerWorldBuilder<'world> {
             removed_records: HashMap::new(),
             resource_reads: HashMap::new(),
             resource_writes: HashMap::new(),
+            relation_reads: HashMap::new(),
+            relation_writes: HashMap::new(),
             _marker: PhantomData,
         }
     }
@@ -301,11 +329,42 @@ impl<'world> WorkerWorldBuilder<'world> {
         Ok(())
     }
 
+    pub(crate) fn prepare_relation_read<R: Relation>(&mut self) {
+        let type_id = TypeId::of::<R>();
+        if self.relation_reads.contains_key(&type_id) {
+            return;
+        }
+        assert!(
+            !self.relation_writes.contains_key(&type_id),
+            "worker preparation mixed shared and exclusive relation projections"
+        );
+        let world = unsafe { self.world.as_ref() };
+        let store = world.relation_store::<R>().map(NonNull::from);
+        self.relation_reads
+            .insert(type_id, SharedRelationProjection { store });
+    }
+
+    pub(crate) fn prepare_relation_write<R: Relation>(&mut self) {
+        let type_id = TypeId::of::<R>();
+        if self.relation_writes.contains_key(&type_id) {
+            return;
+        }
+        assert!(
+            !self.relation_reads.contains_key(&type_id),
+            "worker preparation mixed shared and exclusive relation projections"
+        );
+        let world = unsafe { self.world.as_mut() };
+        let store = NonNull::from(world.ensure_relation_store::<R>());
+        self.relation_writes
+            .insert(type_id, MutableRelationProjection { store });
+    }
+
     pub(crate) fn finish(self) -> PreparedWorkerWorld<'world> {
         PreparedWorkerWorld {
             world_scope: self.world_scope,
             change_cursor: self.change_cursor,
             alive_entities: self.alive_entities,
+            entity_validation: self.entity_validation,
             membership: self.membership,
             component_reads: self.component_reads,
             component_writes: self.component_writes,
@@ -313,6 +372,8 @@ impl<'world> WorkerWorldBuilder<'world> {
             removed_records: self.removed_records,
             resource_reads: self.resource_reads,
             resource_writes: self.resource_writes,
+            relation_reads: self.relation_reads,
+            relation_writes: self.relation_writes,
             _marker: PhantomData,
         }
     }
@@ -324,6 +385,7 @@ pub(crate) struct PreparedWorkerWorld<'world> {
     world_scope: WorldScopeId,
     change_cursor: ChangeCursor,
     alive_entities: BTreeSet<Entity>,
+    entity_validation: EntityValidationSnapshot,
     membership: HashMap<TypeId, BTreeSet<Entity>>,
     component_reads: HashMap<TypeId, ErasedWorkerProjection>,
     component_writes: HashMap<TypeId, ErasedWorkerProjection>,
@@ -331,6 +393,8 @@ pub(crate) struct PreparedWorkerWorld<'world> {
     removed_records: HashMap<TypeId, Vec<(Entity, ChangeCursor)>>,
     resource_reads: HashMap<TypeId, ErasedWorkerProjection>,
     resource_writes: HashMap<TypeId, ErasedWorkerProjection>,
+    relation_reads: HashMap<TypeId, SharedRelationProjection>,
+    relation_writes: HashMap<TypeId, MutableRelationProjection>,
     _marker: PhantomData<&'world mut World>,
 }
 
@@ -360,8 +424,11 @@ impl PreparedWorkerWorld<'_> {
                 mutation_journal: None,
                 _marker: PhantomData,
             },
+            entity_validation: NonNull::from(&mut self.entity_validation),
             resource_reads: NonNull::from(&mut self.resource_reads),
             resource_writes: NonNull::from(&mut self.resource_writes),
+            relation_reads: NonNull::from(&mut self.relation_reads),
+            relation_writes: NonNull::from(&mut self.relation_writes),
             _marker: PhantomData,
         }
     }
@@ -370,8 +437,11 @@ impl PreparedWorkerWorld<'_> {
 #[derive(Copy, Clone)]
 pub(crate) struct WorkerWorldAuthority<'world> {
     query: WorkerQueryCapability<'world>,
+    entity_validation: NonNull<EntityValidationSnapshot>,
     resource_reads: NonNull<HashMap<TypeId, ErasedWorkerProjection>>,
     resource_writes: NonNull<HashMap<TypeId, ErasedWorkerProjection>>,
+    relation_reads: NonNull<HashMap<TypeId, SharedRelationProjection>>,
+    relation_writes: NonNull<HashMap<TypeId, MutableRelationProjection>>,
     _marker: PhantomData<&'world mut ()>,
 }
 
@@ -415,6 +485,32 @@ impl<'world> WorkerWorldAuthority<'world> {
             projection.value,
             journal,
         ))
+    }
+
+    fn relation_validation(self) -> EntityValidationCapability<'world> {
+        EntityValidationCapability::worker(self.entity_validation, self.query.alive_entities)
+    }
+
+    pub(crate) fn relation<R: Relation>(self) -> RelationReadCapability<'world, R> {
+        let type_id = TypeId::of::<R>();
+        let reads = unsafe { self.relation_reads.as_ref() };
+        let projection = reads.get(&type_id).unwrap_or_else(|| {
+            panic_worker_projection_violation(
+                "worker relation read requested a relation type that was not prepared",
+            )
+        });
+        RelationReadCapability::worker(self.relation_validation(), projection.store)
+    }
+
+    pub(crate) fn relation_mut<R: Relation>(self) -> RelationWriteCapability<'world, R> {
+        let type_id = TypeId::of::<R>();
+        let writes = unsafe { self.relation_writes.as_ref() };
+        let projection = writes.get(&type_id).unwrap_or_else(|| {
+            panic_worker_projection_violation(
+                "worker relation write requested a relation type that was not prepared",
+            )
+        });
+        RelationWriteCapability::worker(self.relation_validation(), projection.store)
     }
 }
 

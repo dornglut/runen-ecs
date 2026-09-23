@@ -26,6 +26,7 @@ pub struct ActorBundle {
 pub struct SimulationParams<'w, 's> {
     pub positions: Query<'w, 's, &'static mut Position>,
     pub frame: ResMut<'w, Frame>,
+    pub follows: Relations<'w, Follows>,
 }
 
 pub struct Follows;
@@ -54,6 +55,7 @@ fn advance(mut params: SimulationParams<'_, '_>) {
     for position in params.positions.iter() {
         position.x += 1;
     }
+    assert_eq!(params.follows.len(), 1);
     params.frame.value += 1;
 }
 
