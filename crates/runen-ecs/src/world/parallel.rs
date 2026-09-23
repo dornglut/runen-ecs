@@ -395,7 +395,7 @@ pub(crate) struct PreparedWorkerWorld<'world> {
     world_scope: WorldScopeId,
     change_cursor: ChangeCursor,
     alive_entities: BTreeSet<Entity>,
-    entity_validation: EntityValidationSnapshot,
+    entity_validation: Option<EntityValidationSnapshot>,
     membership: HashMap<TypeId, BTreeSet<Entity>>,
     component_reads: HashMap<TypeId, ErasedWorkerProjection>,
     component_writes: HashMap<TypeId, ErasedWorkerProjection>,
