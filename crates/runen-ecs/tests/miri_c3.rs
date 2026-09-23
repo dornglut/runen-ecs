@@ -1,4 +1,7 @@
-use runen_ecs::{Component, Query, ResMut, Resource, Runtime, ScheduleLabel, World};
+use runen_ecs::{
+    Component, Directed, Query, Relation, RelationsMut, ResMut, Resource, Runtime, ScheduleLabel,
+    World,
+};
 
 #[derive(Debug, Copy, Clone, Component)]
 struct A(i32);
@@ -20,6 +23,16 @@ struct ResourceA(i32);
 
 #[derive(Debug, Copy, Clone, Resource)]
 struct ResourceB(i32);
+
+struct RelationA;
+impl Relation for RelationA {
+    type Kind = Directed;
+}
+
+struct RelationB;
+impl Relation for RelationB {
+    type Kind = Directed;
+}
 
 #[derive(Copy, Clone)]
 struct C3;
@@ -61,6 +74,37 @@ fn mutable_tuple_items_remain_disjoint_across_iterator_advancement() {
     second_a.0 += 3;
     second_b.0 += 4;
     assert!(iter.next().is_none());
+}
+
+#[test]
+fn serial_relation_type_split_keeps_retained_read_state_disjoint_from_other_writer() {
+    let mut world = World::new();
+    let source = world.spawn(A(1)).unwrap();
+    let target = world.spawn(B(2)).unwrap();
+    world
+        .relations_mut::<RelationA>()
+        .insert(source, target)
+        .unwrap();
+
+    let mut runtime = Runtime::new();
+    runtime
+        .add_systems(
+            C3,
+            move |relations_a: RelationsMut<RelationA>,
+                  mut relations_b: RelationsMut<RelationB>| {
+                let mut retained = relations_a.iter();
+                assert_eq!(retained.next(), Some((source, target)));
+
+                assert!(relations_b.insert(source, target).unwrap());
+                assert!(retained.next().is_none());
+            },
+        )
+        .unwrap();
+
+    runtime.run_schedule::<C3>(&mut world).unwrap();
+    assert!(world
+        .relations::<RelationB>()
+        .contains(source, target));
 }
 
 #[test]
