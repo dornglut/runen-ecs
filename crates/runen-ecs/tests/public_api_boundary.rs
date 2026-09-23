@@ -125,6 +125,7 @@ fn typed_relation_domain_is_public_without_exporting_runen_graph_mechanics() {
     for public in [
         "Relation",
         "RelationKind",
+        "RelationEntities",
         "Directed",
         "Symmetric",
         "SelfRelation",
@@ -133,10 +134,12 @@ fn typed_relation_domain_is_public_without_exporting_runen_graph_mechanics() {
         "RelationsMut",
     ] {
         assert!(has_identifier(LIB_RS, public), "missing root relation export: {public}");
-        assert!(
-            has_identifier(PRELUDE_RS, public),
-            "missing prelude relation export: {public}"
-        );
+        if public != "RelationEntities" {
+            assert!(
+                has_identifier(PRELUDE_RS, public),
+                "missing prelude relation export: {public}"
+            );
+        }
     }
 
     for private in [

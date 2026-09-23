@@ -82,9 +82,9 @@ impl RelationStore {
     fn assert_kind<R: Relation>(&self) {
         let kind = TypeId::of::<R::Kind>();
         let matches = if kind == TypeId::of::<Directed>() {
-            matches!(self.graph, RelationGraph::Directed(_))
+            matches!(&self.graph, RelationGraph::Directed(_))
         } else if kind == TypeId::of::<Symmetric>() {
-            matches!(self.graph, RelationGraph::Symmetric(_))
+            matches!(&self.graph, RelationGraph::Symmetric(_))
         } else {
             unreachable!("RelationKind is sealed to framework-owned kinds")
         };
@@ -255,34 +255,37 @@ impl<R: Relation> Relations<'_, R> {
     }
 }
 
-impl<R: Relation<Kind = Directed>> Relations<'_, R> {
-    /// Iterates outgoing targets in deterministic Entity ordering.
-    pub fn targets(
-        &self,
-        source: Entity,
-    ) -> Result<impl Iterator<Item = Entity> + '_, RelationError> {
+impl<'w, R: Relation<Kind = Directed>> Relations<'w, R> {
+    /// Returns an allocation-free view of outgoing targets in deterministic Entity ordering.
+    pub fn targets(&self, source: Entity) -> Result<RelationEntities<'w>, RelationError> {
         self.world.ensure_entity_exists(source)?;
-        Ok(directed_targets::<R>(self.world, source))
+        Ok(RelationEntities::directed_targets(
+            self.world.relation_store::<R>(),
+            self.world,
+            source,
+        ))
     }
 
-    /// Iterates incoming sources in deterministic Entity ordering.
-    pub fn sources(
-        &self,
-        target: Entity,
-    ) -> Result<impl Iterator<Item = Entity> + '_, RelationError> {
+    /// Returns an allocation-free view of incoming sources in deterministic Entity ordering.
+    pub fn sources(&self, target: Entity) -> Result<RelationEntities<'w>, RelationError> {
         self.world.ensure_entity_exists(target)?;
-        Ok(directed_sources::<R>(self.world, target))
+        Ok(RelationEntities::directed_sources(
+            self.world.relation_store::<R>(),
+            self.world,
+            target,
+        ))
     }
 }
 
-impl<R: Relation<Kind = Symmetric>> Relations<'_, R> {
-    /// Iterates orientation-independent neighbors in deterministic Entity ordering.
-    pub fn neighbors(
-        &self,
-        entity: Entity,
-    ) -> Result<impl Iterator<Item = Entity> + '_, RelationError> {
+impl<'w, R: Relation<Kind = Symmetric>> Relations<'w, R> {
+    /// Returns an allocation-free view of neighbors in deterministic Entity ordering.
+    pub fn neighbors(&self, entity: Entity) -> Result<RelationEntities<'w>, RelationError> {
         self.world.ensure_entity_exists(entity)?;
-        Ok(symmetric_neighbors::<R>(self.world, entity))
+        Ok(RelationEntities::symmetric_neighbors(
+            self.world.relation_store::<R>(),
+            self.world,
+            entity,
+        ))
     }
 }
 
@@ -336,31 +339,34 @@ impl<R: Relation> RelationsMut<'_, R> {
     }
 }
 
-impl<R: Relation<Kind = Directed>> RelationsMut<'_, R> {
-    pub fn targets(
-        &self,
-        source: Entity,
-    ) -> Result<impl Iterator<Item = Entity> + '_, RelationError> {
+impl<'w, R: Relation<Kind = Directed>> RelationsMut<'w, R> {
+    pub fn targets(&self, source: Entity) -> Result<RelationEntities<'_>, RelationError> {
         self.world.ensure_entity_exists(source)?;
-        Ok(directed_targets::<R>(&*self.world, source))
+        Ok(RelationEntities::directed_targets(
+            self.world.relation_store::<R>(),
+            self.world,
+            source,
+        ))
     }
 
-    pub fn sources(
-        &self,
-        target: Entity,
-    ) -> Result<impl Iterator<Item = Entity> + '_, RelationError> {
+    pub fn sources(&self, target: Entity) -> Result<RelationEntities<'_>, RelationError> {
         self.world.ensure_entity_exists(target)?;
-        Ok(directed_sources::<R>(&*self.world, target))
+        Ok(RelationEntities::directed_sources(
+            self.world.relation_store::<R>(),
+            self.world,
+            target,
+        ))
     }
 }
 
-impl<R: Relation<Kind = Symmetric>> RelationsMut<'_, R> {
-    pub fn neighbors(
-        &self,
-        entity: Entity,
-    ) -> Result<impl Iterator<Item = Entity> + '_, RelationError> {
+impl<'w, R: Relation<Kind = Symmetric>> RelationsMut<'w, R> {
+    pub fn neighbors(&self, entity: Entity) -> Result<RelationEntities<'_>, RelationError> {
         self.world.ensure_entity_exists(entity)?;
-        Ok(symmetric_neighbors::<R>(&*self.world, entity))
+        Ok(RelationEntities::symmetric_neighbors(
+            self.world.relation_store::<R>(),
+            self.world,
+            entity,
+        ))
     }
 }
 
@@ -408,58 +414,111 @@ fn relation_pairs<R: Relation>(world: &World) -> impl Iterator<Item = (Entity, E
     directed.chain(symmetric)
 }
 
-fn directed_targets<R: Relation<Kind = Directed>>(
-    world: &World,
-    source: Entity,
-) -> impl Iterator<Item = Entity> + '_ {
-    world
-        .relation_store::<R>()
-        .and_then(RelationStore::directed)
-        .into_iter()
-        .flat_map(move |graph| {
-            graph.relationships().filter_map(move |(candidate, target)| {
-                (*candidate == source).then_some(*target)
-            })
-        })
-        .map(move |target| checked_entity(world, target))
+/// Allocation-free read view over one relation adjacency.
+pub struct RelationEntities<'w> {
+    store: Option<&'w RelationStore>,
+    world: &'w World,
+    endpoint: Entity,
+    direction: RelationEntityDirection,
 }
 
-fn directed_sources<R: Relation<Kind = Directed>>(
-    world: &World,
-    target: Entity,
-) -> impl Iterator<Item = Entity> + '_ {
-    world
-        .relation_store::<R>()
-        .and_then(RelationStore::directed)
-        .into_iter()
-        .flat_map(move |graph| {
-            graph.relationships().filter_map(move |(source, candidate)| {
-                (*candidate == target).then_some(*source)
-            })
-        })
-        .map(move |source| checked_entity(world, source))
+#[derive(Debug, Copy, Clone)]
+enum RelationEntityDirection {
+    DirectedTargets,
+    DirectedSources,
+    SymmetricNeighbors,
 }
 
-fn symmetric_neighbors<R: Relation<Kind = Symmetric>>(
-    world: &World,
-    entity: Entity,
-) -> impl Iterator<Item = Entity> + '_ {
-    world
-        .relation_store::<R>()
-        .and_then(RelationStore::symmetric)
-        .into_iter()
-        .flat_map(move |graph| {
-            graph.relationships().filter_map(move |(first, second)| {
-                if *first == entity {
-                    Some(*second)
-                } else if *second == entity {
-                    Some(*first)
-                } else {
-                    None
-                }
-            })
-        })
-        .map(move |neighbor| checked_entity(world, neighbor))
+impl<'w> RelationEntities<'w> {
+    fn directed_targets(
+        store: Option<&'w RelationStore>,
+        world: &'w World,
+        endpoint: Entity,
+    ) -> Self {
+        Self {
+            store,
+            world,
+            endpoint,
+            direction: RelationEntityDirection::DirectedTargets,
+        }
+    }
+
+    fn directed_sources(
+        store: Option<&'w RelationStore>,
+        world: &'w World,
+        endpoint: Entity,
+    ) -> Self {
+        Self {
+            store,
+            world,
+            endpoint,
+            direction: RelationEntityDirection::DirectedSources,
+        }
+    }
+
+    fn symmetric_neighbors(
+        store: Option<&'w RelationStore>,
+        world: &'w World,
+        endpoint: Entity,
+    ) -> Self {
+        Self {
+            store,
+            world,
+            endpoint,
+            direction: RelationEntityDirection::SymmetricNeighbors,
+        }
+    }
+
+    /// Iterates the entities in deterministic Entity ordering.
+    pub fn iter(&self) -> impl Iterator<Item = Entity> + '_ {
+        let targets = self
+            .store
+            .filter(|_| matches!(self.direction, RelationEntityDirection::DirectedTargets))
+            .and_then(RelationStore::directed)
+            .into_iter()
+            .flat_map(move |graph| {
+                graph.relationships().filter_map(move |(source, target)| {
+                    (*source == self.endpoint).then_some(*target)
+                })
+            });
+
+        let sources = self
+            .store
+            .filter(|_| matches!(self.direction, RelationEntityDirection::DirectedSources))
+            .and_then(RelationStore::directed)
+            .into_iter()
+            .flat_map(move |graph| {
+                graph.relationships().filter_map(move |(source, target)| {
+                    (*target == self.endpoint).then_some(*source)
+                })
+            });
+
+        let neighbors = self
+            .store
+            .filter(|_| matches!(self.direction, RelationEntityDirection::SymmetricNeighbors))
+            .and_then(RelationStore::symmetric)
+            .into_iter()
+            .flat_map(move |graph| {
+                graph.relationships().filter_map(move |(first, second)| {
+                    if *first == self.endpoint {
+                        Some(*second)
+                    } else if *second == self.endpoint {
+                        Some(*first)
+                    } else {
+                        None
+                    }
+                })
+            });
+
+        targets
+            .chain(sources)
+            .chain(neighbors)
+            .map(move |entity| checked_entity(self.world, entity))
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.iter().next().is_none()
+    }
 }
 
 fn checked_pair(world: &World, first: Entity, second: Entity) -> (Entity, Entity) {

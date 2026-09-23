@@ -62,6 +62,6 @@ pub use system::{
     TransferableSystemParam, WorkerPrepareContext, WorldMut,
 };
 pub use world::{
-    ChangeCursor, Directed, EntityMut, EntityRef, Mut, Relation, RelationKind, Relations,
-    RelationsMut, SelfRelation, Symmetric, World,
+    ChangeCursor, Directed, EntityMut, EntityRef, Mut, Relation, RelationEntities, RelationKind,
+    Relations, RelationsMut, SelfRelation, Symmetric, World,
 };

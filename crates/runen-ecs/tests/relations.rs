@@ -185,6 +185,7 @@ fn directed_views_are_deterministic_inverse_observations_of_one_edge_set() {
             .relations::<Owns>()
             .targets(a)
             .unwrap()
+            .iter()
             .collect::<Vec<_>>(),
         vec![b, c]
     );
@@ -193,6 +194,7 @@ fn directed_views_are_deterministic_inverse_observations_of_one_edge_set() {
             .relations::<Owns>()
             .sources(c)
             .unwrap()
+            .iter()
             .collect::<Vec<_>>(),
         vec![a, b]
     );
@@ -221,6 +223,7 @@ fn symmetric_neighbors_and_iteration_are_canonical_and_deterministic() {
             .relations::<AlliedWith>()
             .neighbors(b)
             .unwrap()
+            .iter()
             .collect::<Vec<_>>(),
         vec![a, c]
     );

@@ -86,6 +86,7 @@ pub fn run_conformance() -> Result<(), RuntimeError> {
             .relations::<Follows>()
             .targets(actor)
             .unwrap()
+            .iter()
             .collect::<Vec<_>>(),
         vec![actor]
     );

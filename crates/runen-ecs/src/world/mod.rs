@@ -15,7 +15,10 @@ pub mod resource;
 
 pub use change_tracking::ChangeCursor;
 pub use entity_handles::{EntityMut, EntityRef, Mut};
-pub use relation::{Directed, Relation, RelationKind, Relations, RelationsMut, SelfRelation, Symmetric};
+pub use relation::{
+    Directed, Relation, RelationEntities, RelationKind, Relations, RelationsMut, SelfRelation,
+    Symmetric,
+};
 pub use state::World;
 
 pub(crate) use capability::{
