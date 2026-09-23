@@ -136,6 +136,15 @@ fn mutation_validation_is_source_then_target_then_self_and_atomic() {
     assert_eq!(world.relations::<Owns>().len(), 1);
     assert!(world.contains(stable));
 
+    let target_error = world
+        .relations_mut::<Owns>()
+        .remove(source, foreign)
+        .unwrap_err();
+    assert!(matches!(
+        target_error,
+        RelationError::Entity(EntityError::ForeignWorld { entity }) if entity == foreign
+    ));
+
     let self_error = world
         .relations_mut::<Owns>()
         .remove(source, source)
@@ -144,6 +153,21 @@ fn mutation_validation_is_source_then_target_then_self_and_atomic() {
         self_error,
         RelationError::SelfReference { entity, .. } if entity == source
     ));
+
+    let stale = world.spawn(Marker).unwrap();
+    world.despawn(stale).unwrap();
+    let replacement = world.spawn(Marker).unwrap();
+    assert_eq!(stale.index(), replacement.index());
+    assert_ne!(stale.generation(), replacement.generation());
+    let stale_error = world
+        .relations_mut::<Owns>()
+        .remove(stale, target)
+        .unwrap_err();
+    assert!(matches!(
+        stale_error,
+        RelationError::Entity(EntityError::StaleGeneration { entity, .. }) if entity == stale
+    ));
+
     assert!(world.relations::<Owns>().contains(source, target));
 }
 

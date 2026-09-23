@@ -134,7 +134,7 @@ fn typed_relation_domain_is_public_without_exporting_runen_graph_mechanics() {
         "RelationsMut",
     ] {
         assert!(has_identifier(LIB_RS, public), "missing root relation export: {public}");
-        if public != "RelationEntities" {
+        if !matches!(public, "RelationEntities" | "RelationKind") {
             assert!(
                 has_identifier(PRELUDE_RS, public),
                 "missing prelude relation export: {public}"
@@ -162,6 +162,8 @@ fn typed_relation_domain_is_public_without_exporting_runen_graph_mechanics() {
 
     assert!(RELATION_RS.contains("runen_graph"));
     assert!(!RELATION_RS.contains("pub use runen_graph"));
+    assert!(!has_identifier(PRELUDE_RS, "RelationKind"));
+    assert!(!has_identifier(PRELUDE_RS, "RelationEntities"));
 }
 
 #[test]
