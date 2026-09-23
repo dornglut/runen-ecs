@@ -291,12 +291,19 @@ impl<'world> EntityValidationCapability<'world> {
     }
 }
 
-#[derive(Copy, Clone)]
 pub(crate) struct RelationReadCapability<'world, R: Relation> {
     validation: EntityValidationCapability<'world>,
     store: Option<NonNull<RelationStore>>,
     _marker: PhantomData<&'world RelationStore>,
     _relation: PhantomData<fn() -> R>,
+}
+
+impl<R: Relation> Copy for RelationReadCapability<'_, R> {}
+
+impl<R: Relation> Clone for RelationReadCapability<'_, R> {
+    fn clone(&self) -> Self {
+        *self
+    }
 }
 
 impl<'world, R: Relation> RelationReadCapability<'world, R> {

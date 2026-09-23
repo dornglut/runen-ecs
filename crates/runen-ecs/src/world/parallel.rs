@@ -139,7 +139,7 @@ pub(crate) struct WorkerWorldBuilder<'world> {
     world_scope: WorldScopeId,
     change_cursor: ChangeCursor,
     alive_entities: BTreeSet<Entity>,
-    entity_validation: EntityValidationSnapshot,
+    entity_validation: Option<EntityValidationSnapshot>,
     membership: HashMap<TypeId, BTreeSet<Entity>>,
     component_reads: HashMap<TypeId, ErasedWorkerProjection>,
     component_writes: HashMap<TypeId, ErasedWorkerProjection>,
@@ -161,7 +161,7 @@ impl<'world> WorkerWorldBuilder<'world> {
             world_scope: world_ref.scope_id(),
             change_cursor,
             alive_entities: world_ref.alive_entities.clone(),
-            entity_validation: world_ref.allocator.validation_snapshot(),
+            entity_validation: None,
             membership: HashMap::new(),
             component_reads: HashMap::new(),
             component_writes: HashMap::new(),
@@ -329,7 +329,16 @@ impl<'world> WorkerWorldBuilder<'world> {
         Ok(())
     }
 
+    fn prepare_relation_validation(&mut self) {
+        if self.entity_validation.is_some() {
+            return;
+        }
+        let world = unsafe { self.world.as_ref() };
+        self.entity_validation = Some(world.allocator.validation_snapshot());
+    }
+
     pub(crate) fn prepare_relation_read<R: Relation>(&mut self) {
+        self.prepare_relation_validation();
         let type_id = TypeId::of::<R>();
         if self.relation_reads.contains_key(&type_id) {
             return;
@@ -345,6 +354,7 @@ impl<'world> WorkerWorldBuilder<'world> {
     }
 
     pub(crate) fn prepare_relation_write<R: Relation>(&mut self) {
+        self.prepare_relation_validation();
         let type_id = TypeId::of::<R>();
         if self.relation_writes.contains_key(&type_id) {
             return;
@@ -424,7 +434,7 @@ impl PreparedWorkerWorld<'_> {
                 mutation_journal: None,
                 _marker: PhantomData,
             },
-            entity_validation: NonNull::from(&mut self.entity_validation),
+            entity_validation: self.entity_validation.as_mut().map(NonNull::from),
             resource_reads: NonNull::from(&mut self.resource_reads),
             resource_writes: NonNull::from(&mut self.resource_writes),
             relation_reads: NonNull::from(&mut self.relation_reads),
@@ -437,7 +447,7 @@ impl PreparedWorkerWorld<'_> {
 #[derive(Copy, Clone)]
 pub(crate) struct WorkerWorldAuthority<'world> {
     query: WorkerQueryCapability<'world>,
-    entity_validation: NonNull<EntityValidationSnapshot>,
+    entity_validation: Option<NonNull<EntityValidationSnapshot>>,
     resource_reads: NonNull<HashMap<TypeId, ErasedWorkerProjection>>,
     resource_writes: NonNull<HashMap<TypeId, ErasedWorkerProjection>>,
     relation_reads: NonNull<HashMap<TypeId, SharedRelationProjection>>,
@@ -488,7 +498,12 @@ impl<'world> WorkerWorldAuthority<'world> {
     }
 
     fn relation_validation(self) -> EntityValidationCapability<'world> {
-        EntityValidationCapability::worker(self.entity_validation, self.query.alive_entities)
+        let snapshot = self.entity_validation.unwrap_or_else(|| {
+            panic_worker_projection_violation(
+                "worker relation access requested entity validation that was not prepared",
+            )
+        });
+        EntityValidationCapability::worker(snapshot, self.query.alive_entities)
     }
 
     pub(crate) fn relation<R: Relation>(self) -> RelationReadCapability<'world, R> {
