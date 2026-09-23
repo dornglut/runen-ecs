@@ -1,0 +1,24 @@
+error[E0505]: cannot move out of `segment` because it is borrowed
+  --> tests/ui/contiguous_slice_blocks_structure.rs:14:10
+   |
+11 |     let segment = segments.next().unwrap();
+   |         ------- binding `segment` declared here
+12 |     let values = segment.component::<A>().unwrap();
+   |                  ------- borrow of `segment` occurs here
+13 |     drop(segments);
+14 |     drop(segment);
+   |          ^^^^^^^ move out of `segment` occurs here
+15 |     world.spawn(A).unwrap();
+16 |     std::hint::black_box(values);
+   |                          ------ borrow later used here
+
+error[E0502]: cannot borrow `world` as mutable because it is also borrowed as immutable
+  --> tests/ui/contiguous_slice_blocks_structure.rs:15:5
+   |
+10 |     let mut segments = query.try_contiguous_segments(&world).unwrap();
+   |                                                      ------ immutable borrow occurs here
+...
+15 |     world.spawn(A).unwrap();
+   |     ^^^^^^^^^^^^^^ mutable borrow occurs here
+16 |     std::hint::black_box(values);
+   |                          ------ immutable borrow later used here

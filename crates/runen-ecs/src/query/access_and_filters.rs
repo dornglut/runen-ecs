@@ -272,6 +272,12 @@ mod sealed {
 pub trait QueryFilter: sealed::QueryFilterSealed {
     fn configure(required: &mut Vec<TypeId>, excluded: &mut Vec<TypeId>);
 
+    /// Whether this sealed filter is uniform for every row in a matching archetype.
+    #[doc(hidden)]
+    fn supports_contiguous_segments() -> bool {
+        false
+    }
+
     fn append_access(_access: &mut QueryAccess) {}
 
     fn needs_tick_filter() -> bool {
@@ -301,18 +307,30 @@ pub(crate) unsafe trait TransferableQueryFilter: QueryFilter {
 
 impl QueryFilter for () {
     fn configure(_required: &mut Vec<TypeId>, _excluded: &mut Vec<TypeId>) {}
+
+    fn supports_contiguous_segments() -> bool {
+        true
+    }
 }
 
 pub struct With<T: Component>(PhantomData<fn() -> T>);
 pub struct Without<T: Component>(PhantomData<fn() -> T>);
 
 impl<T: Component> QueryFilter for With<T> {
+    fn supports_contiguous_segments() -> bool {
+        true
+    }
+
     fn configure(required: &mut Vec<TypeId>, _excluded: &mut Vec<TypeId>) {
         push_unique_type(required, TypeId::of::<T>());
     }
 }
 
 impl<T: Component> QueryFilter for Without<T> {
+    fn supports_contiguous_segments() -> bool {
+        true
+    }
+
     fn configure(_required: &mut Vec<TypeId>, excluded: &mut Vec<TypeId>) {
         push_unique_type(excluded, TypeId::of::<T>());
     }
@@ -378,6 +396,10 @@ impl<T: Component> QueryFilter for Added<T> {
 }
 
 impl<A: QueryFilter, B: QueryFilter> QueryFilter for (A, B) {
+    fn supports_contiguous_segments() -> bool {
+        A::supports_contiguous_segments() && B::supports_contiguous_segments()
+    }
+
     fn configure(required: &mut Vec<TypeId>, excluded: &mut Vec<TypeId>) {
         A::configure(required, excluded);
         B::configure(required, excluded);
@@ -405,6 +427,10 @@ macro_rules! impl_query_filter_tuple {
     ($(($($name:ident),+)),+ $(,)?) => {
         $(
             impl<$($name: QueryFilter,)+> QueryFilter for ($($name,)+) {
+                fn supports_contiguous_segments() -> bool {
+                    true $(&& $name::supports_contiguous_segments())+
+                }
+
                 fn configure(required: &mut Vec<TypeId>, excluded: &mut Vec<TypeId>) {
                     $(
                         $name::configure(required, excluded);

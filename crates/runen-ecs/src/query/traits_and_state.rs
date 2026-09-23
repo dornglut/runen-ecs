@@ -1,8 +1,9 @@
 // Owner: RunenECS - Query Runtime
 use super::access_and_filters::{QueryAccess, QueryFilter, push_unique_type};
+use super::contiguous::ContiguousSegments;
 use crate::component::Component;
 use crate::entity::{Entity, WorldScopeId};
-use crate::errors::QueryError;
+use crate::errors::{ContiguousQueryError, QueryError};
 use crate::storage::ArchetypeExecutionBinding;
 use crate::world::{ChangeCursor, QueryCapability, WorkerWorldBuilder, World};
 use std::any::TypeId;
@@ -33,6 +34,11 @@ pub trait QueryData {
 
     /// Enables archetype-row execution instead of the entity-list fallback path.
     fn supports_archetype_execution() -> bool {
+        false
+    }
+
+    /// Whether this sealed query shape has a typed contiguous projection.
+    fn supports_contiguous_segments() -> bool {
         false
     }
 
@@ -98,6 +104,9 @@ pub trait QuerySpec: sealed::QuerySpecSealed {
     fn supports_archetype_execution() -> bool;
 
     #[doc(hidden)]
+    fn supports_contiguous_segments() -> bool;
+
+    #[doc(hidden)]
     fn collect_archetype_rows(
         world: QueryCapability<'_>,
         required_present: &[TypeId],
@@ -161,6 +170,9 @@ impl<A: Component, B: Component, C: Component> QueryReadOnly for (&A, &B, &C) {}
 /// never reconstructs a whole `World` reference from this value.
 #[doc(hidden)]
 pub trait QueryWorldSource<'world, Q: ?Sized = Entity>: sealed::QueryWorldSourceSealed {
+    #[doc(hidden)]
+    const MUTABLE_WORLD: bool;
+
     fn into_query_capability(self) -> QueryCapability<'world>;
 }
 
@@ -168,12 +180,16 @@ impl sealed::QueryWorldSourceSealed for &World {}
 impl sealed::QueryWorldSourceSealed for &mut World {}
 
 impl<'world, Q: QueryReadOnly> QueryWorldSource<'world, Q> for &'world World {
+    const MUTABLE_WORLD: bool = false;
+
     fn into_query_capability(self) -> QueryCapability<'world> {
         self.query_capability()
     }
 }
 
 impl<'world, Q: ?Sized> QueryWorldSource<'world, Q> for &'world mut World {
+    const MUTABLE_WORLD: bool = true;
+
     fn into_query_capability(self) -> QueryCapability<'world> {
         self.query_capability_mut()
     }
@@ -211,6 +227,10 @@ where
 
     fn supports_archetype_execution() -> bool {
         T::supports_archetype_execution()
+    }
+
+    fn supports_contiguous_segments() -> bool {
+        T::supports_contiguous_segments()
     }
 
     fn collect_archetype_rows(
@@ -284,6 +304,59 @@ impl<Q: QuerySpec, F: QueryFilter> QueryState<Q, F> {
 
     pub fn access(&self) -> &QueryAccess {
         &self.access
+    }
+
+    /// Fallibly expose one typed, row-aligned segment per matching archetype.
+    ///
+    /// The returned borrow excludes structural mutation of `world` until all
+    /// segments are dropped. Segment order is unspecified; this API is only for
+    /// direct serial queries and never falls back to scalar iteration. For a
+    /// mutable query, change tracking and applicable index invalidation for a
+    /// segment are completed immediately before its first mutable slice is
+    /// exposed; rows in segments never accessed mutably remain unchanged.
+    pub fn try_contiguous_segments<'w, W>(
+        &self,
+        world: W,
+    ) -> Result<ContiguousSegments<'w>, ContiguousQueryError>
+    where
+        Q: 'w,
+        F: 'w,
+        W: QueryWorldSource<'w, Q>,
+    {
+        if !Q::supports_contiguous_segments() {
+            return Err(ContiguousQueryError::UnsupportedQueryShape);
+        }
+        if !F::supports_contiguous_segments() {
+            return Err(ContiguousQueryError::UnsupportedFilterShape);
+        }
+
+        let component_types = Q::query_types();
+        for (index, component_type) in component_types.iter().enumerate() {
+            if component_types[index + 1..].contains(component_type) {
+                return Err(ContiguousQueryError::AliasedComponentType);
+            }
+        }
+
+        let mutable_types: Vec<_> = self
+            .access
+            .component_writes()
+            .iter()
+            .map(|access| access.type_id())
+            .collect();
+        if !W::MUTABLE_WORLD && !mutable_types.is_empty() {
+            return Err(ContiguousQueryError::MutableWorldRequired);
+        }
+        let world = world.into_query_capability();
+        self.rebind_world_scope(world.world_scope());
+        let segments = ContiguousSegments::new(
+            world,
+            &self.required_present,
+            &self.excluded,
+            &component_types,
+            &mutable_types,
+        )?;
+        self.last_run_tick.set(Some(world.current_change_tick()));
+        Ok(segments)
     }
 
     pub fn with<T: Component>(mut self) -> Self {

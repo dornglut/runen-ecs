@@ -1,0 +1,9 @@
+error[E0499]: cannot borrow `world` as mutable more than once at a time
+  --> tests/ui/contiguous_structural_mutation.rs:11:5
+   |
+10 |     let segments = query.try_contiguous_segments(&mut world).unwrap();
+   |                                                  ---------- first mutable borrow occurs here
+11 |     world.spawn(A).unwrap();
+   |     ^^^^^ second mutable borrow occurs here
+12 |     drop(segments);
+   |          -------- first borrow later used here

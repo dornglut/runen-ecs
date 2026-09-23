@@ -6,6 +6,15 @@ struct A(i32);
 #[derive(Debug, Copy, Clone, Component)]
 struct B(i32);
 
+#[derive(Debug, Copy, Clone, Component)]
+struct Extra;
+
+#[derive(Debug, Copy, Clone, Component)]
+struct ZeroA;
+
+#[derive(Debug, Copy, Clone, Component)]
+struct ZeroB;
+
 #[derive(Debug, Copy, Clone, Resource)]
 struct ResourceA(i32);
 
@@ -135,4 +144,91 @@ fn migrated_archetype_query_still_yields_unique_mutable_items() {
     first.0 += 10;
     second.0 += 20;
     assert!(iter.next().is_none());
+}
+
+#[test]
+fn mutable_contiguous_segments_remain_disjoint_while_slices_are_retained() {
+    let mut world = World::new();
+    world.spawn((A(1), B(10))).unwrap();
+    world.spawn((A(2), B(20), Extra)).unwrap();
+
+    let query = world.query::<(&mut A, &mut B)>();
+    let mut segments = query.try_contiguous_segments(&mut world).unwrap();
+    assert_eq!(segments.len(), 2);
+
+    let mut first_segment = segments.next().unwrap();
+    let (first_a, first_b) = first_segment.component_pair_mut::<A, B>().unwrap();
+    let mut second_segment = segments.next().unwrap();
+    let (second_a, second_b) = second_segment.component_pair_mut::<A, B>().unwrap();
+
+    first_a[0].0 += 1;
+    first_b[0].0 += 2;
+    second_a[0].0 += 3;
+    second_b[0].0 += 4;
+    assert!(segments.next().is_none());
+
+    let mut zst_world = World::new();
+    zst_world.spawn((ZeroA, ZeroB)).unwrap();
+    let zst_query = zst_world.query::<(&mut ZeroA, &mut ZeroB)>();
+    let mut zst_segments = zst_query.try_contiguous_segments(&mut zst_world).unwrap();
+    let mut zst_segment = zst_segments.next().unwrap();
+    let (zero_a, zero_b) = zst_segment.component_pair_mut::<ZeroA, ZeroB>().unwrap();
+    zero_a[0] = ZeroA;
+    zero_b[0] = ZeroB;
+}
+
+#[test]
+fn mutable_contiguous_multirow_metadata_and_entity_payload_remain_disjoint() {
+    let mut world = World::new();
+    let first = world.spawn((A(1), B(10))).unwrap();
+    let second = world.spawn((A(2), B(20))).unwrap();
+    let cursor = world.current_change_cursor();
+
+    let tuple_query = world.query::<(&mut A, &mut B)>();
+    {
+        let mut segments = tuple_query.try_contiguous_segments(&mut world).unwrap();
+        assert_eq!(segments.len(), 1);
+        let mut segment = segments.next().unwrap();
+        let (a_values, b_values) = segment.component_pair_mut::<A, B>().unwrap();
+        assert_eq!(a_values.len(), 2);
+        assert_eq!(b_values.len(), 2);
+        for (a, b) in a_values.iter_mut().zip(b_values.iter_mut()) {
+            a.0 += 1;
+            b.0 += 2;
+        }
+    }
+    assert!(world.component_changed_since::<A>(cursor).unwrap());
+    assert!(world.component_changed_since::<B>(cursor).unwrap());
+    assert_eq!(world.require::<A>(first).unwrap().0, 2);
+    assert_eq!(world.require::<A>(second).unwrap().0, 3);
+    assert_eq!(world.require::<B>(first).unwrap().0, 12);
+    assert_eq!(world.require::<B>(second).unwrap().0, 22);
+
+    let entity_query = world.query::<(runen_ecs::Entity, &mut A)>();
+    {
+        let mut segments = entity_query.try_contiguous_segments(&mut world).unwrap();
+        assert_eq!(segments.len(), 1);
+        let mut segment = segments.next().unwrap();
+        let (entities, values) = segment.entity_component_mut::<A>().unwrap();
+        assert_eq!(entities.len(), values.len());
+        for (entity, value) in entities.iter().zip(values.iter_mut()) {
+            value.0 += if *entity == first { 10 } else { 20 };
+        }
+    }
+    assert_eq!(world.require::<A>(first).unwrap().0, 12);
+    assert_eq!(world.require::<A>(second).unwrap().0, 23);
+
+    let mut zst_world = World::new();
+    zst_world.spawn((ZeroA, ZeroB)).unwrap();
+    zst_world.spawn((ZeroA, ZeroB)).unwrap();
+    let zst_query = zst_world.query::<(&mut ZeroA, &mut ZeroB)>();
+    let mut zst_segments = zst_query.try_contiguous_segments(&mut zst_world).unwrap();
+    let mut zst_segment = zst_segments.next().unwrap();
+    let (zero_a, zero_b) = zst_segment.component_pair_mut::<ZeroA, ZeroB>().unwrap();
+    assert_eq!(zero_a.len(), 2);
+    assert_eq!(zero_b.len(), 2);
+    for (a, b) in zero_a.iter_mut().zip(zero_b.iter_mut()) {
+        *a = ZeroA;
+        *b = ZeroB;
+    }
 }
