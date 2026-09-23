@@ -10,7 +10,7 @@ use crate::query::{
 };
 use crate::scheduler::system::ParamSlotDescriptor;
 use crate::world::{ResourceCapability, ResourceMutationCapability};
-use crate::{Commands, LocalCommands};
+use crate::{Commands, LocalCommands, Relation, Relations, RelationsMut};
 use std::marker::PhantomData;
 use std::ops::{Deref, DerefMut};
 use std::ptr::NonNull;
@@ -249,6 +249,78 @@ unsafe impl<'param, T: Resource + Send + 'static> TransferableSystemParam for Re
         context: &mut WorkerPrepareContext<'_>,
     ) -> Result<(), SystemParamError> {
         context.builder().prepare_resource_write::<T>()?;
+        Ok(())
+    }
+}
+
+unsafe impl<'param, R: Relation> SystemParam for Relations<'param, R> {
+    type State = ();
+    type Item<'world, 'state> = Relations<'world, R>;
+
+    fn init_state() -> Result<Self::State, SystemParamError> {
+        Ok(())
+    }
+
+    fn access(_: &Self::State) -> QueryAccess {
+        QueryAccess::default().with_relation_read::<R>()
+    }
+
+    fn slot_descriptor() -> ParamSlotDescriptor {
+        ParamSlotDescriptor::leaf("relations", "Relations", std::any::type_name::<Self>())
+    }
+
+    unsafe fn extract<'world, 'state>(
+        _: &'state mut Self::State,
+        context: SystemParamContext<'world>,
+    ) -> Result<Self::Item<'world, 'state>, SystemParamError> {
+        Ok(Relations::from_capability(context.relation::<R>()))
+    }
+}
+
+unsafe impl<'param, R: Relation> TransferableSystemParam for Relations<'param, R> {
+    fn prepare_worker(
+        _state: &Self::State,
+        context: &mut WorkerPrepareContext<'_>,
+    ) -> Result<(), SystemParamError> {
+        context.builder().prepare_relation_read::<R>();
+        Ok(())
+    }
+}
+
+unsafe impl<'param, R: Relation> SystemParam for RelationsMut<'param, R> {
+    type State = ();
+    type Item<'world, 'state> = RelationsMut<'world, R>;
+
+    fn init_state() -> Result<Self::State, SystemParamError> {
+        Ok(())
+    }
+
+    fn access(_: &Self::State) -> QueryAccess {
+        QueryAccess::default().with_relation_write::<R>()
+    }
+
+    fn slot_descriptor() -> ParamSlotDescriptor {
+        ParamSlotDescriptor::leaf(
+            "relations_mut",
+            "RelationsMut",
+            std::any::type_name::<Self>(),
+        )
+    }
+
+    unsafe fn extract<'world, 'state>(
+        _: &'state mut Self::State,
+        context: SystemParamContext<'world>,
+    ) -> Result<Self::Item<'world, 'state>, SystemParamError> {
+        Ok(RelationsMut::from_capability(context.relation_mut::<R>()))
+    }
+}
+
+unsafe impl<'param, R: Relation> TransferableSystemParam for RelationsMut<'param, R> {
+    fn prepare_worker(
+        _state: &Self::State,
+        context: &mut WorkerPrepareContext<'_>,
+    ) -> Result<(), SystemParamError> {
+        context.builder().prepare_relation_write::<R>();
         Ok(())
     }
 }

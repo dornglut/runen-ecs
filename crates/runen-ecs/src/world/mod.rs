@@ -33,3 +33,4 @@ pub(crate) use mutation_journal::{ConcurrentMutationCapacity, MutationJournal};
 pub(crate) use parallel::{
     ParallelWorldLease, PreparedWorkerWorld, WorkerWorldAuthority, WorkerWorldBuilder,
 };
+pub(crate) use relation::{RelationReadCapability, RelationWriteCapability};

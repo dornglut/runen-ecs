@@ -5,7 +5,7 @@ use crate::world::{
     MutationJournal, ParallelWorldLease, PreparedWorkerWorld, WorkerWorldAuthority,
     WorkerWorldBuilder, WorldAuthority,
 };
-use crate::{Commands, LocalCommands, ResourceError, World};
+use crate::{Commands, LocalCommands, Relation, ResourceError, World};
 use std::ptr::NonNull;
 use thiserror::Error;
 
@@ -202,6 +202,22 @@ impl<'world> SystemParamContext<'world> {
                 mutation_journal,
                 ..
             } => Ok(authority.resource_mut::<T>(mutation_journal)?),
+        }
+    }
+
+    pub(crate) fn relation<R: Relation>(self) -> crate::world::RelationReadCapability<'world, R> {
+        match self.backing {
+            SystemParamContextBacking::Serial { authority, .. } => authority.relation::<R>(),
+            SystemParamContextBacking::Worker { authority, .. } => authority.relation::<R>(),
+        }
+    }
+
+    pub(crate) fn relation_mut<R: Relation>(
+        self,
+    ) -> crate::world::RelationWriteCapability<'world, R> {
+        match self.backing {
+            SystemParamContextBacking::Serial { authority, .. } => authority.relation_mut::<R>(),
+            SystemParamContextBacking::Worker { authority, .. } => authority.relation_mut::<R>(),
         }
     }
 

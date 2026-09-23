@@ -7,6 +7,7 @@ pub enum AccessDomain {
     Component,
     RemovedComponent,
     Resource,
+    Relation,
     Structural,
     World,
 }
@@ -55,6 +56,18 @@ impl AccessKey {
         }
     }
 
+    pub fn relation<T: 'static>(name: &'static str) -> Self {
+        Self::relation_by_id(TypeId::of::<T>(), name)
+    }
+
+    pub fn relation_by_id(type_id: TypeId, name: &'static str) -> Self {
+        Self {
+            domain: AccessDomain::Relation,
+            type_id: Some(type_id),
+            name,
+        }
+    }
+
     pub fn structural(name: &'static str) -> Self {
         Self {
             domain: AccessDomain::Structural,
@@ -88,6 +101,7 @@ impl AccessKey {
             AccessDomain::Component => "component",
             AccessDomain::RemovedComponent => "removed component",
             AccessDomain::Resource => "resource",
+            AccessDomain::Relation => "relation",
             AccessDomain::Structural => "structural access",
             AccessDomain::World => "world access",
         };

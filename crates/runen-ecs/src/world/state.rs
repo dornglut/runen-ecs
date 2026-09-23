@@ -22,7 +22,7 @@ pub struct World {
     pub(super) type_registry: crate::reflect::TypeRegistry,
 
     pub(super) resources: HashMap<TypeId, Box<dyn Any>>,
-    pub(super) relation_stores: HashMap<TypeId, RelationStore>,
+    pub(super) relation_stores: HashMap<TypeId, Box<RelationStore>>,
 
     pub(super) component_indexes:
         RefCell<HashMap<ComponentIndexKey, Box<dyn ComponentIndexStorage>>>,

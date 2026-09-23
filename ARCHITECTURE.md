@@ -50,7 +50,13 @@ RunenECS owns typed ECS relations as a first-class semantic domain:
 
 The public boundary is `Relations<R>` / `RelationsMut<R>`. Relation edges are not ordinary components, are not mirrored into archetype storage, and do not introduce a second public node or edge identity. `Relation::name()` is diagnostic text only.
 
-The exact accepted RunenGraph R0 revision is private structural machinery beneath this ECS-owned domain. RunenGraph graph types, membership state, mutation outcomes, and errors are not RunenECS public semantics. Stronger relation policies such as cardinality, hierarchy, ordering, payloads, change observation, traversal, reflection, serialization, and scheduler/query integration remain separately accepted future capabilities built around the same typed relation views.
+The exact accepted RunenGraph R0 revision is private structural machinery beneath this ECS-owned domain. RunenGraph graph types, membership state, mutation outcomes, and errors are not RunenECS public semantics.
+
+The same `Relations<R>` / `RelationsMut<R>` capability types also participate in ordinary system extraction. Scheduler access is keyed by relation type: shared access may overlap shared access to the same relation; any same-type writer conflicts; distinct relation types are independent from one another and from component/resource domains. These access conflicts constrain physical overlap only and do not create semantic precedence.
+
+Transferable relation parameters are prepared through narrow relation-store projections plus a frozen entity-validation snapshot under the parallel structural lease. Workers never receive a whole-World relation handle or a second writable graph. Relation stores are boxed privately so prepared store addresses remain stable even if the relation registry grows while a cohort is prepared. Entity allocation/liveness remains World-owned; the worker snapshot carries only the validation facts required to preserve the direct-World `EntityError` classification for the frozen invocation.
+
+Stronger relation policies such as cardinality, hierarchy, ordering, payloads, change observation, traversal, reflection, serialization, and relation-aware entity query/filter semantics remain separately accepted future capabilities built around the same typed relation views.
 
 ## Schedule semantic layers
 

@@ -1202,6 +1202,12 @@ fn query_access_to_system_access(access: QueryAccess) -> SystemAccess {
     for write in access.resource_writes() {
         system_access.add_write(AccessKey::resource_by_id(write.type_id(), write.name()));
     }
+    for read in access.relation_reads() {
+        system_access.add_read(AccessKey::relation_by_id(read.type_id(), read.name()));
+    }
+    for write in access.relation_writes() {
+        system_access.add_write(AccessKey::relation_by_id(write.type_id(), write.name()));
+    }
     if access.deferred_structural_mutation() {
         system_access.add_write(AccessKey::structural("world_structure"));
     }

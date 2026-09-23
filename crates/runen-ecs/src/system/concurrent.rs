@@ -63,8 +63,9 @@ mod tests {
     use crate::system::IntoSystem;
     use crate::world::{ChangeCursor, FrameworkInvariantKind, framework_invariant_kind};
     use crate::{
-        Added, Changed, Commands, Component, LocalCommands, Query, RemovedQuery, Res, ResMut,
-        Resource, ScheduleLabel, SystemMobilityExt, With, Without, World,
+        Added, Changed, Commands, Component, Directed, LocalCommands, Query, Relation,
+        RelationsMut, RemovedQuery, Res, ResMut, Resource, ScheduleLabel, SystemMobilityExt, With,
+        Without, World,
     };
     use std::cell::Cell;
     use std::marker::PhantomData;
@@ -132,6 +133,36 @@ mod tests {
     #[derive(Debug)]
     struct DeferredMarker(i32);
     impl Component for DeferredMarker {}
+
+    struct RelationA;
+    impl Relation for RelationA {
+        type Kind = Directed;
+    }
+
+    struct RelationB;
+    impl Relation for RelationB {
+        type Kind = Directed;
+    }
+
+    #[allow(dead_code)]
+    struct ThreadBoundRelation(PhantomData<Rc<()>>);
+    impl Relation for ThreadBoundRelation {
+        type Kind = Directed;
+    }
+
+    macro_rules! define_relation_markers {
+        ($($name:ident),+ $(,)?) => {$(
+            struct $name;
+            impl Relation for $name {
+                type Kind = Directed;
+            }
+        )+};
+    }
+
+    define_relation_markers!(
+        Relation0, Relation1, Relation2, Relation3, Relation4, Relation5, Relation6, Relation7,
+        Relation8, Relation9, Relation10, Relation11,
+    );
 
     #[derive(crate::SystemParam)]
     struct DerivedWorkerGroup<'w, 's> {
@@ -562,5 +593,150 @@ mod tests {
         );
         assert!(world.component_changed_since::<A>(before).unwrap());
         assert!(!world.component_changed_since::<B>(before).unwrap());
+    }
+    #[test]
+    fn distinct_relation_writers_use_disjoint_worker_projections() {
+        let mut world = World::new();
+        let source = world.spawn(Marker(1)).unwrap();
+        let target = world.spawn(Marker(2)).unwrap();
+        let barrier = Arc::new(Barrier::new(2));
+
+        let first_barrier = Arc::clone(&barrier);
+        let first = register(&mut world, move |mut relations: RelationsMut<RelationA>| {
+            first_barrier.wait();
+            assert!(relations.insert(source, target).unwrap());
+        });
+
+        let second_barrier = Arc::clone(&barrier);
+        let second = register(&mut world, move |mut relations: RelationsMut<RelationB>| {
+            second_barrier.wait();
+            assert!(relations.insert(source, target).unwrap());
+        });
+
+        run_controlled_worker_harness(&mut world, vec![first, second]).unwrap();
+        assert!(world.relations::<RelationA>().contains(source, target));
+        assert!(world.relations::<RelationB>().contains(source, target));
+    }
+
+    #[test]
+    fn same_relation_writer_conflict_is_rejected_before_worker_execution() {
+        let mut world = World::new();
+        let first_ran = Arc::new(AtomicBool::new(false));
+        let second_ran = Arc::new(AtomicBool::new(false));
+
+        let first_flag = Arc::clone(&first_ran);
+        let first = register(&mut world, move |_relations: RelationsMut<RelationA>| {
+            first_flag.store(true, Ordering::Relaxed);
+        });
+        let second_flag = Arc::clone(&second_ran);
+        let second = register(&mut world, move |_relations: RelationsMut<RelationA>| {
+            second_flag.store(true, Ordering::Relaxed);
+        });
+
+        let result = run_controlled_worker_harness(&mut world, vec![first, second]);
+        assert!(matches!(result, Err(crate::RuntimeError::Setup { .. })));
+        assert!(!first_ran.load(Ordering::Relaxed));
+        assert!(!second_ran.load(Ordering::Relaxed));
+    }
+
+    #[test]
+    fn relation_worker_projection_preserves_exact_entity_validation_precedence() {
+        let mut world = World::new();
+
+        let stale = world.spawn(Marker(1)).unwrap();
+        world.despawn(stale).unwrap();
+        let valid = world.spawn(Marker(2)).unwrap();
+
+        let freed = world.spawn(Marker(3)).unwrap();
+        world.despawn(freed).unwrap();
+
+        let mut foreign_world = World::new();
+        let foreign = foreign_world.spawn(Marker(4)).unwrap();
+
+        let system = register(&mut world, move |mut relations: RelationsMut<RelationA>| {
+            assert!(matches!(
+                relations.insert(foreign, valid),
+                Err(crate::RelationError::Entity(crate::EntityError::ForeignWorld { entity }))
+                    if entity == foreign
+            ));
+            assert!(matches!(
+                relations.insert(stale, valid),
+                Err(crate::RelationError::Entity(crate::EntityError::StaleGeneration {
+                    entity,
+                    ..
+                })) if entity == stale
+            ));
+            assert!(matches!(
+                relations.insert(freed, foreign),
+                Err(crate::RelationError::Entity(crate::EntityError::AlreadyFreed { entity }))
+                    if entity == freed
+            ));
+            assert!(relations.is_empty());
+        });
+
+        run_controlled_worker_harness(&mut world, vec![system]).unwrap();
+        assert!(world.relations::<RelationA>().is_empty());
+    }
+
+    #[test]
+    fn relation_store_registry_growth_keeps_all_prepared_write_projections_stable() {
+        let mut world = World::new();
+        let source = world.spawn(Marker(1)).unwrap();
+        let target = world.spawn(Marker(2)).unwrap();
+
+        let system = register(
+            &mut world,
+            move |mut r0: RelationsMut<Relation0>,
+                  mut r1: RelationsMut<Relation1>,
+                  mut r2: RelationsMut<Relation2>,
+                  mut r3: RelationsMut<Relation3>,
+                  mut r4: RelationsMut<Relation4>,
+                  mut r5: RelationsMut<Relation5>,
+                  mut r6: RelationsMut<Relation6>,
+                  mut r7: RelationsMut<Relation7>,
+                  mut r8: RelationsMut<Relation8>,
+                  mut r9: RelationsMut<Relation9>,
+                  mut r10: RelationsMut<Relation10>,
+                  mut r11: RelationsMut<Relation11>| {
+                assert!(r0.insert(source, target).unwrap());
+                assert!(r1.insert(source, target).unwrap());
+                assert!(r2.insert(source, target).unwrap());
+                assert!(r3.insert(source, target).unwrap());
+                assert!(r4.insert(source, target).unwrap());
+                assert!(r5.insert(source, target).unwrap());
+                assert!(r6.insert(source, target).unwrap());
+                assert!(r7.insert(source, target).unwrap());
+                assert!(r8.insert(source, target).unwrap());
+                assert!(r9.insert(source, target).unwrap());
+                assert!(r10.insert(source, target).unwrap());
+                assert!(r11.insert(source, target).unwrap());
+            },
+        );
+
+        run_controlled_worker_harness(&mut world, vec![system]).unwrap();
+        assert!(world.relations::<Relation0>().contains(source, target));
+        assert!(world.relations::<Relation5>().contains(source, target));
+        assert!(world.relations::<Relation11>().contains(source, target));
+    }
+
+    #[test]
+    fn relation_marker_traits_do_not_leak_into_transferability() {
+        let mut world = World::new();
+        let source = world.spawn(Marker(1)).unwrap();
+        let target = world.spawn(Marker(2)).unwrap();
+
+        let system = register(
+            &mut world,
+            move |mut relations: RelationsMut<ThreadBoundRelation>| {
+                assert!(relations.insert(source, target).unwrap());
+            },
+        );
+
+        run_controlled_worker_harness(&mut world, vec![system]).unwrap();
+        assert!(
+            world
+                .relations::<ThreadBoundRelation>()
+                .contains(source, target)
+        );
     }
 }
