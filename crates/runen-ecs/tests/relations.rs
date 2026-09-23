@@ -269,8 +269,20 @@ fn isolated_live_entities_have_empty_adjacency_without_registration() {
     let mut world = World::new();
     let entity = world.spawn(Marker).unwrap();
 
-    assert!(world.relations::<Owns>().targets(entity).unwrap().is_empty());
-    assert!(world.relations::<Owns>().sources(entity).unwrap().is_empty());
+    assert!(
+        world
+            .relations::<Owns>()
+            .targets(entity)
+            .unwrap()
+            .is_empty()
+    );
+    assert!(
+        world
+            .relations::<Owns>()
+            .sources(entity)
+            .unwrap()
+            .is_empty()
+    );
     assert!(
         world
             .relations::<AlliedWith>()
