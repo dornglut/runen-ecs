@@ -48,29 +48,17 @@ fn main() {
         assert!(owns.contains(alice, sword));
         assert!(!owns.contains(sword, alice));
 
-        let owned = owns
-            .targets(alice)
-            .unwrap()
-            .iter()
-            .collect::<Vec<_>>();
+        let owned = owns.targets(alice).unwrap().iter().collect::<Vec<_>>();
         assert_eq!(owned, vec![sword, shield]);
 
-        let sword_owners = owns
-            .sources(sword)
-            .unwrap()
-            .iter()
-            .collect::<Vec<_>>();
+        let sword_owners = owns.sources(sword).unwrap().iter().collect::<Vec<_>>();
         assert_eq!(sword_owners, vec![alice]);
 
         let allies = world.relations::<AlliedWith>();
         assert!(allies.contains(alice, bob));
         assert!(allies.contains(bob, alice));
 
-        let alice_allies = allies
-            .neighbors(alice)
-            .unwrap()
-            .iter()
-            .collect::<Vec<_>>();
+        let alice_allies = allies.neighbors(alice).unwrap().iter().collect::<Vec<_>>();
         assert_eq!(alice_allies, vec![bob]);
 
         println!(
