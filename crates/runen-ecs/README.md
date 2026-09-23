@@ -87,6 +87,7 @@ Run examples from the repository root.
 
 | Example | Purpose | Run |
 | --- | --- | --- |
+| `relations` | Model typed directed or symmetric relationships between live ECS entities without duplicating relationship components. | `cargo run -p runen-ecs --example relations` |
 | `deferred_commands` | Stage transfer-safe structural changes and observe when they become published. | `cargo run -p runen-ecs --example deferred_commands` |
 | `change_observation` | Observe `Added`, conservative `Changed`, and removed-component windows. | `cargo run -p runen-ecs --example change_observation` |
 | `scheduling` | Express required and optional semantic precedence with system sets. | `cargo run -p runen-ecs --example scheduling` |
