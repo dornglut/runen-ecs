@@ -70,6 +70,11 @@ struct MutableRelationProjection {
 // boxed storage keeps the allocation stable across relation-registry rehashes.
 unsafe impl Send for MutableRelationProjection {}
 
+fn assert_relation_store_thread_traits() {
+    fn assert_send_sync<T: Send + Sync>() {}
+    assert_send_sync::<RelationStore>();
+}
+
 /// Invoker-owned structural freeze for one controlled worker cohort.
 ///
 /// The sole live `World` pointer never leaves this lease. Safe callers cannot
@@ -338,6 +343,7 @@ impl<'world> WorkerWorldBuilder<'world> {
     }
 
     pub(crate) fn prepare_relation_read<R: Relation>(&mut self) {
+        assert_relation_store_thread_traits();
         self.prepare_relation_validation();
         let type_id = TypeId::of::<R>();
         if self.relation_reads.contains_key(&type_id) {
@@ -354,6 +360,7 @@ impl<'world> WorkerWorldBuilder<'world> {
     }
 
     pub(crate) fn prepare_relation_write<R: Relation>(&mut self) {
+        assert_relation_store_thread_traits();
         self.prepare_relation_validation();
         let type_id = TypeId::of::<R>();
         if self.relation_writes.contains_key(&type_id) {

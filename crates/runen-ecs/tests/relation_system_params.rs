@@ -85,18 +85,20 @@ fn relation_params_use_relation_scoped_borrow_validation() {
     runtime.add_systems(Update, shared_shared).unwrap();
 
     let mut runtime = Runtime::new();
-    let error = runtime
-        .add_systems(Update, shared_mutable)
-        .expect_err("shared plus mutable relation borrow must fail");
+    let error = match runtime.add_systems(Update, shared_mutable) {
+        Ok(_) => panic!("shared plus mutable relation borrow must fail"),
+        Err(error) => error,
+    };
     let message = format!("{error:#}");
     assert!(message.contains("conflicting param borrows"), "{message}");
     assert!(message.contains("relation"), "{message}");
     assert!(message.contains(Owns::name()), "{message}");
 
     let mut runtime = Runtime::new();
-    let error = runtime
-        .add_systems(Update, mutable_mutable)
-        .expect_err("two mutable relation borrows must fail");
+    let error = match runtime.add_systems(Update, mutable_mutable) {
+        Ok(_) => panic!("two mutable relation borrows must fail"),
+        Err(error) => error,
+    };
     let message = format!("{error:#}");
     assert!(message.contains("conflicting param borrows"), "{message}");
     assert!(message.contains("relation"), "{message}");
@@ -111,9 +113,10 @@ fn relation_params_use_relation_scoped_borrow_validation() {
     runtime.add_systems(Update, relation_and_commands).unwrap();
 
     let mut runtime = Runtime::new();
-    let error = runtime
-        .add_systems(Update, relation_and_world.on_invoker_thread())
-        .expect_err("WorldMut must conflict with immediate relation access");
+    let error = match runtime.add_systems(Update, relation_and_world.on_invoker_thread()) {
+        Ok(_) => panic!("WorldMut must conflict with immediate relation access"),
+        Err(error) => error,
+    };
     assert!(format!("{error:#}").contains("world"));
 }
 
@@ -235,6 +238,55 @@ fn run_relation_fixture(parallel: bool) -> (usize, usize, bool, bool) {
         world.relations::<Owns>().contains(source, target),
         world.relations::<AlliedWith>().contains(target, source),
     )
+}
+
+struct SelfAllowed;
+impl Relation for SelfAllowed {
+    type Kind = Directed;
+    const SELF: SelfRelation = SelfRelation::Allow;
+}
+
+#[test]
+fn mutable_relation_param_preserves_remove_clear_and_self_policy() {
+    let mut world = World::new();
+    let source = world.spawn(Marker).unwrap();
+    let first = world.spawn(Marker).unwrap();
+    let second = world.spawn(Marker).unwrap();
+    world.insert_resource(Endpoints {
+        source,
+        target: first,
+    });
+    world.relations_mut::<Owns>().insert(source, first).unwrap();
+    world.relations_mut::<Owns>().insert(source, second).unwrap();
+
+    let mut runtime = Runtime::new();
+    runtime
+        .add_systems(
+            Update,
+            move |mut owns: RelationsMut<Owns>, mut self_allowed: RelationsMut<SelfAllowed>| {
+                assert!(owns.remove(source, first).unwrap());
+                assert_eq!(owns.clear_entity(source).unwrap(), 1);
+                assert!(self_allowed.insert(source, source).unwrap());
+            },
+        )
+        .unwrap();
+    runtime.run_schedule::<Update>(&mut world).unwrap();
+
+    assert!(world.relations::<Owns>().is_empty());
+    assert!(world
+        .relations::<SelfAllowed>()
+        .contains(source, source));
+
+    let mut forbidden = Runtime::new();
+    forbidden
+        .add_systems(Update, move |mut owns: RelationsMut<Owns>| {
+            assert!(matches!(
+                owns.insert(source, source),
+                Err(runen_ecs::RelationError::SelfReference { entity, .. }) if entity == source
+            ));
+        })
+        .unwrap();
+    forbidden.run_schedule::<Update>(&mut world).unwrap();
 }
 
 #[test]

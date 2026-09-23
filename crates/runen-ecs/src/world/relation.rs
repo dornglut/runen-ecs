@@ -319,8 +319,21 @@ impl<'world, R: Relation> RelationReadCapability<'world, R> {
     }
 
     pub(crate) unsafe fn from_world_ptr(world: NonNull<World>) -> Self {
-        let world = unsafe { world.as_ref() };
-        Self::serial(world)
+        let world_ptr = world.as_ptr();
+        let allocator = unsafe { &*std::ptr::addr_of!((*world_ptr).allocator) };
+        let alive_entities = unsafe { &*std::ptr::addr_of!((*world_ptr).alive_entities) };
+        let stores = unsafe { &*std::ptr::addr_of!((*world_ptr).relation_stores) };
+        let store = stores
+            .get(&TypeId::of::<R>())
+            .map(Box::as_ref)
+            .inspect(|store| store.assert_kind::<R>())
+            .map(NonNull::from);
+        Self {
+            validation: EntityValidationCapability::serial(allocator, alive_entities),
+            store,
+            _marker: PhantomData,
+            _relation: PhantomData,
+        }
     }
 
     pub(super) fn worker(
@@ -387,9 +400,21 @@ impl<'world, R: Relation> RelationWriteCapability<'world, R> {
         }
     }
 
-    pub(crate) unsafe fn from_world_ptr(mut world: NonNull<World>) -> Self {
-        let world = unsafe { world.as_mut() };
-        Self::serial(world)
+    pub(crate) unsafe fn from_world_ptr(world: NonNull<World>) -> Self {
+        let world_ptr = world.as_ptr();
+        let allocator = unsafe { &*std::ptr::addr_of!((*world_ptr).allocator) };
+        let alive_entities = unsafe { &*std::ptr::addr_of!((*world_ptr).alive_entities) };
+        let stores = unsafe {
+            NonNull::new_unchecked(std::ptr::addr_of_mut!((*world_ptr).relation_stores))
+        };
+        Self {
+            validation: EntityValidationCapability::serial(allocator, alive_entities),
+            backing: RelationWriteBacking::Serial {
+                stores,
+                _marker: PhantomData,
+            },
+            _relation: PhantomData,
+        }
     }
 
     pub(super) fn worker(
