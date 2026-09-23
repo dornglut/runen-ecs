@@ -160,18 +160,8 @@ mod tests {
     }
 
     define_relation_markers!(
-        Relation0,
-        Relation1,
-        Relation2,
-        Relation3,
-        Relation4,
-        Relation5,
-        Relation6,
-        Relation7,
-        Relation8,
-        Relation9,
-        Relation10,
-        Relation11,
+        Relation0, Relation1, Relation2, Relation3, Relation4, Relation5, Relation6, Relation7,
+        Relation8, Relation9, Relation10, Relation11,
     );
 
     #[derive(crate::SystemParam)]
@@ -696,20 +686,18 @@ mod tests {
 
         let system = register(
             &mut world,
-            move |
-                mut r0: RelationsMut<Relation0>,
-                mut r1: RelationsMut<Relation1>,
-                mut r2: RelationsMut<Relation2>,
-                mut r3: RelationsMut<Relation3>,
-                mut r4: RelationsMut<Relation4>,
-                mut r5: RelationsMut<Relation5>,
-                mut r6: RelationsMut<Relation6>,
-                mut r7: RelationsMut<Relation7>,
-                mut r8: RelationsMut<Relation8>,
-                mut r9: RelationsMut<Relation9>,
-                mut r10: RelationsMut<Relation10>,
-                mut r11: RelationsMut<Relation11>,
-            | {
+            move |mut r0: RelationsMut<Relation0>,
+                  mut r1: RelationsMut<Relation1>,
+                  mut r2: RelationsMut<Relation2>,
+                  mut r3: RelationsMut<Relation3>,
+                  mut r4: RelationsMut<Relation4>,
+                  mut r5: RelationsMut<Relation5>,
+                  mut r6: RelationsMut<Relation6>,
+                  mut r7: RelationsMut<Relation7>,
+                  mut r8: RelationsMut<Relation8>,
+                  mut r9: RelationsMut<Relation9>,
+                  mut r10: RelationsMut<Relation10>,
+                  mut r11: RelationsMut<Relation11>| {
                 assert!(r0.insert(source, target).unwrap());
                 assert!(r1.insert(source, target).unwrap());
                 assert!(r2.insert(source, target).unwrap());
