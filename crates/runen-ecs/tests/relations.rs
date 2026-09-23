@@ -40,17 +40,24 @@ fn relation_types_are_independent_and_direction_is_type_level() {
     let second = world.spawn(Marker).unwrap();
 
     assert!(world.relations_mut::<Owns>().insert(first, second).unwrap());
-    assert!(world.relations_mut::<Follows>().insert(first, second).unwrap());
+    assert!(
+        world
+            .relations_mut::<Follows>()
+            .insert(first, second)
+            .unwrap()
+    );
     assert_eq!(world.relations::<Owns>().len(), 1);
     assert_eq!(world.relations::<Follows>().len(), 1);
 
     assert!(world.relations::<Owns>().contains(first, second));
     assert!(!world.relations::<Owns>().contains(second, first));
 
-    assert!(world
-        .relations_mut::<AlliedWith>()
-        .insert(first, second)
-        .unwrap());
+    assert!(
+        world
+            .relations_mut::<AlliedWith>()
+            .insert(first, second)
+            .unwrap()
+    );
     assert!(world.relations::<AlliedWith>().contains(first, second));
     assert!(world.relations::<AlliedWith>().contains(second, first));
 }
@@ -86,14 +93,18 @@ fn self_relation_policy_is_explicit_for_both_kinds() {
         Err(RelationError::SelfReference { entity: found, .. }) if found == entity
     ));
 
-    assert!(world
-        .relations_mut::<DirectedSelf>()
-        .insert(entity, entity)
-        .unwrap());
-    assert!(world
-        .relations_mut::<SymmetricSelf>()
-        .insert(entity, entity)
-        .unwrap());
+    assert!(
+        world
+            .relations_mut::<DirectedSelf>()
+            .insert(entity, entity)
+            .unwrap()
+    );
+    assert!(
+        world
+            .relations_mut::<SymmetricSelf>()
+            .insert(entity, entity)
+            .unwrap()
+    );
     assert!(world.relations::<DirectedSelf>().contains(entity, entity));
     assert!(world.relations::<SymmetricSelf>().contains(entity, entity));
 }
@@ -258,24 +269,15 @@ fn isolated_live_entities_have_empty_adjacency_without_registration() {
     let mut world = World::new();
     let entity = world.spawn(Marker).unwrap();
 
-    assert!(world
-        .relations::<Owns>()
-        .targets(entity)
-        .unwrap()
-        .next()
-        .is_none());
-    assert!(world
-        .relations::<Owns>()
-        .sources(entity)
-        .unwrap()
-        .next()
-        .is_none());
-    assert!(world
-        .relations::<AlliedWith>()
-        .neighbors(entity)
-        .unwrap()
-        .next()
-        .is_none());
+    assert!(world.relations::<Owns>().targets(entity).unwrap().is_empty());
+    assert!(world.relations::<Owns>().sources(entity).unwrap().is_empty());
+    assert!(
+        world
+            .relations::<AlliedWith>()
+            .neighbors(entity)
+            .unwrap()
+            .is_empty()
+    );
 }
 
 #[test]
@@ -300,9 +302,7 @@ fn despawn_removes_incident_edges_and_generation_reuse_inherits_nothing() {
     assert_eq!(old.index(), replacement.index());
     assert_ne!(old.generation(), replacement.generation());
     assert!(!world.relations::<Owns>().contains(replacement, other));
-    assert!(!world
-        .relations::<AlliedWith>()
-        .contains(replacement, other));
+    assert!(!world.relations::<AlliedWith>().contains(replacement, other));
 }
 
 #[test]

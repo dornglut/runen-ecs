@@ -77,10 +77,12 @@ pub fn run_conformance() -> Result<(), RuntimeError> {
             velocity: Velocity { x: 1 },
         })
         .unwrap();
-    assert!(world
-        .relations_mut::<Follows>()
-        .insert(actor, actor)
-        .unwrap());
+    assert!(
+        world
+            .relations_mut::<Follows>()
+            .insert(actor, actor)
+            .unwrap()
+    );
     assert_eq!(
         world
             .relations::<Follows>()

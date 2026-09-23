@@ -315,7 +315,10 @@ impl<R: Relation> RelationsMut<'_, R> {
     /// Inserts one relation edge after ECS liveness and relation-policy validation.
     pub fn insert(&mut self, first: Entity, second: Entity) -> Result<bool, RelationError> {
         validate_pair::<R>(&*self.world, first, second)?;
-        Ok(self.world.ensure_relation_store::<R>().insert(first, second))
+        Ok(self
+            .world
+            .ensure_relation_store::<R>()
+            .insert(first, second))
     }
 
     /// Removes one relation edge after ECS liveness and relation-policy validation.
