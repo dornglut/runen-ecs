@@ -477,9 +477,11 @@ impl<'w> RelationEntities<'w> {
             .and_then(RelationStore::directed)
             .into_iter()
             .flat_map(move |graph| {
-                graph.relationships().filter_map(move |(source, target)| {
-                    (*source == self.endpoint).then_some(*target)
-                })
+                graph
+                    .outgoing(&self.endpoint)
+                    .into_iter()
+                    .flatten()
+                    .copied()
             });
 
         let sources = self
@@ -488,9 +490,11 @@ impl<'w> RelationEntities<'w> {
             .and_then(RelationStore::directed)
             .into_iter()
             .flat_map(move |graph| {
-                graph.relationships().filter_map(move |(source, target)| {
-                    (*target == self.endpoint).then_some(*source)
-                })
+                graph
+                    .incoming(&self.endpoint)
+                    .into_iter()
+                    .flatten()
+                    .copied()
             });
 
         let neighbors = self
@@ -499,15 +503,11 @@ impl<'w> RelationEntities<'w> {
             .and_then(RelationStore::symmetric)
             .into_iter()
             .flat_map(move |graph| {
-                graph.relationships().filter_map(move |(first, second)| {
-                    if *first == self.endpoint {
-                        Some(*second)
-                    } else if *second == self.endpoint {
-                        Some(*first)
-                    } else {
-                        None
-                    }
-                })
+                graph
+                    .neighbors(&self.endpoint)
+                    .into_iter()
+                    .flatten()
+                    .copied()
             });
 
         targets
