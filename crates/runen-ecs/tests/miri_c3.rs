@@ -102,9 +102,7 @@ fn serial_relation_type_split_keeps_retained_read_state_disjoint_from_other_writ
         .unwrap();
 
     runtime.run_schedule::<C3>(&mut world).unwrap();
-    assert!(world
-        .relations::<RelationB>()
-        .contains(source, target));
+    assert!(world.relations::<RelationB>().contains(source, target));
 }
 
 #[test]
