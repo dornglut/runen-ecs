@@ -209,7 +209,10 @@ pub(super) struct EntityValidationCapability<'world> {
 }
 
 impl<'world> EntityValidationCapability<'world> {
-    fn serial(allocator: &'world EntityAllocator, alive_entities: &'world BTreeSet<Entity>) -> Self {
+    fn serial(
+        allocator: &'world EntityAllocator,
+        alive_entities: &'world BTreeSet<Entity>,
+    ) -> Self {
         Self {
             backing: EntityValidationBacking::Serial {
                 allocator: NonNull::from(allocator),
@@ -238,18 +241,16 @@ impl<'world> EntityValidationCapability<'world> {
                 allocator,
                 alive_entities,
                 ..
-            } => (
-                unsafe { allocator.as_ref().validate(entity) },
-                unsafe { alive_entities.as_ref() },
-            ),
+            } => (unsafe { allocator.as_ref().validate(entity) }, unsafe {
+                alive_entities.as_ref()
+            }),
             EntityValidationBacking::Worker {
                 snapshot,
                 alive_entities,
                 ..
-            } => (
-                unsafe { snapshot.as_ref().validate(entity) },
-                unsafe { alive_entities.as_ref() },
-            ),
+            } => (unsafe { snapshot.as_ref().validate(entity) }, unsafe {
+                alive_entities.as_ref()
+            }),
         };
         result?;
         if alive.contains(&entity) {

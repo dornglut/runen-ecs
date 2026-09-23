@@ -205,9 +205,7 @@ impl<'world> SystemParamContext<'world> {
         }
     }
 
-    pub(crate) fn relation<R: Relation>(
-        self,
-    ) -> crate::world::RelationReadCapability<'world, R> {
+    pub(crate) fn relation<R: Relation>(self) -> crate::world::RelationReadCapability<'world, R> {
         match self.backing {
             SystemParamContextBacking::Serial { authority, .. } => authority.relation::<R>(),
             SystemParamContextBacking::Worker { authority, .. } => authority.relation::<R>(),

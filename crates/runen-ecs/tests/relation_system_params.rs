@@ -1,7 +1,7 @@
 use runen_ecs::prelude::*;
 use runen_ecs::{
-    EntityError, ExecutionMobility, RuntimeError, ScheduleAccessConflictKind,
-    ScheduleAccessDomain, SystemParam, TransferableSystemParam, WorldMut,
+    EntityError, ExecutionMobility, RuntimeError, ScheduleAccessConflictKind, ScheduleAccessDomain,
+    SystemParam, TransferableSystemParam, WorldMut,
 };
 use std::fmt;
 use std::marker::PhantomData;
@@ -142,10 +142,12 @@ fn relation_params_report_relation_access_metadata_and_are_transferable_without_
 fn derived_and_invoker_thread_relation_params_preserve_the_same_api() {
     fn grouped(mut group: RelationGroup<'_>, endpoints: Res<Endpoints>) {
         assert!(group.owns.contains(endpoints.source, endpoints.target));
-        assert!(group
-            .allies
-            .insert(endpoints.source, endpoints.target)
-            .unwrap());
+        assert!(
+            group
+                .allies
+                .insert(endpoints.source, endpoints.target)
+                .unwrap()
+        );
     }
 
     fn local_view(relations: Relations<Owns>, endpoints: Res<Endpoints>) {
@@ -219,7 +221,9 @@ fn run_relation_fixture(parallel: bool) -> (usize, usize, bool, bool) {
         .add_systems(Update, deterministic_relation_step)
         .unwrap();
     if parallel {
-        runtime.run_schedule_parallel::<Update>(&mut world, 2).unwrap();
+        runtime
+            .run_schedule_parallel::<Update>(&mut world, 2)
+            .unwrap();
     } else {
         runtime.run_schedule::<Update>(&mut world).unwrap();
     }
@@ -229,9 +233,7 @@ fn run_relation_fixture(parallel: bool) -> (usize, usize, bool, bool) {
         seen.directed,
         seen.symmetric,
         world.relations::<Owns>().contains(source, target),
-        world
-            .relations::<AlliedWith>()
-            .contains(target, source),
+        world.relations::<AlliedWith>().contains(target, source),
     )
 }
 
@@ -280,7 +282,9 @@ fn parallel_relation_validation_matches_direct_entity_error_classes_and_preceden
         })
         .unwrap();
 
-    runtime.run_schedule_parallel::<Update>(&mut world, 1).unwrap();
+    runtime
+        .run_schedule_parallel::<Update>(&mut world, 1)
+        .unwrap();
     assert!(world.relations::<Owns>().is_empty());
 }
 
