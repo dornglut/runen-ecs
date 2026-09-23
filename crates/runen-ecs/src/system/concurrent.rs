@@ -144,6 +144,7 @@ mod tests {
         type Kind = Directed;
     }
 
+    #[allow(dead_code)]
     struct ThreadBoundRelation(PhantomData<Rc<()>>);
     impl Relation for ThreadBoundRelation {
         type Kind = Directed;

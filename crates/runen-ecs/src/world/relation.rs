@@ -400,7 +400,7 @@ impl<'world, R: Relation> RelationWriteCapability<'world, R> {
     }
 
     fn store(&self) -> Option<&RelationStore> {
-        match self.backing {
+        match &self.backing {
             RelationWriteBacking::Serial { stores, .. } => unsafe {
                 stores
                     .as_ref()

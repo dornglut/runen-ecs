@@ -1,6 +1,6 @@
 use runen_ecs::prelude::*;
 use runen_ecs::{
-    EntityError, ExecutionMobility, QueryAccess, RuntimeError, ScheduleAccessConflictKind,
+    EntityError, ExecutionMobility, RuntimeError, ScheduleAccessConflictKind,
     ScheduleAccessDomain, SystemParam, TransferableSystemParam, WorldMut,
 };
 use std::fmt;
@@ -41,6 +41,7 @@ impl Relation for AlliedWith {
     type Kind = Symmetric;
 }
 
+#[allow(dead_code)]
 struct ThreadBoundRelation(PhantomData<Rc<()>>);
 impl Relation for ThreadBoundRelation {
     type Kind = Directed;
