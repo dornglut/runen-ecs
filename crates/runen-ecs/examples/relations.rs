@@ -43,46 +43,45 @@ fn main() {
         assert!(allies.insert(bob, alice).unwrap());
     }
 
-    let owns = world.relations::<Owns>();
-    assert!(owns.contains(alice, sword));
-    assert!(!owns.contains(sword, alice));
+    {
+        let owns = world.relations::<Owns>();
+        assert!(owns.contains(alice, sword));
+        assert!(!owns.contains(sword, alice));
 
-    let owned = owns
-        .targets(alice)
-        .unwrap()
-        .iter()
-        .collect::<Vec<_>>();
-    assert_eq!(owned, vec![sword, shield]);
+        let owned = owns
+            .targets(alice)
+            .unwrap()
+            .iter()
+            .collect::<Vec<_>>();
+        assert_eq!(owned, vec![sword, shield]);
 
-    let sword_owners = owns
-        .sources(sword)
-        .unwrap()
-        .iter()
-        .collect::<Vec<_>>();
-    assert_eq!(sword_owners, vec![alice]);
+        let sword_owners = owns
+            .sources(sword)
+            .unwrap()
+            .iter()
+            .collect::<Vec<_>>();
+        assert_eq!(sword_owners, vec![alice]);
 
-    let allies = world.relations::<AlliedWith>();
-    assert!(allies.contains(alice, bob));
-    assert!(allies.contains(bob, alice));
+        let allies = world.relations::<AlliedWith>();
+        assert!(allies.contains(alice, bob));
+        assert!(allies.contains(bob, alice));
 
-    let alice_allies = allies
-        .neighbors(alice)
-        .unwrap()
-        .iter()
-        .collect::<Vec<_>>();
-    assert_eq!(alice_allies, vec![bob]);
+        let alice_allies = allies
+            .neighbors(alice)
+            .unwrap()
+            .iter()
+            .collect::<Vec<_>>();
+        assert_eq!(alice_allies, vec![bob]);
 
-    println!(
-        "{} owns {} and {}; {} is allied with {}",
-        name(&world, alice),
-        name(&world, owned[0]),
-        name(&world, owned[1]),
-        name(&world, alice),
-        name(&world, alice_allies[0]),
-    );
-
-    drop(allies);
-    drop(owns);
+        println!(
+            "{} owns {} and {}; {} is allied with {}",
+            name(&world, alice),
+            name(&world, owned[0]),
+            name(&world, owned[1]),
+            name(&world, alice),
+            name(&world, alice_allies[0]),
+        );
+    }
 
     world.despawn(alice).expect("Alice should despawn");
 
