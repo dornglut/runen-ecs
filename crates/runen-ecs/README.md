@@ -64,6 +64,13 @@ Ordinary query iteration order is not a public semantic contract. Likewise,
 physical executor grouping such as worker cohorts or stages is not part of the
 schedule API: explicit ordering expresses semantic precedence.
 
+Typed relations are a separate ECS domain rather than relationship components.
+A relation type chooses directed or symmetric semantics, and callers access its
+single authoritative edge set through `world.relations::<R>()` or
+`world.relations_mut::<R>()`. Entity liveness and despawn remain owned by the
+World; RunenGraph is private structural machinery and does not introduce a
+second public identity or error model.
+
 ## Examples
 
 Run examples from the repository root.

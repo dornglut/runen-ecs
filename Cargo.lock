@@ -434,6 +434,7 @@ dependencies = [
  "criterion",
  "glam",
  "runen-ecs-macros",
+ "runen-graph",
  "thiserror",
  "trybuild",
 ]
@@ -455,6 +456,11 @@ dependencies = [
  "quote",
  "syn 2.0.119",
 ]
+
+[[package]]
+name = "runen-graph"
+version = "0.0.0"
+source = "git+https://github.com/dornglut/runen-graph?rev=075f3c2b4122c1ae89209d9fb7cb1feac6bba0d4#075f3c2b4122c1ae89209d9fb7cb1feac6bba0d4"
 
 [[package]]
 name = "rustversion"

@@ -5,6 +5,7 @@ mod entity_handles;
 mod mutation_journal;
 mod parallel;
 mod reflection;
+mod relation;
 mod runtime;
 mod state;
 
@@ -14,6 +15,10 @@ pub mod resource;
 
 pub use change_tracking::ChangeCursor;
 pub use entity_handles::{EntityMut, EntityRef, Mut};
+pub use relation::{
+    Directed, Relation, RelationEntities, RelationKind, Relations, RelationsMut, SelfRelation,
+    Symmetric,
+};
 pub use state::World;
 
 pub(crate) use capability::{

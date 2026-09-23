@@ -38,6 +38,20 @@ RunenECS distinguishes logical archetype membership and row alignment from physi
 
 The normalized dense-storage direction, row-migration invariants, reflection boundary, and sealed fallible contiguous-segment query capability are owned by [ADR 0004: Normalize Dense Storage Contiguity and Expert Query Segments](docs/adr/0004-normalize-dense-storage-contiguity-and-expert-query-segments.md).
 
+## Typed relation domain
+
+RunenECS owns typed ECS relations as a first-class semantic domain:
+
+```text
+(source Entity, relation type, target Entity)
+```
+
+`World` remains the sole entity-liveness and lifecycle authority. Each relation type has one private authoritative edge store keyed by its Rust `TypeId`; directed inverse access and symmetric neighbor access are observations over that same authority rather than separately writable collections. Successful entity despawn removes the entity from every registered relation store before its identity can be reused.
+
+The public boundary is `Relations<R>` / `RelationsMut<R>`. Relation edges are not ordinary components, are not mirrored into archetype storage, and do not introduce a second public node or edge identity. `Relation::name()` is diagnostic text only.
+
+The exact accepted RunenGraph R0 revision is private structural machinery beneath this ECS-owned domain. RunenGraph graph types, membership state, mutation outcomes, and errors are not RunenECS public semantics. Stronger relation policies such as cardinality, hierarchy, ordering, payloads, change observation, traversal, reflection, serialization, and scheduler/query integration remain separately accepted future capabilities built around the same typed relation views.
+
 ## Schedule semantic layers
 
 RunenECS keeps semantic precedence, access incompatibility, deferred visibility, and physical executor grouping distinct. Explicit ordering creates precedence; access conflicts never invent order; deferred visibility is an observable consequence that must not be represented by exposing physical stages or waves.

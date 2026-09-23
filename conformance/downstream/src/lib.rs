@@ -28,6 +28,13 @@ pub struct SimulationParams<'w, 's> {
     pub frame: ResMut<'w, Frame>,
 }
 
+pub struct Follows;
+
+impl Relation for Follows {
+    type Kind = Directed;
+    const SELF: SelfRelation = SelfRelation::Allow;
+}
+
 #[derive(Copy, Clone)]
 struct Update;
 
@@ -64,12 +71,27 @@ pub fn run_conformance() -> Result<(), RuntimeError> {
 
     let mut world = World::new();
     world.insert_resource(Frame::default());
-    world
+    let actor = world
         .spawn(ActorBundle {
             position: Position { x: 0 },
             velocity: Velocity { x: 1 },
         })
         .unwrap();
+    assert!(
+        world
+            .relations_mut::<Follows>()
+            .insert(actor, actor)
+            .unwrap()
+    );
+    assert_eq!(
+        world
+            .relations::<Follows>()
+            .targets(actor)
+            .unwrap()
+            .iter()
+            .collect::<Vec<_>>(),
+        vec![actor]
+    );
 
     let mut runtime = Runtime::new();
     runtime

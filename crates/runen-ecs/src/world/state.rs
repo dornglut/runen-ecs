@@ -1,6 +1,7 @@
 // Owner: RunenECS World - World State and Construction
 use super::change_tracking::RemovedComponentRecord;
 use super::component_indexes::{ComponentIndexKey, ComponentIndexStorage};
+use super::relation::RelationStore;
 use crate::entity::{Entity, EntityAllocator, WorldScopeId};
 use crate::storage::{ArchetypeRegistry, EntityLocationMap};
 use std::any::{Any, TypeId};
@@ -21,6 +22,7 @@ pub struct World {
     pub(super) type_registry: crate::reflect::TypeRegistry,
 
     pub(super) resources: HashMap<TypeId, Box<dyn Any>>,
+    pub(super) relation_stores: HashMap<TypeId, RelationStore>,
 
     pub(super) component_indexes:
         RefCell<HashMap<ComponentIndexKey, Box<dyn ComponentIndexStorage>>>,
@@ -51,6 +53,7 @@ impl World {
             type_registry: crate::reflect::TypeRegistry::new(),
 
             resources: HashMap::new(),
+            relation_stores: HashMap::new(),
 
             component_indexes: RefCell::new(HashMap::new()),
 

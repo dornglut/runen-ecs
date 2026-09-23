@@ -13,6 +13,7 @@ default = []
 
 [dependencies]
 runen_ecs_macros = { package = "runen-ecs-macros", path = "../runen-ecs-macros" }
+runen_graph = { package = "runen-graph", git = "https://github.com/dornglut/runen-graph", rev = "075f3c2b4122c1ae89209d9fb7cb1feac6bba0d4" }
 thiserror = "2.0.18"
 
 [dev-dependencies]

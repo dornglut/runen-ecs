@@ -36,6 +36,7 @@ impl World {
             })
             .unwrap_or_default();
 
+        self.remove_entity_from_relations(entity);
         self.remove_entity_from_archetype_tracking(entity);
         self.alive_entities.remove(&entity);
         self.allocator.free(entity)?;
