@@ -205,10 +205,9 @@ impl World {
     }
 
     fn relation_store<R: Relation>(&self) -> Option<&RelationStore> {
-        self.relation_stores.get(&TypeId::of::<R>()).map(|store| {
-            store.assert_kind::<R>();
-            store
-        })
+        self.relation_stores
+            .get(&TypeId::of::<R>())
+            .inspect(|store| store.assert_kind::<R>())
     }
 
     fn ensure_relation_store<R: Relation>(&mut self) -> &mut RelationStore {
