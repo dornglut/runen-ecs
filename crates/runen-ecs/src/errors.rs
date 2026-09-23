@@ -42,12 +42,26 @@ pub enum ResourceError {
     Missing { resource: &'static str },
 }
 
+#[derive(Debug, Error, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum RelationError {
+    #[error(transparent)]
+    Entity(#[from] EntityError),
+    #[error("relation {relation} forbids self-reference for entity {entity:?}")]
+    SelfReference {
+        relation: &'static str,
+        entity: Entity,
+    },
+}
+
 #[derive(Debug, Error)]
 pub enum CommandError {
     #[error(transparent)]
     Entity(#[from] EntityError),
     #[error(transparent)]
     EntityAllocation(#[from] EntityAllocationError),
+    #[error(transparent)]
+    Relation(#[from] RelationError),
 }
 
 #[derive(Debug, Error, Clone, PartialEq, Eq)]

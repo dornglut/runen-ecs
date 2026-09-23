@@ -38,7 +38,7 @@ pub use component::{Component, Resource};
 pub use entity::Entity;
 pub use errors::{
     ChangeCursorError, CommandError, ContiguousQueryError, EntityAllocationError, EntityError,
-    QueryError, ResourceError, RuntimeError,
+    QueryError, RelationError, ResourceError, RuntimeError,
 };
 pub use query::{
     Added, Changed, ContiguousSegment, ContiguousSegments, Query, QueryAccess, QueryState,
@@ -61,4 +61,7 @@ pub use system::{
     SystemParam, SystemParamContext, SystemParamError, SystemSet, SystemSetKey,
     TransferableSystemParam, WorkerPrepareContext, WorldMut,
 };
-pub use world::{ChangeCursor, EntityMut, EntityRef, Mut, World};
+pub use world::{
+    ChangeCursor, Directed, EntityMut, EntityRef, Mut, Relation, RelationKind, Relations,
+    RelationsMut, SelfRelation, Symmetric, World,
+};

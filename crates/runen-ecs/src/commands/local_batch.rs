@@ -2,7 +2,7 @@ use super::queue::CommandQueue;
 use crate::bundle::Bundle;
 use crate::entity::Entity;
 use crate::errors::CommandError;
-use crate::world::World;
+use crate::world::{Relation, World};
 
 /// Ordered group of invoker-thread-local deferred commands.
 ///
@@ -49,6 +49,27 @@ impl LocalBatchCommands {
     pub fn remove<B: Bundle + 'static>(&mut self, entity: Entity) {
         self.queue(move |world: &mut World| {
             let _: B = world.remove(entity)?;
+            Ok(())
+        });
+    }
+
+    pub fn insert_relation<R: Relation>(&mut self, source: Entity, target: Entity) {
+        self.queue(move |world: &mut World| {
+            let _ = world.relations_mut::<R>().insert(source, target)?;
+            Ok(())
+        });
+    }
+
+    pub fn remove_relation<R: Relation>(&mut self, source: Entity, target: Entity) {
+        self.queue(move |world: &mut World| {
+            let _ = world.relations_mut::<R>().remove(source, target)?;
+            Ok(())
+        });
+    }
+
+    pub fn clear_relations<R: Relation>(&mut self, entity: Entity) {
+        self.queue(move |world: &mut World| {
+            let _ = world.relations_mut::<R>().clear_entity(entity)?;
             Ok(())
         });
     }

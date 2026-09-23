@@ -12,6 +12,7 @@ const WORLD_MOD_RS: &str = include_str!("../src/world/mod.rs");
 const WORLD_STATE_RS: &str = include_str!("../src/world/state.rs");
 const WORLD_CAPABILITY_RS: &str = include_str!("../src/world/capability.rs");
 const WORLD_RUNTIME_RS: &str = include_str!("../src/world/runtime.rs");
+const RELATION_RS: &str = include_str!("../src/world/relation.rs");
 const CHANGE_TRACKING_RS: &str = include_str!("../src/world/change_tracking.rs");
 const BUNDLE_RS: &str = include_str!("../src/bundle.rs");
 const COMPONENT_ACCESS_RS: &str = include_str!("../src/world/component/access.rs");
@@ -117,6 +118,47 @@ fn has_identifier(source: &str, identifier: &str) -> bool {
     source
         .split(|character: char| !character.is_ascii_alphanumeric() && character != '_')
         .any(|token| token == identifier)
+}
+
+#[test]
+fn typed_relation_domain_is_public_without_exporting_runen_graph_mechanics() {
+    for public in [
+        "Relation",
+        "RelationKind",
+        "Directed",
+        "Symmetric",
+        "SelfRelation",
+        "RelationError",
+        "Relations",
+        "RelationsMut",
+    ] {
+        assert!(has_identifier(LIB_RS, public), "missing root relation export: {public}");
+        assert!(
+            has_identifier(PRELUDE_RS, public),
+            "missing prelude relation export: {public}"
+        );
+    }
+
+    for private in [
+        "DirectedGraph",
+        "SymmetricGraph",
+        "RelationshipError",
+        "SelfRelationshipPolicy",
+        "NodeRemoval",
+        "Change",
+    ] {
+        assert!(
+            !has_identifier(LIB_RS, private),
+            "RunenGraph mechanism leaked through crate root: {private}"
+        );
+        assert!(
+            !has_identifier(PRELUDE_RS, private),
+            "RunenGraph mechanism leaked through prelude: {private}"
+        );
+    }
+
+    assert!(RELATION_RS.contains("runen_graph"));
+    assert!(!RELATION_RS.contains("pub use runen_graph"));
 }
 
 #[test]
