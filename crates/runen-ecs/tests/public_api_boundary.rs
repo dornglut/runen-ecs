@@ -332,7 +332,18 @@ fn low_level_system_param_extension_requires_explicit_unsafe_implementation() {
 fn transferable_system_param_is_hidden_but_macro_reachable() {
     assert!(LIB_RS.contains("TransferableSystemParam"));
     assert!(SYSTEM_MOD_RS.contains("TransferableSystemParam"));
-    assert!(SYSTEM_EXTRACT_RS.contains("#[doc(hidden)]\npub unsafe trait TransferableSystemParam"));
+    let declaration = "pub unsafe trait TransferableSystemParam";
+    let declaration_offset = SYSTEM_EXTRACT_RS
+        .find(declaration)
+        .expect("TransferableSystemParam declaration must remain present");
+    assert!(
+        SYSTEM_EXTRACT_RS[..declaration_offset]
+            .lines()
+            .rev()
+            .take(8)
+            .any(|line| line.trim() == "#[doc(hidden)]"),
+        "TransferableSystemParam must remain doc-hidden even when other attributes are present"
+    );
     assert!(!PRELUDE_RS.contains("TransferableSystemParam"));
     assert!(!LIB_RS.contains("TransferableQueryData"));
     assert!(!LIB_RS.contains("TransferableQueryFilter"));
