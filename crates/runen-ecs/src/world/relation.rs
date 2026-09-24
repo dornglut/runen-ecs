@@ -228,26 +228,22 @@ impl RelationStore {
             });
         }
 
-        let previous_target =
-            if R::CONSTRAINTS.source_cardinality_value() == SourceCardinality::One {
-                let graph = self
-                    .directed()
-                    .expect("source cardinality is only supported for directed relations");
-                let mut outgoing = graph
-                    .outgoing(&first)
-                    .into_iter()
-                    .flatten()
-                    .copied();
-                let previous = outgoing.next();
-                assert!(
-                    outgoing.next().is_none(),
-                    "source-one relation {} contains multiple targets for one source",
-                    R::name()
-                );
-                previous
-            } else {
-                None
-            };
+        let previous_target = if R::CONSTRAINTS.source_cardinality_value() == SourceCardinality::One
+        {
+            let graph = self
+                .directed()
+                .expect("source cardinality is only supported for directed relations");
+            let mut outgoing = graph.outgoing(&first).into_iter().flatten().copied();
+            let previous = outgoing.next();
+            assert!(
+                outgoing.next().is_none(),
+                "source-one relation {} contains multiple targets for one source",
+                R::name()
+            );
+            previous
+        } else {
+            None
+        };
 
         if let Some(previous) = previous_target {
             assert!(

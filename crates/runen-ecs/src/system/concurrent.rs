@@ -63,9 +63,9 @@ mod tests {
     use crate::system::IntoSystem;
     use crate::world::{ChangeCursor, FrameworkInvariantKind, framework_invariant_kind};
     use crate::{
-        Added, Changed, Commands, Component, CyclePolicy, Directed, LocalCommands, Query,
-        Relation, RelationConstraints, RelationsMut, RemovedQuery, Res, ResMut, Resource,
-        ScheduleLabel, SourceCardinality, SystemMobilityExt, With, Without, World,
+        Added, Changed, Commands, Component, CyclePolicy, Directed, LocalCommands, Query, Relation,
+        RelationConstraints, RelationsMut, RemovedQuery, Res, ResMut, Resource, ScheduleLabel,
+        SourceCardinality, SystemMobilityExt, With, Without, World,
     };
     use std::cell::Cell;
     use std::marker::PhantomData;

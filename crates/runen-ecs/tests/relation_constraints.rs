@@ -36,8 +36,7 @@ impl Relation for SingleTarget {
 struct AcyclicMany;
 impl Relation for AcyclicMany {
     type Kind = Directed;
-    const CONSTRAINTS: RelationConstraints =
-        RelationConstraints::new().cycles(CyclePolicy::Forbid);
+    const CONSTRAINTS: RelationConstraints = RelationConstraints::new().cycles(CyclePolicy::Forbid);
 }
 
 struct UnsupportedSymmetricOne;
@@ -50,8 +49,7 @@ impl Relation for UnsupportedSymmetricOne {
 struct UnsupportedSymmetricCycle;
 impl Relation for UnsupportedSymmetricCycle {
     type Kind = Symmetric;
-    const CONSTRAINTS: RelationConstraints =
-        RelationConstraints::new().cycles(CyclePolicy::Forbid);
+    const CONSTRAINTS: RelationConstraints = RelationConstraints::new().cycles(CyclePolicy::Forbid);
 }
 
 #[derive(Copy, Clone)]
@@ -84,7 +82,12 @@ fn unconstrained_relations_keep_existing_many_to_many_behavior() {
     let second = world.spawn(Marker).unwrap();
 
     assert!(world.relations_mut::<Owns>().insert(source, first).unwrap());
-    assert!(world.relations_mut::<Owns>().insert(source, second).unwrap());
+    assert!(
+        world
+            .relations_mut::<Owns>()
+            .insert(source, second)
+            .unwrap()
+    );
     assert_eq!(
         world
             .relations::<Owns>()
@@ -113,11 +116,7 @@ fn source_one_insertion_replaces_atomically_and_preserves_boolean_semantics() {
     assert!(!parents.contains(child, first_parent));
     assert!(parents.contains(child, second_parent));
     assert_eq!(
-        parents
-            .targets(child)
-            .unwrap()
-            .iter()
-            .collect::<Vec<_>>(),
+        parents.targets(child).unwrap().iter().collect::<Vec<_>>(),
         vec![second_parent]
     );
     assert_eq!(
@@ -405,7 +404,10 @@ fn batch_commands_stop_after_cycle_while_preserving_earlier_success() {
     let earlier = world.spawn(Marker).unwrap();
     let later = world.spawn(Marker).unwrap();
 
-    world.relations_mut::<ChildOf>().insert(child, root).unwrap();
+    world
+        .relations_mut::<ChildOf>()
+        .insert(child, root)
+        .unwrap();
 
     let mut commands = Commands::new();
     commands.batch(|batch| {
