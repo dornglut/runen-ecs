@@ -66,14 +66,8 @@ fn docs_runtime_query_snippet_runs() {
     assert_eq!(world.resource::<Frame>().unwrap().0, 1);
 }
 
-#[derive(Copy, Clone)]
+#[derive(ScheduleLabel)]
 struct Update;
-
-impl ScheduleLabel for Update {
-    fn name() -> &'static str {
-        "Update"
-    }
-}
 
 #[test]
 fn docs_runtime_execution_snippet_runs() {

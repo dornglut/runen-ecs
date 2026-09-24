@@ -1,3 +1,4 @@
+use runen_ecs::ContiguousQueryError;
 use runen_ecs::prelude::*;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
