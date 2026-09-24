@@ -36,6 +36,18 @@ impl Relation for Follows {
     const SELF: SelfRelation = SelfRelation::Allow;
 }
 
+pub struct ChildOf;
+
+impl Relation for ChildOf {
+    type Kind = Directed;
+    const CONSTRAINTS: RelationConstraints = RelationConstraints::new()
+        .source_cardinality(SourceCardinality::One)
+        .cycles(CyclePolicy::Forbid);
+}
+
+#[derive(Component)]
+pub struct HierarchyNode;
+
 #[derive(Copy, Clone)]
 struct Update;
 
@@ -94,6 +106,36 @@ pub fn run_conformance() -> Result<(), RuntimeError> {
             .collect::<Vec<_>>(),
         vec![actor]
     );
+
+    let first_parent = world.spawn(HierarchyNode).unwrap();
+    let second_parent = world.spawn(HierarchyNode).unwrap();
+    assert!(
+        world
+            .relations_mut::<ChildOf>()
+            .insert(actor, first_parent)
+            .unwrap()
+    );
+    assert!(
+        world
+            .relations_mut::<ChildOf>()
+            .insert(actor, second_parent)
+            .unwrap()
+    );
+    assert_eq!(
+        world
+            .relations::<ChildOf>()
+            .targets(actor)
+            .unwrap()
+            .iter()
+            .collect::<Vec<_>>(),
+        vec![second_parent]
+    );
+    assert!(matches!(
+        world
+            .relations_mut::<ChildOf>()
+            .insert(second_parent, actor),
+        Err(RelationError::Cycle { .. })
+    ));
 
     let mut runtime = Runtime::new();
     runtime

@@ -41,6 +41,65 @@ pub enum SelfRelation {
     Forbid,
 }
 
+/// Maximum number of targets one source may hold for a directed relation.
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+pub enum SourceCardinality {
+    Many,
+    One,
+}
+
+/// Whether inserting an edge may create a directed cycle.
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+pub enum CyclePolicy {
+    Allow,
+    Forbid,
+}
+
+/// Generic constraints attached to one relation definition.
+///
+/// Fields stay private so later independently accepted constraints can extend
+/// this value without making downstream relation definitions depend on layout.
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+pub struct RelationConstraints {
+    source_cardinality: SourceCardinality,
+    cycle_policy: CyclePolicy,
+}
+
+impl RelationConstraints {
+    pub const UNCONSTRAINED: Self = Self {
+        source_cardinality: SourceCardinality::Many,
+        cycle_policy: CyclePolicy::Allow,
+    };
+
+    pub const fn new() -> Self {
+        Self::UNCONSTRAINED
+    }
+
+    pub const fn source_cardinality(mut self, value: SourceCardinality) -> Self {
+        self.source_cardinality = value;
+        self
+    }
+
+    pub const fn cycles(mut self, value: CyclePolicy) -> Self {
+        self.cycle_policy = value;
+        self
+    }
+
+    pub const fn source_cardinality_value(self) -> SourceCardinality {
+        self.source_cardinality
+    }
+
+    pub const fn cycle_policy(self) -> CyclePolicy {
+        self.cycle_policy
+    }
+}
+
+impl Default for RelationConstraints {
+    fn default() -> Self {
+        Self::UNCONSTRAINED
+    }
+}
+
 /// Defines one typed ECS relation domain.
 ///
 /// The relation type is framework-internally identified by `TypeId`. `name`
@@ -49,6 +108,7 @@ pub trait Relation: 'static {
     type Kind: RelationKind;
 
     const SELF: SelfRelation = SelfRelation::Forbid;
+    const CONSTRAINTS: RelationConstraints = RelationConstraints::UNCONSTRAINED;
 
     fn name() -> &'static str {
         type_name::<Self>()
@@ -60,12 +120,33 @@ enum RelationGraph {
     Symmetric(SymmetricGraph<Entity>),
 }
 
+pub(super) fn assert_supported_relation_definition<R: Relation>() {
+    let constraints = R::CONSTRAINTS;
+    let kind = TypeId::of::<R::Kind>();
+
+    if kind == TypeId::of::<Directed>() {
+        return;
+    }
+    if kind == TypeId::of::<Symmetric>() {
+        assert!(
+            constraints.source_cardinality_value() == SourceCardinality::Many
+                && constraints.cycle_policy() == CyclePolicy::Allow,
+            "relation {} declares constraints that are unsupported for symmetric relations",
+            R::name()
+        );
+        return;
+    }
+
+    unreachable!("RelationKind is sealed to framework-owned kinds");
+}
+
 pub(super) struct RelationStore {
     graph: RelationGraph,
 }
 
 impl RelationStore {
     fn new<R: Relation>() -> Self {
+        assert_supported_relation_definition::<R>();
         let policy = match R::SELF {
             SelfRelation::Allow => SelfRelationshipPolicy::Allow,
             SelfRelation::Forbid => SelfRelationshipPolicy::Forbid,
@@ -82,6 +163,7 @@ impl RelationStore {
     }
 
     pub(super) fn assert_kind<R: Relation>(&self) {
+        assert_supported_relation_definition::<R>();
         let kind = TypeId::of::<R::Kind>();
         let matches = if kind == TypeId::of::<Directed>() {
             matches!(&self.graph, RelationGraph::Directed(_))
@@ -125,7 +207,64 @@ impl RelationStore {
         }
     }
 
-    fn insert(&mut self, first: Entity, second: Entity) -> bool {
+    fn insert<R: Relation>(
+        &mut self,
+        first: Entity,
+        second: Entity,
+    ) -> Result<bool, RelationError> {
+        self.assert_kind::<R>();
+
+        if self.contains(first, second) {
+            return Ok(false);
+        }
+
+        if R::CONSTRAINTS.cycle_policy() == CyclePolicy::Forbid
+            && self.directed_reaches(second, first)
+        {
+            return Err(RelationError::Cycle {
+                relation: R::name(),
+                source: first,
+                target: second,
+            });
+        }
+
+        let previous_target =
+            if R::CONSTRAINTS.source_cardinality_value() == SourceCardinality::One {
+                let graph = self
+                    .directed()
+                    .expect("source cardinality is only supported for directed relations");
+                let mut outgoing = graph
+                    .outgoing(&first)
+                    .into_iter()
+                    .flatten()
+                    .copied();
+                let previous = outgoing.next();
+                assert!(
+                    outgoing.next().is_none(),
+                    "source-one relation {} contains multiple targets for one source",
+                    R::name()
+                );
+                previous
+            } else {
+                None
+            };
+
+        if let Some(previous) = previous_target {
+            assert!(
+                self.remove(first, previous),
+                "prevalidated source-one replacement lost its previous edge"
+            );
+        }
+
+        let changed = self.insert_unconstrained(first, second);
+        assert!(
+            changed,
+            "prevalidated relation insertion unexpectedly reported no change"
+        );
+        Ok(true)
+    }
+
+    fn insert_unconstrained(&mut self, first: Entity, second: Entity) -> bool {
         match &mut self.graph {
             RelationGraph::Directed(graph) => {
                 let _ = graph.insert_node(first);
@@ -150,6 +289,28 @@ impl RelationStore {
                 }
             }
         }
+    }
+
+    fn directed_reaches(&self, start: Entity, goal: Entity) -> bool {
+        let graph = self
+            .directed()
+            .expect("cycle constraints are only supported for directed relations");
+        let mut pending = vec![start];
+        let mut visited = BTreeSet::new();
+
+        while let Some(entity) = pending.pop() {
+            if entity == goal {
+                return true;
+            }
+            if !visited.insert(entity) {
+                continue;
+            }
+            if let Some(outgoing) = graph.outgoing(&entity) {
+                pending.extend(outgoing.iter().copied());
+            }
+        }
+
+        false
     }
 
     fn remove(&mut self, first: Entity, second: Entity) -> bool {
@@ -615,12 +776,14 @@ impl<'w, R: Relation> RelationsMut<'w, R> {
     /// Inserts one relation edge after ECS liveness and relation-policy validation.
     pub fn insert(&mut self, first: Entity, second: Entity) -> Result<bool, RelationError> {
         validate_pair::<R>(self.capability.validation, first, second)?;
-        Ok(self.capability.ensure_store().insert(first, second))
+        assert_supported_relation_definition::<R>();
+        self.capability.ensure_store().insert::<R>(first, second)
     }
 
     /// Removes one relation edge after ECS liveness and relation-policy validation.
     pub fn remove(&mut self, first: Entity, second: Entity) -> Result<bool, RelationError> {
         validate_pair::<R>(self.capability.validation, first, second)?;
+        assert_supported_relation_definition::<R>();
         let Some(store) = self.capability.store_mut() else {
             return Ok(false);
         };
@@ -630,6 +793,7 @@ impl<'w, R: Relation> RelationsMut<'w, R> {
     /// Removes every incident edge of this relation type for one live entity.
     pub fn clear_entity(&mut self, entity: Entity) -> Result<usize, RelationError> {
         self.capability.validate(entity)?;
+        assert_supported_relation_definition::<R>();
         let Some(store) = self.capability.store_mut() else {
             return Ok(0);
         };

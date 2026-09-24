@@ -56,7 +56,11 @@ The same `Relations<R>` / `RelationsMut<R>` capability types also participate in
 
 Transferable relation parameters are prepared through narrow relation-store projections plus a frozen entity-validation snapshot under the parallel structural lease. Workers never receive a whole-World relation handle or a second writable graph. Relation stores are boxed privately so prepared store addresses remain stable even if the relation registry grows while a cohort is prepared. Entity allocation/liveness remains World-owned; the worker snapshot carries only the validation facts required to preserve the direct-World `EntityError` classification for the frozen invocation.
 
-Stronger relation policies such as cardinality, hierarchy, ordering, payloads, change observation, traversal, reflection, serialization, and relation-aware entity query/filter semantics remain separately accepted future capabilities built around the same typed relation views.
+Relation definitions may opt into the currently accepted generic constraints through `Relation::CONSTRAINTS`. Directed `SourceCardinality::One` uses replacement semantics: inserting a different target removes the previous pair and establishes the requested pair as one prevalidated public mutation. Directed `CyclePolicy::Forbid` rejects an insertion when the target already reaches the source through the same authoritative relation store, and rejection occurs before any source-one replacement is applied. These constraints are enforced by the same mutation authority for direct World access, deferred commands, serial SystemParams, and transferable worker SystemParams.
+
+The generic constraint model deliberately does not define a canonical hierarchy type. RunenECS does not yet own public `ChildOf`/`Children` semantics, cascade or restricted despawn, child ordering, hierarchy traversal, relation query integration, or relation change observation. A later change-observation design must treat source-one replacement as two pair-fact changes (old pair removed, new pair added), even though the current insertion API continues to return one boolean mutation result.
+
+Stronger relation policies such as target cardinality, ordering, payloads, change observation, traversal, reflection, serialization, lifecycle policy, and relation-aware entity query/filter semantics remain separately accepted future capabilities built around the same typed relation views.
 
 ## Schedule semantic layers
 

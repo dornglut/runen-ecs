@@ -52,6 +52,12 @@ pub enum RelationError {
         relation: &'static str,
         entity: Entity,
     },
+    #[error("relation {relation} insertion {source:?} -> {target:?} would create a cycle")]
+    Cycle {
+        relation: &'static str,
+        source: Entity,
+        target: Entity,
+    },
 }
 
 #[derive(Debug, Error)]
