@@ -13,10 +13,28 @@ impl World {
         LocalCommands::new()
     }
 
+    /// Creates reusable direct-query state for `Q` with no additional typed filter.
+    ///
+    /// The query may later be iterated against a compatible shared or mutable World,
+    /// according to the access encoded by `Q`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `Q` contains an invalid overlapping borrow shape, such as requesting
+    /// both `&mut Position` and `&Position` for the same component type. This is a
+    /// programmer error in the statically chosen query shape; ordinary entity/component
+    /// absence does not make query construction fail.
     pub fn query<Q: QuerySpec>(&self) -> QueryState<Q> {
         QueryState::new(self)
     }
 
+    /// Creates reusable direct-query state for `Q` constrained by typed filter `F`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `Q` contains an invalid overlapping borrow shape. Filters constrain
+    /// query membership; ordinary entities that do not satisfy `Q` or `F` do not
+    /// make query construction fail.
     pub fn query_filtered<Q: QuerySpec, F: QueryFilter>(&self) -> QueryState<Q, F> {
         QueryState::new(self)
     }
