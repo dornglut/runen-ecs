@@ -3,13 +3,13 @@ use runen_ecs::prelude::*;
 #[derive(ScheduleLabel)]
 struct Update;
 
-#[derive(Copy, Clone, SystemSet)]
+#[derive(SystemSet)]
 struct Prepare;
 
-#[derive(Copy, Clone, SystemSet)]
+#[derive(SystemSet)]
 struct Simulation;
 
-#[derive(Copy, Clone, SystemSet)]
+#[derive(SystemSet)]
 struct DebugOutput;
 
 #[derive(Debug, Default, Resource)]
