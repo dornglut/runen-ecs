@@ -1,0 +1,143 @@
+name: RunenECS paired semantic benchmark
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'tools/benchmark/run_paired_semantic.sh'
+      - '.github/workflows/ecs-semantic-paired-benchmark.yml'
+  workflow_dispatch:
+    inputs:
+      baseline_sha:
+        description: Exact 40-hex baseline commit SHA
+        required: true
+        default: aadc2856ab0242ff0077164b28eaeb03a5ca67a8
+        type: string
+      candidate_sha:
+        description: Exact 40-hex candidate commit SHA
+        required: true
+        default: 719a5ec5c7086e1244ab5e048031d7ac3019e82b
+        type: string
+      repetitions:
+        description: Alternating paired repetitions (2-12)
+        required: true
+        default: '4'
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ecs-semantic-paired-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  paired:
+    name: Same-host semantic comparison
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Resolve workflow and measured revisions
+        id: revisions
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_SHA: ${{ github.sha }}
+          PULL_REQUEST_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          INPUT_BASELINE: ${{ inputs.baseline_sha }}
+          INPUT_CANDIDATE: ${{ inputs.candidate_sha }}
+          INPUT_REPETITIONS: ${{ inputs.repetitions }}
+        run: |
+          set -euo pipefail
+          case "$EVENT_NAME" in
+            pull_request)
+              expected_revision="$PULL_REQUEST_HEAD_SHA"
+              baseline_sha="aadc2856ab0242ff0077164b28eaeb03a5ca67a8"
+              candidate_sha="719a5ec5c7086e1244ab5e048031d7ac3019e82b"
+              repetitions="4"
+              ;;
+            workflow_dispatch)
+              expected_revision="$EVENT_SHA"
+              baseline_sha="$INPUT_BASELINE"
+              candidate_sha="$INPUT_CANDIDATE"
+              repetitions="$INPUT_REPETITIONS"
+              ;;
+            *)
+              echo "unsupported event: $EVENT_NAME" >&2
+              exit 1
+              ;;
+          esac
+          sha_pattern='^[0-9a-f]{40}$'
+          [[ "$baseline_sha" =~ $sha_pattern ]]
+          [[ "$candidate_sha" =~ $sha_pattern ]]
+          [[ "$repetitions" =~ ^[1-9][0-9]*$ ]]
+          (( repetitions >= 2 && repetitions <= 12 ))
+          {
+            echo "expected_revision=$expected_revision"
+            echo "baseline_sha=$baseline_sha"
+            echo "candidate_sha=$candidate_sha"
+            echo "repetitions=$repetitions"
+          } >>"$GITHUB_OUTPUT"
+
+      - name: Check out exact workflow revision with history
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ steps.revisions.outputs.expected_revision }}
+          fetch-depth: 0
+          clean: true
+          persist-credentials: false
+
+      - name: Prove workflow revision
+        env:
+          EXPECTED_REVISION: ${{ steps.revisions.outputs.expected_revision }}
+        run: |
+          set -euo pipefail
+          actual_revision="$(git rev-parse HEAD)"
+          echo "Expected workflow revision: $EXPECTED_REVISION"
+          echo "Actual workflow revision: $actual_revision"
+          [[ "$actual_revision" == "$EXPECTED_REVISION" ]]
+
+      - name: Install pinned benchmark toolchain
+        run: rustup toolchain install 1.98.1 --profile minimal
+
+      - name: Run paired semantic benchmark
+        env:
+          BASELINE_SHA: ${{ steps.revisions.outputs.baseline_sha }}
+          CANDIDATE_SHA: ${{ steps.revisions.outputs.candidate_sha }}
+          REPETITIONS: ${{ steps.revisions.outputs.repetitions }}
+        run: |
+          set -euo pipefail
+          bash tools/benchmark/run_paired_semantic.sh \
+            "$BASELINE_SHA" \
+            "$CANDIDATE_SHA" \
+            "$REPETITIONS" \
+            paired-semantic-evidence
+
+      - name: Publish compact summary
+        if: always()
+        run: |
+          {
+            echo '## Paired semantic benchmark'
+            echo
+            if [[ -f paired-semantic-evidence/environment.txt ]]; then
+              echo '### Environment'
+              echo '~~~text'
+              sed -n '1,45p' paired-semantic-evidence/environment.txt
+              echo '~~~'
+            fi
+            if [[ -f paired-semantic-evidence/summary.tsv ]]; then
+              echo '### Measurements'
+              echo '~~~text'
+              cat paired-semantic-evidence/summary.tsv
+              echo '~~~'
+            fi
+          } >>"$GITHUB_STEP_SUMMARY"
+
+      - name: Upload paired evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ecs-paired-semantic-${{ steps.revisions.outputs.expected_revision }}
+          if-no-files-found: error
+          retention-days: 14
+          path: paired-semantic-evidence/**
