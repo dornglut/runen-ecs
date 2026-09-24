@@ -306,7 +306,7 @@ impl RelationStore {
                 continue;
             }
             if let Some(outgoing) = graph.outgoing(&entity) {
-                pending.extend(outgoing.iter().copied());
+                pending.extend(outgoing.copied());
             }
         }
 
