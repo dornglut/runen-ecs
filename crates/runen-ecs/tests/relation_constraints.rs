@@ -1,5 +1,5 @@
 use runen_ecs::prelude::*;
-use runen_ecs::{CommandError, EntityError, RuntimeError};
+use runen_ecs::{CommandError, EntityError, LocalBatchCommands, LocalCommands, RuntimeError};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
 #[derive(Component)]
