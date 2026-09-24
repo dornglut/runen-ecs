@@ -123,7 +123,7 @@ pub fn system_set_derive(input: TokenStream) -> TokenStream {
                     #diagnostic_name
                 }
             }
-        },
+        }
         Data::Struct(data) => {
             let message = match &data.fields {
                 Fields::Unnamed(_) => {
