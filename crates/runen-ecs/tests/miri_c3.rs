@@ -130,7 +130,8 @@ fn constrained_relation_replacement_and_cycle_rejection_preserve_live_views() {
         relation.insert(child, grandchild),
         Err(RelationError::Cycle { .. })
     ));
-    let mut retained = relation.targets(child).unwrap().iter();
+    let retained_targets = relation.targets(child).unwrap();
+    let mut retained = retained_targets.iter();
     assert_eq!(retained.next(), Some(parent));
     assert!(retained.next().is_none());
     drop(retained);
