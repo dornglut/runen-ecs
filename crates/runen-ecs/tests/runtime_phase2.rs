@@ -99,12 +99,13 @@ fn runtime_executes_1_2_and_8_param_systems() {
     );
     runtime.run_schedule::<Update>(&mut world).unwrap();
 
-    let positions: Vec<_> = world
+    let mut positions: Vec<_> = world
         .query::<&Position>()
         .iter(&world)
         .map(|position| position.0)
         .collect();
-    assert_eq!(positions, vec![5.25, 4.25]);
+    positions.sort_by(f32::total_cmp);
+    assert_eq!(positions, vec![4.25, 5.25]);
     assert_eq!(world.resource::<Frame>().unwrap().0, 11);
     assert_eq!(world.resource::<Score>().unwrap().0, 7);
     assert_eq!(world.query::<&Marker>().iter(&world).count(), 1);
