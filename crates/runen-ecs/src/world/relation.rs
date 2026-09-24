@@ -223,8 +223,8 @@ impl RelationStore {
         {
             return Err(RelationError::Cycle {
                 relation: R::name(),
-                source: first,
-                target: second,
+                source_entity: first,
+                target_entity: second,
             });
         }
 

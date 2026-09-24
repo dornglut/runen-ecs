@@ -183,13 +183,13 @@ fn acyclic_relations_reject_two_node_and_deeper_cycles() {
         relation.insert(a, b).unwrap();
         assert!(matches!(
             relation.insert(b, a),
-            Err(RelationError::Cycle { source, target, .. }) if source == b && target == a
+            Err(RelationError::Cycle { source_entity, target_entity, .. }) if source_entity == b && target_entity == a
         ));
         relation.insert(b, c).unwrap();
         relation.insert(c, d).unwrap();
         assert!(matches!(
             relation.insert(d, a),
-            Err(RelationError::Cycle { source, target, .. }) if source == d && target == a
+            Err(RelationError::Cycle { source_entity, target_entity, .. }) if source_entity == d && target_entity == a
         ));
     }
 
@@ -215,8 +215,8 @@ fn rejected_source_one_reparent_preserves_previous_parent() {
 
         assert!(matches!(
             hierarchy.insert(child, grandchild),
-            Err(RelationError::Cycle { source, target, .. })
-                if source == child && target == grandchild
+            Err(RelationError::Cycle { source_entity, target_entity, .. })
+                if source_entity == child && target_entity == grandchild
         ));
         assert!(hierarchy.contains(child, parent));
         assert!(!hierarchy.contains(child, grandchild));
@@ -390,8 +390,8 @@ fn commands_inherit_replacement_and_cycle_rejection() {
     failing.insert_relation::<ChildOf>(root, child);
     assert!(matches!(
         failing.apply(&mut world),
-        Err(CommandError::Relation(RelationError::Cycle { source, target, .. }))
-            if source == root && target == child
+        Err(CommandError::Relation(RelationError::Cycle { source_entity, target_entity, .. }))
+            if source_entity == root && target_entity == child
     ));
     assert!(world.relations::<ChildOf>().contains(child, root));
     assert!(!world.relations::<ChildOf>().contains(root, child));
