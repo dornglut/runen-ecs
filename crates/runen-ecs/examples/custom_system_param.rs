@@ -11,6 +11,9 @@ struct DeltaTime(f32);
 
 #[derive(runen_ecs::SystemParam)]
 struct MotionParams<'w, 's> {
+    // Query SystemParams require their query-specification type to be 'static.
+    // The component references yielded while this system runs are still scoped
+    // to that invocation.
     bodies: Query<'w, 's, (&'static mut Position, &'static Velocity)>,
     delta_time: Res<'w, DeltaTime>,
 }

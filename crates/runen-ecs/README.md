@@ -97,9 +97,9 @@ Run examples from the repository root.
 
 | Example | Purpose | Run |
 | --- | --- | --- |
-| `custom_system_param` | Group maintained system parameters into a named safe `#[derive(SystemParam)]` type when a system's access deserves a reusable authoring shape. | `cargo run -p runen-ecs --example custom_system_param` |
-| `schedule_inspection` | Inspect normalized ordering, access, concurrency, and mobility diagnostics without treating them as executor state or persistent identity. | `cargo run -p runen-ecs --example schedule_inspection` |
-| `reflection` | Register reflected ECS types and inspect or mutate live values explicitly for tooling-oriented introspection. | `cargo run -p runen-ecs --example reflection` |
+| `custom_system_param` | Group `Query`, resources, and other maintained parameters into one named safe `#[derive(SystemParam)]` type. | `cargo run -p runen-ecs --example custom_system_param` |
+| `schedule_inspection` | Inspect normalized ordering, access conflicts, concurrency constraints, and mobility facts for a built schedule. | `cargo run -p runen-ecs --example schedule_inspection` |
+| `reflection` | Register a reflected ECS type, inspect its fields, and read or mutate a live reflected value. | `cargo run -p runen-ecs --example reflection` |
 
 ### Integrated example
 

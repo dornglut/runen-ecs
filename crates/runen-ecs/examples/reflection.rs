@@ -17,9 +17,10 @@ fn main() {
             visible: true,
         })
         .expect("entity should spawn");
+    let settings_type = TypeId::of::<RenderSettings>();
 
     let type_info = world
-        .reflected_component_type_info(TypeId::of::<RenderSettings>())
+        .reflected_component_type_info(settings_type)
         .expect("registered reflected component should expose type information");
     let struct_info = type_info
         .struct_info()
@@ -30,7 +31,7 @@ fn main() {
 
     {
         let reflected = world
-            .reflected_component_value_ref(entity, TypeId::of::<RenderSettings>())
+            .reflected_component_value_ref(entity, settings_type)
             .expect("live reflected component should be readable");
         let fields = reflected
             .struct_ref()
@@ -45,7 +46,7 @@ fn main() {
 
     {
         let reflected = world
-            .reflected_component_value_mut(entity, TypeId::of::<RenderSettings>())
+            .reflected_component_value_mut(entity, settings_type)
             .expect("live reflected component should be mutable");
         let mut fields = reflected
             .struct_mut()
