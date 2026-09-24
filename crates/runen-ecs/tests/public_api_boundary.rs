@@ -36,6 +36,23 @@ fn prelude_remains_gameplay_focused() {
     assert!(!PRELUDE_RS.contains("QuerySpec"));
     assert!(!PRELUDE_RS.contains("SystemParam"));
     assert!(!PRELUDE_RS.contains("SystemParamError"));
+
+    for expert in [
+        "IntoSystem",
+        "IntoSystemConfigs",
+        "ContiguousQueryError",
+        "ContiguousSegment",
+        "ContiguousSegments",
+    ] {
+        assert!(
+            has_identifier(LIB_RS, expert),
+            "expert/integration contract disappeared from the crate root: {expert}"
+        );
+        assert!(
+            !has_identifier(PRELUDE_RS, expert),
+            "expert/integration vocabulary leaked into gameplay prelude: {expert}"
+        );
+    }
 }
 
 #[test]

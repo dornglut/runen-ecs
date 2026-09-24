@@ -2,6 +2,39 @@
 
 RunenECS is Dornglut's standalone reusable entity-component-system framework.
 
+## Getting started
+
+The normal authoring entry point is the gameplay-focused prelude:
+
+```rust
+use runen_ecs::prelude::*;
+
+#[derive(ScheduleLabel)]
+struct Update;
+
+#[derive(Component)]
+struct Counter(u32);
+
+fn advance(mut counters: Query<&mut Counter>) {
+    for counter in counters.iter() {
+        counter.0 += 1;
+    }
+}
+
+fn main() {
+    let mut world = World::new();
+    world.spawn(Counter(0)).unwrap();
+
+    let mut runtime = Runtime::new();
+    runtime.add_systems(Update, advance).unwrap();
+    runtime.run_schedule::<Update>(&mut world).unwrap();
+}
+```
+
+See the [crate guide](crates/runen-ecs/README.md) for the complete quick start, core
+semantics, advanced authoring, and runnable examples in
+[`crates/runen-ecs/examples`](crates/runen-ecs/examples/).
+
 ## Current state
 
 Accepted `runen-ecs/main` is the standalone RunenECS semantic implementation authority. Runenwerk consumes an exact accepted RunenECS revision and no longer owns a duplicate predecessor implementation. Cross-repository source-authority transfers follow Dornglut Engineering ADR 0008; the Runenwerk-to-RunenECS transfer is complete.
