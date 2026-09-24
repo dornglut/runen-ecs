@@ -466,6 +466,7 @@ impl<R: Relation> Clone for RelationReadCapability<'_, R> {
 
 impl<'world, R: Relation> RelationReadCapability<'world, R> {
     fn serial(world: &'world World) -> Self {
+        assert_supported_relation_definition::<R>();
         let store = world.relation_store::<R>().map(NonNull::from);
         Self {
             validation: EntityValidationCapability::serial(&world.allocator, &world.alive_entities),
@@ -476,6 +477,7 @@ impl<'world, R: Relation> RelationReadCapability<'world, R> {
     }
 
     pub(crate) unsafe fn from_world_ptr(world: NonNull<World>) -> Self {
+        assert_supported_relation_definition::<R>();
         let world_ptr = world.as_ptr();
         let allocator = unsafe { &*std::ptr::addr_of!((*world_ptr).allocator) };
         let alive_entities = unsafe { &*std::ptr::addr_of!((*world_ptr).alive_entities) };
@@ -497,6 +499,7 @@ impl<'world, R: Relation> RelationReadCapability<'world, R> {
         validation: EntityValidationCapability<'world>,
         store: Option<NonNull<RelationStore>>,
     ) -> Self {
+        assert_supported_relation_definition::<R>();
         if let Some(store) = store {
             unsafe { store.as_ref().assert_kind::<R>() };
         }
@@ -544,6 +547,7 @@ pub(crate) struct RelationWriteCapability<'world, R: Relation> {
 
 impl<'world, R: Relation> RelationWriteCapability<'world, R> {
     fn serial(world: &'world mut World) -> Self {
+        assert_supported_relation_definition::<R>();
         let validation =
             EntityValidationCapability::serial(&world.allocator, &world.alive_entities);
         let stores = NonNull::from(&mut world.relation_stores);
@@ -558,6 +562,7 @@ impl<'world, R: Relation> RelationWriteCapability<'world, R> {
     }
 
     pub(crate) unsafe fn from_world_ptr(world: NonNull<World>) -> Self {
+        assert_supported_relation_definition::<R>();
         let world_ptr = world.as_ptr();
         let allocator = unsafe { &*std::ptr::addr_of!((*world_ptr).allocator) };
         let alive_entities = unsafe { &*std::ptr::addr_of!((*world_ptr).alive_entities) };
@@ -577,6 +582,7 @@ impl<'world, R: Relation> RelationWriteCapability<'world, R> {
         validation: EntityValidationCapability<'world>,
         mut store: NonNull<RelationStore>,
     ) -> Self {
+        assert_supported_relation_definition::<R>();
         unsafe { store.as_mut().assert_kind::<R>() };
         Self {
             validation,

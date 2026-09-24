@@ -253,24 +253,60 @@ fn invalid_endpoints_precede_constraint_checks_and_leave_state_unchanged() {
 }
 
 #[test]
-fn unsupported_symmetric_constraints_are_configuration_failures() {
+fn unsupported_symmetric_constraints_fail_at_capability_and_preparation_time() {
     let mut world = World::new();
-    let first = world.spawn(Marker).unwrap();
-    let second = world.spawn(Marker).unwrap();
 
-    let one = catch_unwind(AssertUnwindSafe(|| {
-        let _ = world
-            .relations_mut::<UnsupportedSymmetricOne>()
-            .insert(first, second);
+    let direct_read = catch_unwind(AssertUnwindSafe(|| {
+        let _ = world.relations::<UnsupportedSymmetricOne>();
     }));
-    assert!(one.is_err());
+    assert!(direct_read.is_err());
 
-    let cycle = catch_unwind(AssertUnwindSafe(|| {
-        let _ = world
-            .relations_mut::<UnsupportedSymmetricCycle>()
-            .insert(first, second);
+    let direct_write = catch_unwind(AssertUnwindSafe(|| {
+        let _ = world.relations_mut::<UnsupportedSymmetricCycle>();
     }));
-    assert!(cycle.is_err());
+    assert!(direct_write.is_err());
+
+    let mut serial_read = Runtime::new();
+    serial_read
+        .add_systems(Update, |_relation: Relations<UnsupportedSymmetricOne>| {})
+        .unwrap();
+    let serial_read = catch_unwind(AssertUnwindSafe(|| {
+        serial_read.run_schedule::<Update>(&mut world)
+    }));
+    assert!(serial_read.is_err());
+
+    let mut serial_write = Runtime::new();
+    serial_write
+        .add_systems(
+            Update,
+            |_relation: RelationsMut<UnsupportedSymmetricCycle>| {},
+        )
+        .unwrap();
+    let serial_write = catch_unwind(AssertUnwindSafe(|| {
+        serial_write.run_schedule::<Update>(&mut world)
+    }));
+    assert!(serial_write.is_err());
+
+    let mut worker_read = Runtime::new();
+    worker_read
+        .add_systems(Update, |_relation: Relations<UnsupportedSymmetricOne>| {})
+        .unwrap();
+    let worker_read = catch_unwind(AssertUnwindSafe(|| {
+        worker_read.run_schedule_parallel::<Update>(&mut world, 1)
+    }));
+    assert!(worker_read.is_err());
+
+    let mut worker_write = Runtime::new();
+    worker_write
+        .add_systems(
+            Update,
+            |_relation: RelationsMut<UnsupportedSymmetricCycle>| {},
+        )
+        .unwrap();
+    let worker_write = catch_unwind(AssertUnwindSafe(|| {
+        worker_write.run_schedule_parallel::<Update>(&mut world, 1)
+    }));
+    assert!(worker_write.is_err());
 }
 
 #[test]
