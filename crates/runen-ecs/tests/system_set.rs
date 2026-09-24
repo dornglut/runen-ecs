@@ -1,7 +1,7 @@
 use std::any::TypeId;
 
-use runen_ecs::prelude::*;
 use runen_ecs::SystemSetKey;
+use runen_ecs::prelude::*;
 use runen_ecs::system::{OrderingDirection, OrderingPresence, ScheduleOrderingResolutionKind};
 
 #[derive(Copy, Clone)]
@@ -75,12 +75,9 @@ fn diagnostic_names_do_not_define_system_set_identity() {
     let second_name = SystemSetKey::of::<DefaultMarker>("SecondName");
     assert_eq!(first_name, second_name);
 
-    let first_variant_name =
-        SystemSetKey::with_discriminator::<Phase>(7, "Phase::OldName");
-    let renamed_variant =
-        SystemSetKey::with_discriminator::<Phase>(7, "Phase::NewName");
-    let other_variant =
-        SystemSetKey::with_discriminator::<Phase>(8, "Phase::OldName");
+    let first_variant_name = SystemSetKey::with_discriminator::<Phase>(7, "Phase::OldName");
+    let renamed_variant = SystemSetKey::with_discriminator::<Phase>(7, "Phase::NewName");
+    let other_variant = SystemSetKey::with_discriminator::<Phase>(8, "Phase::OldName");
 
     assert_eq!(first_variant_name, renamed_variant);
     assert_ne!(first_variant_name, other_variant);
