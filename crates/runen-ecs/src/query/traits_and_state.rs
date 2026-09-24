@@ -287,6 +287,12 @@ pub struct QueryState<Q, F = ()> {
 }
 
 impl<Q: QuerySpec, F: QueryFilter> QueryState<Q, F> {
+    /// Creates reusable query state bound initially to `world`.
+    ///
+    /// # Panics
+    ///
+    /// Panics when the statically selected query shape contains conflicting borrows.
+    /// The panic includes the conflicting access domain and target type.
     pub fn new(world: &World) -> Self {
         Self::try_new(world).unwrap_or_else(|error| panic!("invalid query state: {error}"))
     }
@@ -379,6 +385,13 @@ impl<Q: QuerySpec, F: QueryFilter> QueryState<Q, F> {
         iter
     }
 
+    /// Returns the item for `entity` when it satisfies the complete query predicate.
+    ///
+    /// `None` means that this entity yields no item for this query. The result does
+    /// not distinguish among a non-live/foreign/stale entity, missing required query
+    /// components, exclusion constraints, or a typed/stateful filter rejecting the
+    /// entity. Callers that need entity or component validity diagnostics should use
+    /// the owning `World` entity/component APIs before query membership lookup.
     pub fn get<'w, W>(&self, world: W, entity: Entity) -> Option<Q::Item<'w>>
     where
         Q: 'w,
@@ -646,6 +659,10 @@ impl<'world, 'state, Q: QuerySpec, F: QueryFilter> Query<'world, 'state, Q, F> {
         iter
     }
 
+    /// Returns the item for `entity` when it satisfies this system query's complete predicate.
+    ///
+    /// `None` is query non-membership and intentionally does not distinguish whether
+    /// the entity is non-live, lacks required components, or is rejected by a filter.
     pub fn get(&mut self, entity: Entity) -> Option<Q::Item<'_>> {
         // Safety: system execution guarantees the world pointer remains valid for this call.
         unsafe {
