@@ -93,6 +93,14 @@ Run examples from the repository root.
 | `scheduling` | Express required and optional semantic precedence with system sets. | `cargo run -p runen-ecs --example scheduling` |
 | `system_mobility` | Contrast normal transferable registration with an explicit invoker-thread-only system. | `cargo run -p runen-ecs --example system_mobility` |
 
+### Advanced authoring and tooling
+
+| Example | Purpose | Run |
+| --- | --- | --- |
+| `custom_system_param` | Group `Query`, resources, and other maintained parameters into one named safe `#[derive(SystemParam)]` type. | `cargo run -p runen-ecs --example custom_system_param` |
+| `schedule_inspection` | Inspect normalized ordering, access conflicts, concurrency constraints, and mobility facts for a built schedule. | `cargo run -p runen-ecs --example schedule_inspection` |
+| `reflection` | Register a reflected ECS type, inspect its fields, and read or mutate a live reflected value. | `cargo run -p runen-ecs --example reflection` |
+
 ### Integrated example
 
 | Example | Purpose | Run |
