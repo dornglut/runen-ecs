@@ -116,7 +116,14 @@ pub fn system_set_derive(input: TokenStream) -> TokenStream {
     } = input;
 
     let implementation = match data {
-        Data::Struct(data) if matches!(&data.fields, Fields::Unit) => quote! {},
+        Data::Struct(data) if matches!(&data.fields, Fields::Unit) => {
+            let diagnostic_name = name.to_string();
+            quote! {
+                fn name(&self) -> &'static str {
+                    #diagnostic_name
+                }
+            }
+        },
         Data::Struct(data) => {
             let message = match &data.fields {
                 Fields::Unnamed(_) => {
@@ -141,7 +148,7 @@ pub fn system_set_derive(input: TokenStream) -> TokenStream {
         }
         Data::Enum(data) => {
             let mut variants = Vec::with_capacity(data.variants.len());
-            for variant in data.variants {
+            for (discriminator, variant) in data.variants.into_iter().enumerate() {
                 if !matches!(variant.fields, Fields::Unit) {
                     return syn::Error::new_spanned(
                         variant.fields,
@@ -152,19 +159,33 @@ pub fn system_set_derive(input: TokenStream) -> TokenStream {
                 }
                 let variant_name = variant.ident.to_string();
                 let key_name = format!("{}::{variant_name}", name);
-                variants.push((variant.ident, key_name));
+                variants.push((variant.ident, key_name, discriminator as u64));
             }
 
-            let arms = variants.iter().map(|(variant, key_name)| {
+            let name_arms = variants.iter().map(|(variant, key_name, _)| {
                 quote! {
                     Self::#variant => #key_name,
+                }
+            });
+            let key_arms = variants.iter().map(|(variant, key_name, discriminator)| {
+                quote! {
+                    Self::#variant => #ecs::SystemSetKey::with_discriminator::<Self>(
+                        #discriminator,
+                        #key_name,
+                    ),
                 }
             });
 
             quote! {
                 fn name(&self) -> &'static str {
                     match self {
-                        #(#arms)*
+                        #(#name_arms)*
+                    }
+                }
+
+                fn key(&self) -> #ecs::SystemSetKey {
+                    match self {
+                        #(#key_arms)*
                     }
                 }
             }
