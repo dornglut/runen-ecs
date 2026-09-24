@@ -63,9 +63,9 @@ mod tests {
     use crate::system::IntoSystem;
     use crate::world::{ChangeCursor, FrameworkInvariantKind, framework_invariant_kind};
     use crate::{
-        Added, Changed, Commands, Component, Directed, LocalCommands, Query, Relation,
-        RelationsMut, RemovedQuery, Res, ResMut, Resource, ScheduleLabel, SystemMobilityExt, With,
-        Without, World,
+        Added, Changed, Commands, Component, CyclePolicy, Directed, LocalCommands, Query, Relation,
+        RelationConstraints, RelationsMut, RemovedQuery, Res, ResMut, Resource, ScheduleLabel,
+        SourceCardinality, SystemMobilityExt, With, Without, World,
     };
     use std::cell::Cell;
     use std::marker::PhantomData;
@@ -142,6 +142,22 @@ mod tests {
     struct RelationB;
     impl Relation for RelationB {
         type Kind = Directed;
+    }
+
+    struct ConstrainedRelationA;
+    impl Relation for ConstrainedRelationA {
+        type Kind = Directed;
+        const CONSTRAINTS: RelationConstraints = RelationConstraints::new()
+            .source_cardinality(SourceCardinality::One)
+            .cycles(CyclePolicy::Forbid);
+    }
+
+    struct ConstrainedRelationB;
+    impl Relation for ConstrainedRelationB {
+        type Kind = Directed;
+        const CONSTRAINTS: RelationConstraints = RelationConstraints::new()
+            .source_cardinality(SourceCardinality::One)
+            .cycles(CyclePolicy::Forbid);
     }
 
     #[allow(dead_code)]
@@ -616,6 +632,44 @@ mod tests {
         run_controlled_worker_harness(&mut world, vec![first, second]).unwrap();
         assert!(world.relations::<RelationA>().contains(source, target));
         assert!(world.relations::<RelationB>().contains(source, target));
+    }
+
+    #[test]
+    fn distinct_constrained_relation_writers_use_disjoint_worker_projections() {
+        let mut world = World::new();
+        let source = world.spawn(Marker(1)).unwrap();
+        let target = world.spawn(Marker(2)).unwrap();
+        let barrier = Arc::new(Barrier::new(2));
+
+        let first_barrier = Arc::clone(&barrier);
+        let first = register(
+            &mut world,
+            move |mut relations: RelationsMut<ConstrainedRelationA>| {
+                first_barrier.wait();
+                assert!(relations.insert(source, target).unwrap());
+            },
+        );
+
+        let second_barrier = Arc::clone(&barrier);
+        let second = register(
+            &mut world,
+            move |mut relations: RelationsMut<ConstrainedRelationB>| {
+                second_barrier.wait();
+                assert!(relations.insert(source, target).unwrap());
+            },
+        );
+
+        run_controlled_worker_harness(&mut world, vec![first, second]).unwrap();
+        assert!(
+            world
+                .relations::<ConstrainedRelationA>()
+                .contains(source, target)
+        );
+        assert!(
+            world
+                .relations::<ConstrainedRelationB>()
+                .contains(source, target)
+        );
     }
 
     #[test]

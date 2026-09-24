@@ -16,8 +16,8 @@ pub mod resource;
 pub use change_tracking::ChangeCursor;
 pub use entity_handles::{EntityMut, EntityRef, Mut};
 pub use relation::{
-    Directed, Relation, RelationEntities, RelationKind, Relations, RelationsMut, SelfRelation,
-    Symmetric,
+    CyclePolicy, Directed, Relation, RelationConstraints, RelationEntities, RelationKind,
+    Relations, RelationsMut, SelfRelation, SourceCardinality, Symmetric,
 };
 pub use state::World;
 

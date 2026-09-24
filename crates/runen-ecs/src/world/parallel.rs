@@ -2,7 +2,7 @@ use super::change_tracking::panic_worker_projection_violation;
 use super::mutation_journal::{ConcurrentMutationCapacity, MutationJournal};
 use super::relation::{
     EntityValidationCapability, Relation, RelationReadCapability, RelationStore,
-    RelationWriteCapability,
+    RelationWriteCapability, assert_supported_relation_definition,
 };
 use super::{ChangeCursor, QueryCapability, ResourceCapability, World};
 use crate::component::{Component, Resource};
@@ -344,6 +344,7 @@ impl<'world> WorkerWorldBuilder<'world> {
 
     pub(crate) fn prepare_relation_read<R: Relation>(&mut self) {
         assert_relation_store_thread_traits();
+        assert_supported_relation_definition::<R>();
         self.prepare_relation_validation();
         let type_id = TypeId::of::<R>();
         if self.relation_reads.contains_key(&type_id) {
@@ -361,6 +362,7 @@ impl<'world> WorkerWorldBuilder<'world> {
 
     pub(crate) fn prepare_relation_write<R: Relation>(&mut self) {
         assert_relation_store_thread_traits();
+        assert_supported_relation_definition::<R>();
         self.prepare_relation_validation();
         let type_id = TypeId::of::<R>();
         if self.relation_writes.contains_key(&type_id) {

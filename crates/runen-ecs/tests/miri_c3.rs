@@ -1,6 +1,6 @@
 use runen_ecs::{
-    Component, Directed, Query, Relation, RelationsMut, ResMut, Resource, Runtime, ScheduleLabel,
-    World,
+    Component, CyclePolicy, Directed, Query, Relation, RelationConstraints, RelationError,
+    RelationsMut, ResMut, Resource, Runtime, ScheduleLabel, SourceCardinality, World,
 };
 
 #[derive(Debug, Copy, Clone, Component)]
@@ -32,6 +32,14 @@ impl Relation for RelationA {
 struct RelationB;
 impl Relation for RelationB {
     type Kind = Directed;
+}
+
+struct ConstrainedRelation;
+impl Relation for ConstrainedRelation {
+    type Kind = Directed;
+    const CONSTRAINTS: RelationConstraints = RelationConstraints::new()
+        .source_cardinality(SourceCardinality::One)
+        .cycles(CyclePolicy::Forbid);
 }
 
 #[derive(Copy, Clone)]
@@ -103,6 +111,36 @@ fn serial_relation_type_split_keeps_retained_read_state_disjoint_from_other_writ
 
     runtime.run_schedule::<C3>(&mut world).unwrap();
     assert!(world.relations::<RelationB>().contains(source, target));
+}
+
+#[test]
+fn constrained_relation_replacement_and_cycle_rejection_preserve_live_views() {
+    let mut world = World::new();
+    let root = world.spawn(A(1)).unwrap();
+    let parent = world.spawn(A(2)).unwrap();
+    let child = world.spawn(A(3)).unwrap();
+    let grandchild = world.spawn(A(4)).unwrap();
+
+    let mut relation = world.relations_mut::<ConstrainedRelation>();
+    relation.insert(parent, root).unwrap();
+    relation.insert(child, parent).unwrap();
+    relation.insert(grandchild, child).unwrap();
+
+    assert!(matches!(
+        relation.insert(child, grandchild),
+        Err(RelationError::Cycle { .. })
+    ));
+    let retained_targets = relation.targets(child).unwrap();
+    let mut retained = retained_targets.iter();
+    assert_eq!(retained.next(), Some(parent));
+    assert!(retained.next().is_none());
+    drop(retained);
+
+    assert!(relation.insert(child, root).unwrap());
+    assert_eq!(
+        relation.targets(child).unwrap().iter().collect::<Vec<_>>(),
+        vec![root]
+    );
 }
 
 #[test]
