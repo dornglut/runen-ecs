@@ -51,7 +51,7 @@ pub struct HierarchyNode;
 #[derive(ScheduleLabel)]
 struct Update;
 
-#[derive(Copy, Clone, SystemSet)]
+#[derive(SystemSet)]
 enum Phase {
     Prepare,
     Simulate,
