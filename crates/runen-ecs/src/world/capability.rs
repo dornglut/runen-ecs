@@ -263,6 +263,36 @@ impl<'world> QueryCapability<'world> {
         }
     }
 
+    pub(crate) fn collect_read_only_query_spans(
+        self,
+        required_present: &[TypeId],
+        excluded: &[TypeId],
+        component_types: &[TypeId],
+    ) -> Option<Vec<ContiguousArchetypeSpan>> {
+        match self.backing {
+            QueryCapabilityBacking::Serial(serial) => {
+                let spans = unsafe {
+                    serial
+                        .archetype_registry
+                        .as_ref()
+                        .collect_contiguous_spans_shared(
+                            required_present,
+                            excluded,
+                            component_types,
+                            &[],
+                        )
+                }
+                .unwrap_or_else(|()| {
+                    panic!(
+                        "validated read-only query projection violated archetype storage invariants"
+                    )
+                });
+                Some(spans)
+            }
+            QueryCapabilityBacking::Worker(_) => None,
+        }
+    }
+
     pub(crate) fn collect_contiguous_spans(
         self,
         required_present: &[TypeId],

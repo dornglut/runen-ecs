@@ -5,7 +5,14 @@ on:
     branches:
       - main
     paths:
+      - 'crates/runen-ecs/benches/semantic_baseline.rs'
+      - 'crates/runen-ecs/src/query/**'
+      - 'crates/runen-ecs/src/storage/**'
+      - 'crates/runen-ecs/src/world/capability.rs'
       - 'tools/benchmark/run_paired_semantic.sh'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'rust-toolchain.toml'
       - '.github/workflows/ecs-semantic-paired-benchmark.yml'
   workflow_dispatch:
     inputs:
@@ -44,6 +51,7 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           EVENT_SHA: ${{ github.sha }}
           PULL_REQUEST_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PULL_REQUEST_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           INPUT_BASELINE: ${{ inputs.baseline_sha }}
           INPUT_CANDIDATE: ${{ inputs.candidate_sha }}
           INPUT_REPETITIONS: ${{ inputs.repetitions }}
@@ -52,8 +60,8 @@ jobs:
           case "$EVENT_NAME" in
             pull_request)
               expected_revision="$PULL_REQUEST_HEAD_SHA"
-              baseline_sha="aadc2856ab0242ff0077164b28eaeb03a5ca67a8"
-              candidate_sha="719a5ec5c7086e1244ab5e048031d7ac3019e82b"
+              baseline_sha="$PULL_REQUEST_BASE_SHA"
+              candidate_sha="$PULL_REQUEST_HEAD_SHA"
               repetitions="4"
               ;;
             workflow_dispatch)
