@@ -5,4 +5,4 @@ error: ScheduleLabel derive only supports unit structs; named-field structs are 
   |  _____________________^
 5 | |     value: u32,
 6 | | }
-  | |_^^
+  | |_^
