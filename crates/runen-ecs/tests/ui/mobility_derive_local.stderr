@@ -4,6 +4,8 @@ error[E0277]: the trait bound `LocalCommands<'_>: runen_ecs::TransferableSystemP
 13 |     assert_transferable::<LocalGroup<'static>>();
    |                           ^^^^^^^^^^^^^^^^^^^ the trait `runen_ecs::TransferableSystemParam` is not implemented for `LocalCommands<'_>`
    |
+   = note: normal system registration requires every system parameter to satisfy RunenECS's transferable proof; use `.on_invoker_thread()` when a system intentionally uses thread-bound parameters
+   = note: `TransferableSystemParam` is framework-owned unsafe proof plumbing; application code should not implement it manually
    = help: the following other types implement trait `runen_ecs::TransferableSystemParam`:
              (A, B)
              (A, B, C)
