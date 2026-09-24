@@ -49,12 +49,23 @@ rustc +1.98.1 -Vv >/dev/null 2>&1 || {
 repo_root="$(git rev-parse --show-toplevel)"
 cd "$repo_root"
 
-for revision in "$baseline_sha" "$candidate_sha"; do
+ensure_commit() {
+  local revision="$1"
+  if git cat-file -e "$revision^{commit}" 2>/dev/null; then
+    return 0
+  fi
+
+  echo "Fetching exact measured revision: $revision"
+  git fetch --no-tags --depth=1 origin "$revision"
+
   git cat-file -e "$revision^{commit}" || {
-    echo "commit is not available in this checkout: $revision" >&2
+    echo "commit is not available after exact-SHA fetch: $revision" >&2
     exit 1
   }
-done
+}
+
+ensure_commit "$baseline_sha"
+ensure_commit "$candidate_sha"
 
 output_dir="$(mkdir -p "$output_dir" && cd "$output_dir" && pwd)"
 rm -rf "$output_dir/runs"
