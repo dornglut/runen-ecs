@@ -846,8 +846,7 @@ impl<'w, 'state, Q: QuerySpec, F: QueryFilter> Iterator for QueryIter<'w, 'state
                 let entity = binding
                     .entity_at(row)
                     .expect("validated read-only archetype row must contain an entity");
-                if F::needs_tick_filter()
-                    && !F::matches_entity(self.world, entity, self.since_tick)
+                if F::needs_tick_filter() && !F::matches_entity(self.world, entity, self.since_tick)
                 {
                     continue;
                 }
@@ -855,12 +854,10 @@ impl<'w, 'state, Q: QuerySpec, F: QueryFilter> Iterator for QueryIter<'w, 'state
                 // Safety: the binding was projected from this serial query
                 // capability for Q's exact data component types, and row is
                 // within the preflighted archetype range.
-                let item = unsafe {
-                    Q::fetch_read_only_archetype_row(self.world, binding, row)
-                }
-                .expect(
-                    "validated read-only archetype row must contain every projected component",
-                );
+                let item = unsafe { Q::fetch_read_only_archetype_row(self.world, binding, row) }
+                    .expect(
+                        "validated read-only archetype row must contain every projected component",
+                    );
                 return Some(item);
             }
         }
