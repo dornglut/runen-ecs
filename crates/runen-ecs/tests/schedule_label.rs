@@ -5,8 +5,8 @@ use std::sync::{
     atomic::{AtomicUsize, Ordering},
 };
 
-use runen_ecs::prelude::*;
 use runen_ecs::ScheduleKey;
+use runen_ecs::prelude::*;
 
 #[derive(ScheduleLabel)]
 struct Update;

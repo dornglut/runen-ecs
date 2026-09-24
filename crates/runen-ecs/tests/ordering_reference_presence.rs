@@ -1,7 +1,6 @@
 use runen_ecs::prelude::*;
 use runen_ecs::system::{
-    OrderingDirection, ScheduleDiagnosticDescriptor, SystemSetDiagnosticDescriptor,
-    SystemSetKey,
+    OrderingDirection, ScheduleDiagnosticDescriptor, SystemSetDiagnosticDescriptor, SystemSetKey,
 };
 use runen_ecs::{RuntimeError, ScheduleValidationError};
 
