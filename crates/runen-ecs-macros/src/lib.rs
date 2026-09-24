@@ -281,6 +281,7 @@ pub fn system_param_derive(input: TokenStream) -> TokenStream {
             }
         }
 
+        #[diagnostic::do_not_recommend]
         unsafe impl #transferable_impl_generics
             #ecs::TransferableSystemParam for #name #ty_generics #transferable_where_clause {
             fn prepare_worker(
