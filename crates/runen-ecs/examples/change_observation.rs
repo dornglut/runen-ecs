@@ -3,13 +3,11 @@ use runen_ecs::prelude::*;
 #[derive(ScheduleLabel)]
 struct Update;
 
-#[derive(Copy, Clone)]
+#[derive(SystemSet)]
 struct Mutate;
-impl SystemSet for Mutate {}
 
-#[derive(Copy, Clone)]
+#[derive(SystemSet)]
 struct Observe;
-impl SystemSet for Observe {}
 
 #[derive(Debug, Component)]
 struct Actor;
