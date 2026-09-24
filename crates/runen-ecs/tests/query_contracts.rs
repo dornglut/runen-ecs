@@ -25,6 +25,9 @@ fn invalid_direct_query_reports_conflicting_component_borrow() {
 
     let message = panic_message(payload.as_ref());
     assert!(message.contains("invalid query state"), "{message}");
-    assert!(message.contains("conflicting component borrows"), "{message}");
+    assert!(
+        message.contains("conflicting component borrows"),
+        "{message}"
+    );
     assert!(message.contains("Position"), "{message}");
 }
