@@ -18,10 +18,8 @@ struct MotionParams<'w, 's> {
     delta_time: Res<'w, DeltaTime>,
 }
 
-#[derive(Copy, Clone)]
+#[derive(ScheduleLabel)]
 struct Update;
-
-impl ScheduleLabel for Update {}
 
 fn integrate(mut params: MotionParams<'_, '_>) {
     for (position, velocity) in params.bodies.iter() {

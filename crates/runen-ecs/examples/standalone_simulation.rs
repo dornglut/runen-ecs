@@ -1,10 +1,8 @@
 use runen_ecs::RuntimeError;
 use runen_ecs::prelude::*;
 
-#[derive(Copy, Clone)]
+#[derive(ScheduleLabel)]
 struct Update;
-
-impl ScheduleLabel for Update {}
 
 #[derive(Copy, Clone, SystemSet)]
 struct Spawn;

@@ -1,0 +1,5 @@
+error: ScheduleLabel derive only supports unit structs; unions are not supported
+ --> tests/ui/schedule_label_union.rs:4:1
+  |
+4 | union NotASchedule {
+  | ^^^^^

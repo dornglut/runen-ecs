@@ -48,14 +48,8 @@ impl Relation for ChildOf {
 #[derive(Component)]
 pub struct HierarchyNode;
 
-#[derive(Copy, Clone)]
+#[derive(ScheduleLabel)]
 struct Update;
-
-impl ScheduleLabel for Update {
-    fn name() -> &'static str {
-        "Update"
-    }
-}
 
 #[derive(Copy, Clone, SystemSet)]
 enum Phase {

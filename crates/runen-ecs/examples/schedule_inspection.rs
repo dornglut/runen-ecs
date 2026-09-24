@@ -1,10 +1,8 @@
 use runen_ecs::prelude::*;
 use runen_ecs::{ExecutionMobility, OrderingPresence, ScheduleOrderingResolutionKind};
 
-#[derive(Copy, Clone)]
+#[derive(ScheduleLabel)]
 struct Update;
-
-impl ScheduleLabel for Update {}
 
 #[derive(Copy, Clone)]
 struct Simulation;

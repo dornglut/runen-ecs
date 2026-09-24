@@ -17,6 +17,10 @@ impl ScheduleKey {
         }
     }
 
+    pub(crate) fn for_label<L: ScheduleLabel>() -> Self {
+        Self::of::<L>(L::name())
+    }
+
     pub fn type_id(&self) -> TypeId {
         self.type_id
     }
@@ -32,7 +36,7 @@ impl ScheduleKey {
 
 impl PartialEq for ScheduleKey {
     fn eq(&self, other: &Self) -> bool {
-        self.type_id == other.type_id && self.name == other.name
+        self.type_id == other.type_id
     }
 }
 
@@ -41,17 +45,18 @@ impl Eq for ScheduleKey {}
 impl Hash for ScheduleKey {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.type_id.hash(state);
-        self.name.hash(state);
     }
 }
 
-pub trait ScheduleLabel: Copy + 'static {
+/// A type-level label that selects one ECS schedule.
+///
+/// Schedule identity is exactly the Rust type. `name()` is diagnostic text and
+/// never participates in scheduler identity. Ordinary labels should use
+/// `#[derive(ScheduleLabel)]`; manual implementations are useful when a custom
+/// diagnostic name is intentional.
+pub trait ScheduleLabel: 'static {
     fn name() -> &'static str {
         type_name::<Self>()
-    }
-
-    fn key() -> ScheduleKey {
-        ScheduleKey::of::<Self>(Self::name())
     }
 }
 

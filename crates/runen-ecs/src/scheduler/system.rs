@@ -375,7 +375,7 @@ impl RegisteredSystem {
         Ok(Self {
             id: SystemId::new(NonZeroU64::new(1).expect("literal system id is non-zero")),
             name,
-            label: L::key(),
+            label: ScheduleKey::for_label::<L>(),
             sets: Vec::new(),
             ordering_declarations: Vec::new(),
             param_slots: Vec::new(),
@@ -405,7 +405,7 @@ impl RegisteredSystem {
         Ok(Self {
             id: SystemId::new(NonZeroU64::new(1).expect("literal system id is non-zero")),
             name,
-            label: L::key(),
+            label: ScheduleKey::for_label::<L>(),
             sets: Vec::new(),
             ordering_declarations: Vec::new(),
             param_slots: Vec::new(),
