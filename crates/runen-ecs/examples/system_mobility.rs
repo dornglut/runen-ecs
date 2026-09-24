@@ -3,9 +3,8 @@ use runen_ecs::prelude::*;
 use std::cell::Cell;
 use std::rc::Rc;
 
-#[derive(Copy, Clone)]
+#[derive(ScheduleLabel)]
 struct Update;
-impl ScheduleLabel for Update {}
 
 #[derive(Debug, Resource)]
 struct Frame(u32);

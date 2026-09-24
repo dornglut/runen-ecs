@@ -18,10 +18,8 @@ its ECS access. Register it on a schedule, then run that schedule against a
 ```rust
 use runen_ecs::prelude::*;
 
-#[derive(Copy, Clone)]
+#[derive(ScheduleLabel)]
 struct Update;
-
-impl ScheduleLabel for Update {}
 
 #[derive(Component)]
 struct Position(f32);
