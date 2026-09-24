@@ -4,15 +4,11 @@ use runen_ecs::{ExecutionMobility, OrderingPresence, ScheduleOrderingResolutionK
 #[derive(ScheduleLabel)]
 struct Update;
 
-#[derive(Copy, Clone)]
+#[derive(SystemSet)]
 struct Simulation;
 
-impl SystemSet for Simulation {}
-
-#[derive(Copy, Clone)]
+#[derive(SystemSet)]
 struct OptionalTelemetry;
-
-impl SystemSet for OptionalTelemetry {}
 
 #[derive(Resource)]
 struct SharedMetrics(u32);

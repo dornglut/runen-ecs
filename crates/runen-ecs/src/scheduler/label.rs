@@ -63,14 +63,21 @@ pub trait ScheduleLabel: 'static {
 #[derive(Debug, Copy, Clone)]
 pub struct SystemSetKey {
     type_id: TypeId,
+    discriminator: u64,
     name: &'static str,
     diagnostic_type_name: &'static str,
 }
 
 impl SystemSetKey {
     pub fn of<T: 'static>(name: &'static str) -> Self {
+        Self::with_discriminator::<T>(0, name)
+    }
+
+    #[doc(hidden)]
+    pub fn with_discriminator<T: 'static>(discriminator: u64, name: &'static str) -> Self {
         Self {
             type_id: TypeId::of::<T>(),
+            discriminator,
             name,
             diagnostic_type_name: type_name::<T>(),
         }
@@ -91,7 +98,7 @@ impl SystemSetKey {
 
 impl PartialEq for SystemSetKey {
     fn eq(&self, other: &Self) -> bool {
-        self.type_id == other.type_id && self.name == other.name
+        self.type_id == other.type_id && self.discriminator == other.discriminator
     }
 }
 
@@ -100,22 +107,22 @@ impl Eq for SystemSetKey {}
 impl Hash for SystemSetKey {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.type_id.hash(state);
-        self.name.hash(state);
+        self.discriminator.hash(state);
     }
 }
 
 /// A value that identifies a set used for system membership and ordering.
 ///
 /// Ordinary unit markers use type-based identity by default. A derived fieldless
-/// enum gives each variant a distinct set identity while retaining the enum's
-/// [`TypeId`](std::any::TypeId), with names such as `CoreSet::Simulation`.
-/// Names are diagnostic and scheduler set-key data; they are not persistence or
-/// network identity.
+/// enum gives each variant a distinct opaque runtime-local discriminator while
+/// retaining the enum's [`TypeId`](std::any::TypeId), with diagnostic names
+/// such as `CoreSet::Simulation`. Diagnostic names never participate in
+/// scheduler set identity and are not persistence or network identity.
 ///
 /// ```
 /// use runen_ecs::prelude::*;
 ///
-/// #[derive(Copy, Clone, SystemSet)]
+/// #[derive(SystemSet)]
 /// enum CoreSet {
 ///     Input,
 ///     Simulation,
@@ -124,7 +131,7 @@ impl Hash for SystemSetKey {
 /// let set = CoreSet::Simulation;
 /// assert_eq!(set.key().name(), "CoreSet::Simulation");
 /// ```
-pub trait SystemSet: Copy + 'static {
+pub trait SystemSet: Sized + 'static {
     fn name(&self) -> &'static str {
         type_name::<Self>()
     }

@@ -1,5 +1,6 @@
 use std::any::TypeId;
 
+use runen_ecs::SystemSetKey;
 use runen_ecs::prelude::*;
 use runen_ecs::system::{OrderingDirection, OrderingPresence, ScheduleOrderingResolutionKind};
 
@@ -8,7 +9,7 @@ struct Update;
 
 impl ScheduleLabel for Update {}
 
-#[derive(Copy, Clone, SystemSet)]
+#[derive(SystemSet)]
 enum Phase {
     Prepare,
     Simulate,
@@ -22,10 +23,9 @@ fn after_system() {}
 fn optional_before_system() {}
 fn optional_after_system() {}
 
-#[derive(Copy, Clone, SystemSet)]
+#[derive(SystemSet)]
 struct DerivedPrepare;
 
-#[derive(Copy, Clone)]
 struct ManualNamedSet;
 
 impl SystemSet for ManualNamedSet {
@@ -34,7 +34,6 @@ impl SystemSet for ManualNamedSet {
     }
 }
 
-#[derive(Copy, Clone)]
 struct DefaultMarker;
 
 impl SystemSet for DefaultMarker {}
@@ -62,12 +61,41 @@ fn unit_markers_keep_type_based_identity_and_manual_names() {
     assert_eq!(default_marker.type_id(), TypeId::of::<DefaultMarker>());
 
     let derived = DerivedPrepare.key();
-    assert_eq!(derived.name(), std::any::type_name::<DerivedPrepare>());
+    assert_eq!(derived.name(), "DerivedPrepare");
     assert_eq!(derived.type_id(), TypeId::of::<DerivedPrepare>());
 
     let manual = ManualNamedSet.key();
     assert_eq!(manual.name(), "ManualPrepare");
     assert_eq!(manual.type_id(), TypeId::of::<ManualNamedSet>());
+}
+
+#[test]
+fn diagnostic_names_do_not_define_system_set_identity() {
+    let first_name = SystemSetKey::of::<DefaultMarker>("FirstName");
+    let second_name = SystemSetKey::of::<DefaultMarker>("SecondName");
+    assert_eq!(first_name, second_name);
+
+    let first_variant_name = SystemSetKey::with_discriminator::<Phase>(7, "Phase::OldName");
+    let renamed_variant = SystemSetKey::with_discriminator::<Phase>(7, "Phase::NewName");
+    let other_variant = SystemSetKey::with_discriminator::<Phase>(8, "Phase::OldName");
+
+    assert_eq!(first_variant_name, renamed_variant);
+    assert_ne!(first_variant_name, other_variant);
+}
+
+#[test]
+fn derived_system_sets_do_not_require_copy_or_clone() {
+    struct NotCopy(String);
+
+    impl SystemSet for NotCopy {
+        fn name(&self) -> &'static str {
+            "NotCopy"
+        }
+    }
+
+    let value = NotCopy(String::from("owned"));
+    assert_eq!(value.key().name(), "NotCopy");
+    assert_eq!(value.0, "owned");
 }
 
 #[test]
