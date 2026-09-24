@@ -191,7 +191,10 @@ impl ScheduleRegistry {
         &mut self,
     ) -> Result<Option<&ExecutionPlan>, ScheduleValidationError> {
         self.rebuild_if_dirty()?;
-        Ok(self.plans.iter().find(|plan| plan.label == L::key()))
+        Ok(self
+            .plans
+            .iter()
+            .find(|plan| plan.label == ScheduleKey::for_label::<L>()))
     }
 
     fn rebuild_if_dirty(&mut self) -> Result<(), ScheduleValidationError> {

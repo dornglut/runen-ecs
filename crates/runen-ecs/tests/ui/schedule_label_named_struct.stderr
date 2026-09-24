@@ -1,0 +1,8 @@
+error: ScheduleLabel derive only supports unit structs; named-field structs are not supported
+ --> tests/ui/schedule_label_named_struct.rs:4:21
+  |
+4 |   struct NotASchedule {
+  |  _____________________^
+5 | |     value: u32,
+6 | | }
+  | |_^^

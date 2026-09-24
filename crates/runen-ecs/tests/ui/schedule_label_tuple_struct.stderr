@@ -1,0 +1,5 @@
+error: ScheduleLabel derive only supports unit structs; tuple structs are not supported
+ --> tests/ui/schedule_label_tuple_struct.rs:4:20
+  |
+4 | struct NotASchedule(u32);
+  |                    ^^^^^

@@ -43,6 +43,67 @@ pub fn resource_derive(input: TokenStream) -> TokenStream {
     })
 }
 
+#[proc_macro_derive(ScheduleLabel)]
+pub fn schedule_label_derive(input: TokenStream) -> TokenStream {
+    let ecs = ecs_crate_path();
+    let input = parse_macro_input!(input as DeriveInput);
+    let DeriveInput {
+        ident: name,
+        mut generics,
+        data,
+        ..
+    } = input;
+
+    match data {
+        Data::Struct(data) if matches!(&data.fields, Fields::Unit) => {}
+        Data::Struct(data) => {
+            let message = match &data.fields {
+                Fields::Unnamed(_) => {
+                    "ScheduleLabel derive only supports unit structs; tuple structs are not supported"
+                }
+                Fields::Named(_) => {
+                    "ScheduleLabel derive only supports unit structs; named-field structs are not supported"
+                }
+                Fields::Unit => unreachable!("unit structs are handled above"),
+            };
+            return syn::Error::new_spanned(data.fields, message)
+                .to_compile_error()
+                .into();
+        }
+        Data::Enum(data) => {
+            return syn::Error::new_spanned(
+                data.enum_token,
+                "ScheduleLabel derive only supports unit structs; enums are not supported",
+            )
+            .to_compile_error()
+            .into();
+        }
+        Data::Union(data) => {
+            return syn::Error::new_spanned(
+                data.union_token,
+                "ScheduleLabel derive only supports unit structs; unions are not supported",
+            )
+            .to_compile_error()
+            .into();
+        }
+    }
+
+    generics
+        .make_where_clause()
+        .predicates
+        .push(parse_quote!(Self: 'static));
+    let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
+    let diagnostic_name = name.to_string();
+
+    TokenStream::from(quote! {
+        impl #impl_generics #ecs::ScheduleLabel for #name #ty_generics #where_clause {
+            fn name() -> &'static str {
+                #diagnostic_name
+            }
+        }
+    })
+}
+
 #[proc_macro_derive(SystemSet)]
 pub fn system_set_derive(input: TokenStream) -> TokenStream {
     let ecs = ecs_crate_path();

@@ -1,6 +1,6 @@
 use runen_ecs::prelude::*;
 use runen_ecs::system::{
-    OrderingDirection, ScheduleDiagnosticDescriptor, ScheduleKey, SystemSetDiagnosticDescriptor,
+    OrderingDirection, ScheduleDiagnosticDescriptor, SystemSetDiagnosticDescriptor,
     SystemSetKey,
 };
 use runen_ecs::{RuntimeError, ScheduleValidationError};
@@ -91,18 +91,6 @@ struct TargetAliasRequired;
 impl SystemSet for TargetAliasRequired {
     fn key(&self) -> SystemSetKey {
         CollidingTargetA.key()
-    }
-}
-
-#[derive(Copy, Clone)]
-struct ScheduleAlias;
-impl ScheduleLabel for ScheduleAlias {
-    fn name() -> &'static str {
-        "AliasWrapper"
-    }
-
-    fn key() -> ScheduleKey {
-        CollidingScheduleA::key()
     }
 }
 
@@ -370,20 +358,6 @@ fn diagnostic_identity_follows_returned_semantic_keys_not_wrapper_types() {
     let target = unresolved_target(&set_error);
     assert_eq!(target.name(), "SharedTarget");
     assert!(target.type_name().ends_with("::CollidingTargetA"));
-
-    let schedule_error_value = {
-        let mut world = World::new();
-        let mut runtime = Runtime::new();
-        let _ = runtime.add_systems(ScheduleAlias, source.before(TargetA));
-        schedule_error(
-            runtime
-                .run_schedule::<ScheduleAlias>(&mut world)
-                .unwrap_err(),
-        )
-    };
-    let schedule = unresolved_schedule(&schedule_error_value);
-    assert_eq!(schedule.name(), "SharedSchedule");
-    assert!(schedule.type_name().ends_with("::CollidingScheduleA"));
 }
 
 #[test]
