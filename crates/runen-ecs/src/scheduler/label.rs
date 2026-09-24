@@ -131,7 +131,7 @@ impl Hash for SystemSetKey {
 /// let set = CoreSet::Simulation;
 /// assert_eq!(set.key().name(), "CoreSet::Simulation");
 /// ```
-pub trait SystemSet: 'static {
+pub trait SystemSet: Sized + 'static {
     fn name(&self) -> &'static str {
         type_name::<Self>()
     }
