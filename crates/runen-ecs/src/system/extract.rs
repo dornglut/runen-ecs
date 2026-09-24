@@ -325,6 +325,10 @@ pub unsafe trait SystemParam: Sized {
 /// move the serial `SystemParamContext`, World authority, LocalCommands, or a
 /// live invoker-created Commands owner to the worker.
 #[doc(hidden)]
+#[diagnostic::on_unimplemented(
+    note = "normal system registration requires every system parameter to satisfy RunenECS's transferable proof; use `.on_invoker_thread()` when a system intentionally uses thread-bound parameters",
+    note = "`TransferableSystemParam` is framework-owned unsafe proof plumbing; application code should not implement it manually"
+)]
 pub unsafe trait TransferableSystemParam: SystemParam
 where
     Self::State: Send,
