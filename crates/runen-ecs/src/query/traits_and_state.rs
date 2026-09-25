@@ -14,6 +14,8 @@ use std::ptr::NonNull;
 pub trait QueryData {
     type Item<'w>;
 
+    const MARKS_COMPONENT_CHANGES: bool = false;
+
     fn query_types() -> Vec<TypeId>;
     fn append_access(access: &mut QueryAccess);
 
@@ -71,6 +73,9 @@ impl<T> sealed::QuerySpecSealed for T where T: QueryData {}
 #[doc(hidden)]
 pub trait QuerySpec: sealed::QuerySpecSealed {
     type Item<'w>;
+
+    #[doc(hidden)]
+    const MARKS_COMPONENT_CHANGES: bool;
 
     #[doc(hidden)]
     fn query_types() -> Vec<TypeId>;
@@ -180,6 +185,8 @@ where
     T: QueryData,
 {
     type Item<'w> = T::Item<'w>;
+
+    const MARKS_COMPONENT_CHANGES: bool = T::MARKS_COMPONENT_CHANGES;
 
     fn query_types() -> Vec<TypeId> {
         T::query_types()
@@ -466,7 +473,6 @@ impl<Q: QuerySpec, F: QueryFilter> QueryState<Q, F> {
                 archetype_bindings: Some(bindings),
                 entities: None,
                 scratch_pool: &self.scratch_pool,
-                mark_changes: !self.mutable_types.is_empty(),
                 binding_index: 0,
                 binding_row: 0,
                 index: 0,
@@ -687,7 +693,6 @@ struct QueryIter<'w, 'state, Q: QuerySpec, F> {
     archetype_bindings: Option<Vec<QueryArchetypeBinding>>,
     entities: Option<Vec<Entity>>,
     scratch_pool: &'state RefCell<Vec<Vec<Entity>>>,
-    mark_changes: bool,
     binding_index: usize,
     binding_row: usize,
     index: usize,
@@ -713,7 +718,7 @@ impl<'w, 'state, Q: QuerySpec, F: QueryFilter> Iterator for QueryIter<'w, 'state
                     continue;
                 }
 
-                if self.mark_changes {
+                if Q::MARKS_COMPONENT_CHANGES {
                     Q::mark_changed_archetype_row(self.world, binding, row);
                 }
                 // Safety: the binding was freshly projected from this serial
@@ -736,7 +741,7 @@ impl<'w, 'state, Q: QuerySpec, F: QueryFilter> Iterator for QueryIter<'w, 'state
             // Safety: `self.index < entities_len` and `entities_ptr` points to `entities`.
             let entity = unsafe { *entities_ptr.add(self.index) };
             self.index += 1;
-            if self.mark_changes {
+            if Q::MARKS_COMPONENT_CHANGES {
                 Q::mark_changed(self.world, entity);
             }
             // Safety: QueryState validated aliasing before constructing this iterator,

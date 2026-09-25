@@ -1,10 +1,11 @@
-error[E0046]: not all trait items implemented, missing: `Item`, `query_types`, `append_access`, `mark_changed`, `supports_serial_archetype_spans`, `mark_changed_archetype_row`, `supports_contiguous_segments`, `fetch`, `fetch_archetype_row`
+error[E0046]: not all trait items implemented, missing: `Item`, `MARKS_COMPONENT_CHANGES`, `query_types`, `append_access`, `mark_changed`, `supports_serial_archetype_spans`, `mark_changed_archetype_row`, `supports_contiguous_segments`, `fetch`, `fetch_archetype_row`
  --> tests/ui/sealed_query_spec.rs:5:1
   |
 5 | impl QuerySpec for UnsupportedQuery {}
-  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ missing `Item`, `query_types`, `append_access`, `mark_changed`, `supports_serial_archetype_spans`, `mark_changed_archetype_row`, `supports_contiguous_segments`, `fetch`, `fetch_archetype_row` in implementation
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ missing `Item`, `MARKS_COMPONENT_CHANGES`, `query_types`, `append_access`, `mark_changed`, `supports_serial_archetype_spans`, `mark_changed_archetype_row`, `supports_contiguous_segments`, `fetch`, `fetch_archetype_row` in implementation
   |
   = help: implement the missing item: `type Item<'w> = /* Type */;`
+  = help: implement the missing item: `const MARKS_COMPONENT_CHANGES: bool = false;`
   = help: implement the missing item: `fn query_types() -> Vec<TypeId> { todo!() }`
   = help: implement the missing item: `fn append_access(_: &mut QueryAccess) { todo!() }`
   = help: implement the missing item: `fn mark_changed(_: runen_ecs::world::capability::QueryCapability<'_>, _: runen_ecs::Entity) { todo!() }`

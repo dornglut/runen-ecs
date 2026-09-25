@@ -40,6 +40,8 @@ impl<T: Component> QueryData for &T {
 }
 
 impl<T: Component> QueryData for &mut T {
+    const MARKS_COMPONENT_CHANGES: bool = true;
+
     type Item<'w> = &'w mut T;
 
     fn supports_serial_archetype_spans() -> bool {
@@ -127,6 +129,8 @@ impl<T: Component> QueryData for (Entity, &T) {
 }
 
 impl<T: Component> QueryData for (Entity, &mut T) {
+    const MARKS_COMPONENT_CHANGES: bool = true;
+
     type Item<'w> = (Entity, &'w mut T);
 
     fn supports_contiguous_segments() -> bool {
@@ -189,6 +193,8 @@ impl<A: Component, B: Component> QueryData for (&A, &B) {
 }
 
 impl<A: Component, B: Component> QueryData for (&mut A, &B) {
+    const MARKS_COMPONENT_CHANGES: bool = true;
+
     type Item<'w> = (&'w mut A, &'w B);
 
     fn supports_serial_archetype_spans() -> bool {
@@ -255,6 +261,8 @@ impl<A: Component, B: Component> QueryData for (&mut A, &B) {
 }
 
 impl<A: Component, B: Component> QueryData for (&A, &mut B) {
+    const MARKS_COMPONENT_CHANGES: bool = true;
+
     type Item<'w> = (&'w A, &'w mut B);
 
     fn supports_contiguous_segments() -> bool {
@@ -292,6 +300,8 @@ impl<A: Component, B: Component> QueryData for (&A, &mut B) {
 }
 
 impl<A: Component, B: Component> QueryData for (&mut A, &mut B) {
+    const MARKS_COMPONENT_CHANGES: bool = true;
+
     type Item<'w> = (&'w mut A, &'w mut B);
 
     fn supports_serial_archetype_spans() -> bool {
@@ -381,6 +391,8 @@ impl<T: Component> QueryData for Option<&T> {
 }
 
 impl<T: Component> QueryData for Option<&mut T> {
+    const MARKS_COMPONENT_CHANGES: bool = true;
+
     type Item<'w> = Option<&'w mut T>;
 
     fn query_types() -> Vec<TypeId> {
@@ -406,6 +418,8 @@ impl<T: Component> QueryData for Option<&mut T> {
 }
 
 impl<A: Component, B: Component> QueryData for (&mut A, Option<&B>) {
+    const MARKS_COMPONENT_CHANGES: bool = true;
+
     type Item<'w> = (&'w mut A, Option<&'w B>);
 
     fn query_types() -> Vec<TypeId> {
@@ -461,6 +475,8 @@ impl<A: Component, B: Component> QueryData for (&A, Option<&B>) {
 }
 
 impl<A: Component, B: Component> QueryData for (&A, Option<&mut B>) {
+    const MARKS_COMPONENT_CHANGES: bool = true;
+
     type Item<'w> = (&'w A, Option<&'w mut B>);
 
     fn query_types() -> Vec<TypeId> {
@@ -497,6 +513,8 @@ impl<A: Component, B: Component> QueryData for (&A, Option<&mut B>) {
 }
 
 impl<A: Component, B: Component> QueryData for (&mut A, Option<&mut B>) {
+    const MARKS_COMPONENT_CHANGES: bool = true;
+
     type Item<'w> = (&'w mut A, Option<&'w mut B>);
 
     fn query_types() -> Vec<TypeId> {
@@ -585,6 +603,8 @@ impl<A: Component, B: Component, C: Component> QueryData for (&A, &B, &C) {
 }
 
 impl<A: Component, B: Component, C: Component> QueryData for (&mut A, &B, &C) {
+    const MARKS_COMPONENT_CHANGES: bool = true;
+
     type Item<'w> = (&'w mut A, &'w B, &'w C);
 
     fn query_types() -> Vec<TypeId> {
@@ -625,6 +645,8 @@ impl<A: Component, B: Component, C: Component> QueryData for (&mut A, &B, &C) {
 }
 
 impl<A: Component, B: Component, C: Component> QueryData for (&mut A, &mut B, &C) {
+    const MARKS_COMPONENT_CHANGES: bool = true;
+
     type Item<'w> = (&'w mut A, &'w mut B, &'w C);
 
     fn query_types() -> Vec<TypeId> {
