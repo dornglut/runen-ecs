@@ -299,7 +299,14 @@ impl<'world> QueryCapability<'world> {
                 });
                 Some(spans)
             }
-            QueryCapabilityBacking::Worker(_) => None,
+            QueryCapabilityBacking::Worker(worker) => worker.prepared_query_spans(),
+        }
+    }
+
+    pub(crate) fn prepared_worker_query_spans(self) -> Option<Vec<ContiguousArchetypeSpan>> {
+        match self.backing {
+            QueryCapabilityBacking::Serial(_) => None,
+            QueryCapabilityBacking::Worker(worker) => worker.prepared_query_spans(),
         }
     }
 
@@ -343,7 +350,7 @@ impl<'world> QueryCapability<'world> {
         }
     }
 
-    pub(crate) fn mark_serial_query_component_modified(
+    pub(crate) fn mark_query_component_modified(
         self,
         entity: Entity,
         component_type: TypeId,
@@ -374,10 +381,11 @@ impl<'world> QueryCapability<'world> {
                 // component row while structural mutation is excluded.
                 unsafe { changed_tick.as_ptr().write(tick) };
             }
-            QueryCapabilityBacking::Serial(_) | QueryCapabilityBacking::Worker(_) => {
-                unreachable!(
-                    "serial mutable query row marking requires a mutable serial capability"
-                )
+            QueryCapabilityBacking::Worker(worker) => {
+                worker.mark_component_modified_by_id(entity, component_type);
+            }
+            QueryCapabilityBacking::Serial(_) => {
+                unreachable!("mutable query row marking requires a mutable capability")
             }
         }
     }

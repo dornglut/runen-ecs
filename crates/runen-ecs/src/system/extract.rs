@@ -179,6 +179,23 @@ impl<'world> SystemParamContext<'world> {
         }
     }
 
+    pub(crate) fn query_for<Q: 'static, F: 'static>(
+        self,
+    ) -> crate::world::QueryCapability<'world> {
+        match self.backing {
+            SystemParamContextBacking::Serial {
+                authority,
+                mutation_journal,
+                ..
+            } => authority.query_with_journal(mutation_journal),
+            SystemParamContextBacking::Worker {
+                authority,
+                mutation_journal,
+                ..
+            } => authority.query_with_journal_for::<Q, F>(mutation_journal),
+        }
+    }
+
     pub(crate) fn resource<T: crate::Resource>(
         self,
     ) -> Result<crate::world::ResourceCapability<'world, T>, SystemParamError> {

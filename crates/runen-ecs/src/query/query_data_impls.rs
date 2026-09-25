@@ -73,7 +73,7 @@ impl<T: Component> QueryData for &mut T {
         let entity = binding
             .entity_at(row)
             .expect("validated mutable query row must contain an entity");
-        world.mark_serial_query_component_modified(
+        world.mark_query_component_modified(
             entity,
             TypeId::of::<T>(),
             binding.changed_tick_ptr_at(0, row),
@@ -227,7 +227,7 @@ impl<A: Component, B: Component> QueryData for (&mut A, &B) {
         let entity = binding
             .entity_at(row)
             .expect("validated mutable/read query row must contain an entity");
-        world.mark_serial_query_component_modified(
+        world.mark_query_component_modified(
             entity,
             TypeId::of::<A>(),
             binding.changed_tick_ptr_at(0, row),
@@ -336,12 +336,12 @@ impl<A: Component, B: Component> QueryData for (&mut A, &mut B) {
         let entity = binding
             .entity_at(row)
             .expect("validated double-mutable query row must contain an entity");
-        world.mark_serial_query_component_modified(
+        world.mark_query_component_modified(
             entity,
             TypeId::of::<A>(),
             binding.changed_tick_ptr_at(0, row),
         );
-        world.mark_serial_query_component_modified(
+        world.mark_query_component_modified(
             entity,
             TypeId::of::<B>(),
             binding.changed_tick_ptr_at(1, row),
