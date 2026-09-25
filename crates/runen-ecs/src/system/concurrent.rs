@@ -468,11 +468,9 @@ mod tests {
         let system = register(
             &mut world,
             move |mut query: Query<(&mut A, &B), (With<C>, Without<Marker>)>| {
-                for (entity, expected_a, expected_b) in [
-                    (early, 1, 10),
-                    (middle, 2, 20),
-                    (late, 3, 30),
-                ] {
+                for (entity, expected_a, expected_b) in
+                    [(early, 1, 10), (middle, 2, 20), (late, 3, 30)]
+                {
                     let (a, b) = query.get(entity).expect("matching entity should resolve");
                     assert_eq!(a.0, expected_a);
                     assert_eq!(b.0, expected_b);
