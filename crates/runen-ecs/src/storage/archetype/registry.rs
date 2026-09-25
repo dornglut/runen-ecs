@@ -24,6 +24,7 @@ pub(crate) struct ContiguousComponentSpan {
 
 #[derive(Debug, Clone)]
 pub(crate) struct ContiguousArchetypeSpan {
+    pub(crate) archetype_id: ArchetypeId,
     pub(crate) entities: NonNull<Entity>,
     pub(crate) row_count: usize,
     pub(crate) components: Vec<ContiguousComponentSpan>,
@@ -518,6 +519,7 @@ impl ArchetypeRegistry {
             }
 
             spans.push(ContiguousArchetypeSpan {
+                archetype_id: ArchetypeId::new(binding.archetype_index),
                 entities,
                 row_count,
                 components,
