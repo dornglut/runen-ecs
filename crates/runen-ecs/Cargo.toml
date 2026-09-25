@@ -24,3 +24,7 @@ trybuild = "1.0.114"
 [[bench]]
 name = "semantic_baseline"
 harness = false
+
+[[bench]]
+name = "query_execution"
+harness = false
