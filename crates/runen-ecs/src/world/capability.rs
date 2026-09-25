@@ -7,7 +7,7 @@
 use super::World;
 use super::change_tracking::{ChangeCursor, RemovedComponentRecord};
 use super::component_indexes::{ComponentIndexKey, ComponentIndexStorage};
-use super::mutation_journal::MutationJournal;
+use super::mutation_journal::{MutationJournal, PrevalidatedComponentMutationTarget};
 use super::parallel::WorkerQueryCapability;
 use super::relation::{Relation, RelationReadCapability, RelationWriteCapability};
 use crate::component::Component;
@@ -278,9 +278,9 @@ impl<'world> QueryCapability<'world> {
                         }
                     } else {
                         // Journal-backed ordinary queries publish mutable exposure
-                        // through the invocation journal. Preserve exact shared versus
-                        // mutable column provenance without capturing row changed-tick
-                        // pointers.
+                        // only during reconciliation. Capture the prevalidated row
+                        // metadata targets alongside exact shared/mutable payload
+                        // provenance so replay does not rediscover component storage.
                         unsafe {
                             serial
                                 .archetype_registry
@@ -362,9 +362,18 @@ impl<'world> QueryCapability<'world> {
             QueryCapabilityBacking::Serial(mut serial) if serial.world_mutable => {
                 if let Some(mut journal) = serial.mutation_journal {
                     unsafe {
-                        journal
-                            .as_mut()
-                            .record_component_modified(entity, component_type)
+                        match changed_tick {
+                            Some(changed_tick) => {
+                                journal.as_mut().record_prevalidated_component_modified(
+                                    entity,
+                                    component_type,
+                                    PrevalidatedComponentMutationTarget::new(changed_tick),
+                                )
+                            }
+                            None => journal
+                                .as_mut()
+                                .record_component_modified(entity, component_type),
+                        }
                     };
                     return;
                 }
@@ -384,7 +393,7 @@ impl<'world> QueryCapability<'world> {
                 unsafe { changed_tick.as_ptr().write(tick) };
             }
             QueryCapabilityBacking::Worker(worker) => {
-                worker.mark_component_modified_by_id(entity, component_type);
+                worker.mark_query_component_modified(entity, component_type, changed_tick);
             }
             QueryCapabilityBacking::Serial(_) => {
                 unreachable!("mutable query row marking requires a mutable capability")

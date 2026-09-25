@@ -551,24 +551,31 @@ impl ArchetypeRegistry {
             let entities = NonNull::new(archetype.entities.as_ptr().cast_mut()).ok_or(())?;
             let mut components = Vec::with_capacity(component_types.len());
             for component_type in component_types {
-                let values = if mutable_types.contains(component_type) {
+                let (values, changed_ticks) = if mutable_types.contains(component_type) {
                     let column = archetype.columns.get_mut(component_type).ok_or(())?;
                     if column.len() != row_count || column.metadata_len() != row_count {
                         return Err(());
                     }
-                    NonNull::new(column.as_mut_ptr()).ok_or(())?
+                    let values = NonNull::new(column.as_mut_ptr()).ok_or(())?;
+                    let changed_ticks = (0..row_count)
+                        .map(|row| column.changed_tick_ptr(row).ok_or(()))
+                        .collect::<Result<Vec<_>, _>>()?;
+                    (values, changed_ticks)
                 } else {
                     let column = archetype.columns.get(component_type).ok_or(())?;
                     if column.len() != row_count || column.metadata_len() != row_count {
                         return Err(());
                     }
-                    NonNull::new(column.as_ptr().cast_mut()).ok_or(())?
+                    (
+                        NonNull::new(column.as_ptr().cast_mut()).ok_or(())?,
+                        Vec::new(),
+                    )
                 };
                 components.push(ContiguousComponentSpan {
                     component_type: *component_type,
                     values,
                     row_count,
-                    changed_ticks: Vec::new(),
+                    changed_ticks,
                 });
             }
 

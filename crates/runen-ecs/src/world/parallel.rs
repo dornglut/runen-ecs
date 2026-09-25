@@ -1,5 +1,7 @@
 use super::change_tracking::panic_worker_projection_violation;
-use super::mutation_journal::{ConcurrentMutationCapacity, MutationJournal};
+use super::mutation_journal::{
+    ConcurrentMutationCapacity, MutationJournal, PrevalidatedComponentMutationTarget,
+};
 use super::relation::{
     EntityValidationCapability, Relation, RelationReadCapability, RelationStore,
     RelationWriteCapability, assert_supported_relation_definition,
@@ -243,9 +245,9 @@ impl<'world> WorkerWorldBuilder<'world> {
         }
 
         let world = unsafe { self.world.as_mut() };
-        // Worker mutations publish through the invocation-local MutationJournal,
-        // so the projection needs exact shared/mutable payload bases but no
-        // row changed-tick pointers.
+        // Worker mutations publish only through the invocation-local
+        // MutationJournal. Capture row changed-tick addresses as deferred
+        // reconciliation targets, but never write them on a worker.
         let spans = world
             .archetype_registry
             .collect_journal_query_spans(required_present, excluded, component_types, mutable_types)
@@ -811,15 +813,31 @@ impl<'world> WorkerQueryCapability<'world> {
     }
 
     pub(crate) fn mark_component_modified_by_id(self, entity: Entity, component_type: TypeId) {
+        self.mark_query_component_modified(entity, component_type, None);
+    }
+
+    pub(crate) fn mark_query_component_modified(
+        self,
+        entity: Entity,
+        component_type: TypeId,
+        changed_tick: Option<NonNull<ChangeCursor>>,
+    ) {
         let mut journal = self.mutation_journal.unwrap_or_else(|| {
             panic_worker_projection_violation(
                 "worker mutable query was created without a mutation journal",
             )
         });
         unsafe {
-            journal
-                .as_mut()
-                .record_component_modified(entity, component_type)
+            match changed_tick {
+                Some(changed_tick) => journal.as_mut().record_prevalidated_component_modified(
+                    entity,
+                    component_type,
+                    PrevalidatedComponentMutationTarget::new(changed_tick),
+                ),
+                None => journal
+                    .as_mut()
+                    .record_component_modified(entity, component_type),
+            }
         };
     }
 
