@@ -93,8 +93,8 @@ mod tests {
     struct Marker(i32);
     impl Component for Marker {}
 
-    type FilteredMixedPointQuery<'world, 'state> =
-        Query<'world, 'state, (&'world mut A, &'world B), (With<C>, Without<Marker>)>;
+    type FilteredMixedPointData = (&'static mut A, &'static B);
+    type FilteredMixedPointFilter = (With<C>, Without<Marker>);
 
     #[allow(dead_code)]
     struct ThreadBound(Rc<Cell<u32>>);
@@ -470,7 +470,7 @@ mod tests {
 
         let system = register(
             &mut world,
-            move |mut query: FilteredMixedPointQuery<'_, '_>| {
+            move |mut query: Query<FilteredMixedPointData, FilteredMixedPointFilter>| {
                 for (entity, expected_a, expected_b) in
                     [(early, 1, 10), (middle, 2, 20), (late, 3, 30)]
                 {
