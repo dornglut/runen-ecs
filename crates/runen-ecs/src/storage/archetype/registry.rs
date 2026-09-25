@@ -566,7 +566,10 @@ impl ArchetypeRegistry {
                     if column.len() != row_count || column.metadata_len() != row_count {
                         return Err(());
                     }
-                    (NonNull::new(column.as_ptr().cast_mut()).ok_or(())?, Vec::new())
+                    (
+                        NonNull::new(column.as_ptr().cast_mut()).ok_or(())?,
+                        Vec::new(),
+                    )
                 };
                 components.push(ContiguousComponentSpan {
                     component_type: *component_type,

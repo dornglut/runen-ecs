@@ -363,13 +363,13 @@ impl<'world> QueryCapability<'world> {
                 if let Some(mut journal) = serial.mutation_journal {
                     unsafe {
                         match changed_tick {
-                            Some(changed_tick) => journal
-                                .as_mut()
-                                .record_prevalidated_component_modified(
+                            Some(changed_tick) => {
+                                journal.as_mut().record_prevalidated_component_modified(
                                     entity,
                                     component_type,
                                     PrevalidatedComponentMutationTarget::new(changed_tick),
-                                ),
+                                )
+                            }
                             None => journal
                                 .as_mut()
                                 .record_component_modified(entity, component_type),
