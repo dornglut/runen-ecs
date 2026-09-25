@@ -10,7 +10,8 @@ use super::{ChangeCursor, QueryCapability, ResourceCapability, World};
 use crate::component::{Component, Resource};
 use crate::entity::{Entity, EntityValidationSnapshot, WorldScopeId};
 use crate::errors::ResourceError;
-use crate::storage::ContiguousArchetypeSpan;
+use crate::storage::archetype::ArchetypeId;
+use crate::storage::{ContiguousArchetypeSpan, EntityLocationMap};
 use std::any::{Any, TypeId, type_name};
 use std::collections::{BTreeSet, HashMap};
 use std::marker::PhantomData;
@@ -36,6 +37,7 @@ struct MutableComponentProjection<T: Component> {
 #[derive(Debug, Clone)]
 struct PreparedWorkerQueryProjection {
     spans: Vec<ContiguousArchetypeSpan>,
+    span_indices: HashMap<ArchetypeId, usize>,
 }
 
 // Safety: construction is restricted to the invoker-owned structural lease and
@@ -164,6 +166,7 @@ pub(crate) struct WorkerWorldBuilder<'world> {
     component_reads: HashMap<TypeId, ErasedWorkerProjection>,
     component_writes: HashMap<TypeId, ErasedWorkerProjection>,
     component_metadata: WorkerComponentMetadata,
+    entity_locations: NonNull<EntityLocationMap>,
     query_projections: HashMap<TypeId, PreparedWorkerQueryProjection>,
     removed_records: HashMap<TypeId, Vec<(Entity, ChangeCursor)>>,
     resource_reads: HashMap<TypeId, ErasedWorkerProjection>,
@@ -187,6 +190,7 @@ impl<'world> WorkerWorldBuilder<'world> {
             component_reads: HashMap::new(),
             component_writes: HashMap::new(),
             component_metadata: HashMap::new(),
+            entity_locations: NonNull::from(&world_ref.entity_locations),
             query_projections: HashMap::new(),
             removed_records: HashMap::new(),
             resource_reads: HashMap::new(),
@@ -257,8 +261,19 @@ impl<'world> WorkerWorldBuilder<'world> {
                 )
             });
 
-        self.query_projections
-            .insert(key, PreparedWorkerQueryProjection { spans });
+        let span_indices = spans
+            .iter()
+            .enumerate()
+            .map(|(index, span)| (span.archetype_id, index))
+            .collect();
+
+        self.query_projections.insert(
+            key,
+            PreparedWorkerQueryProjection {
+                spans,
+                span_indices,
+            },
+        );
     }
 
     pub(crate) fn prepare_component_read<T: Component + Sync>(&mut self) {
@@ -470,6 +485,7 @@ impl<'world> WorkerWorldBuilder<'world> {
             component_reads: self.component_reads,
             component_writes: self.component_writes,
             component_metadata: self.component_metadata,
+            entity_locations: self.entity_locations,
             query_projections: self.query_projections,
             removed_records: self.removed_records,
             resource_reads: self.resource_reads,
@@ -523,6 +539,7 @@ impl PreparedWorkerWorld<'_> {
                 component_reads: NonNull::from(&mut self.component_reads),
                 component_writes: NonNull::from(&mut self.component_writes),
                 component_metadata: NonNull::from(&mut self.component_metadata),
+                entity_locations: self.entity_locations,
                 query_projections: NonNull::from(&mut self.query_projections),
                 query_projection_key: None,
                 removed_records: NonNull::from(&mut self.removed_records),
@@ -643,6 +660,7 @@ pub(crate) struct WorkerQueryCapability<'world> {
     component_reads: NonNull<HashMap<TypeId, ErasedWorkerProjection>>,
     component_writes: NonNull<HashMap<TypeId, ErasedWorkerProjection>>,
     component_metadata: NonNull<WorkerComponentMetadata>,
+    entity_locations: NonNull<EntityLocationMap>,
     query_projections: NonNull<HashMap<TypeId, PreparedWorkerQueryProjection>>,
     query_projection_key: Option<TypeId>,
     removed_records: NonNull<HashMap<TypeId, Vec<(Entity, ChangeCursor)>>>,
@@ -665,6 +683,27 @@ impl<'world> WorkerQueryCapability<'world> {
         projections
             .get(&key)
             .map(|projection| projection.spans.clone())
+    }
+
+    pub(crate) fn prepared_query_span_for_entity(
+        self,
+        entity: Entity,
+    ) -> Option<(ContiguousArchetypeSpan, usize)> {
+        let key = self.query_projection_key?;
+        let locations = unsafe { self.entity_locations.as_ref() };
+        let location = locations.get(entity)?;
+        let projections = unsafe { self.query_projections.as_ref() };
+        let projection = projections.get(&key)?;
+        let span_index = *projection.span_indices.get(&location.archetype_id)?;
+        let span = projection.spans.get(span_index)?;
+
+        if span.entity_at(location.row) != Some(entity) {
+            panic_worker_projection_violation(
+                "worker query point locator disagreed with the prepared archetype row",
+            );
+        }
+
+        Some((span.clone(), location.row))
     }
 
     pub(crate) fn matching_entities_into(
