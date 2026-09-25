@@ -490,7 +490,6 @@ impl<Q: QuerySpec, F: QueryFilter> QueryState<Q, F> {
             archetype_bindings: None,
             entities: Some(entities),
             scratch_pool: &self.scratch_pool,
-            mark_changes: !self.mutable_types.is_empty(),
             binding_index: 0,
             binding_row: 0,
             index: 0,
