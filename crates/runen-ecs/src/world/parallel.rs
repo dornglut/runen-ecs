@@ -474,9 +474,9 @@ impl<'world> WorkerWorldBuilder<'world> {
     }
 
     pub(crate) fn finish(self) -> PreparedWorkerWorld<'world> {
-        // Create the immutable location projection only after every invoker-side
-        // preparation step has finished. No later builder operation uniquely
-        // reborrows World before the prepared package moves to a worker.
+        // Project the independently allocated location map only after this
+        // system's preparation is complete. Later cohort preparation may
+        // reborrow World, but cannot invalidate the boxed map allocation.
         let entity_locations = {
             let world = unsafe { self.world.as_ref() };
             NonNull::from(world.entity_locations.as_ref())
