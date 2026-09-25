@@ -3,6 +3,4 @@ mod location;
 mod registry;
 
 pub(crate) use location::{EntityLocation, EntityLocationMap};
-pub(crate) use registry::{
-    ArchetypeExecutionBinding, ArchetypeId, ArchetypeRegistry, ContiguousArchetypeSpan,
-};
+pub(crate) use registry::{ArchetypeId, ArchetypeRegistry, ContiguousArchetypeSpan};

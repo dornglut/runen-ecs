@@ -774,3 +774,75 @@ fn added_filter_respects_command_publication_frontier() {
 
     assert_eq!(world.resource::<QueryAddedCounts>().unwrap().0, vec![1, 0]);
 }
+
+
+#[test]
+fn mutable_iteration_marks_only_rows_that_are_actually_yielded_before_early_drop() {
+    let mut world = World::new();
+    let first = world.spawn(A(1)).expect("spawn should succeed");
+    let second = world.spawn(A(2)).expect("spawn should succeed");
+    let entities = [first, second];
+    let before = entities.map(|entity| {
+        world
+            .__entity_component_ticks::<A>(entity)
+            .expect("A ticks should exist")
+            .1
+    });
+
+    let query = world.query::<&mut A>();
+    {
+        let mut iter = query.iter(&mut world);
+        let _ = iter.next().expect("one mutable row should be yielded");
+    }
+
+    let changed = entities
+        .into_iter()
+        .zip(before)
+        .filter(|(entity, before)| {
+            world
+                .__entity_component_ticks::<A>(*entity)
+                .expect("A ticks should exist")
+                .1
+                > *before
+        })
+        .count();
+    assert_eq!(changed, 1);
+}
+
+#[test]
+fn system_mutable_iteration_journals_only_rows_yielded_before_early_drop() {
+    let mut world = World::new();
+    let first = world.spawn(A(1)).expect("spawn should succeed");
+    let second = world.spawn(A(2)).expect("spawn should succeed");
+    let entities = [first, second];
+    let before = entities.map(|entity| {
+        world
+            .__entity_component_ticks::<A>(entity)
+            .expect("A ticks should exist")
+            .1
+    });
+
+    let mut runtime = Runtime::new();
+    runtime
+        .add_systems(QueryUpdate, |mut query: Query<&mut A>| {
+            let _ = query
+                .iter()
+                .next()
+                .expect("one mutable row should be yielded");
+        })
+        .unwrap();
+    runtime.run_schedule::<QueryUpdate>(&mut world).unwrap();
+
+    let changed = entities
+        .into_iter()
+        .zip(before)
+        .filter(|(entity, before)| {
+            world
+                .__entity_component_ticks::<A>(*entity)
+                .expect("A ticks should exist")
+                .1
+                > *before
+        })
+        .count();
+    assert_eq!(changed, 1);
+}

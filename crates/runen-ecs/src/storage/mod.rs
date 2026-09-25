@@ -2,6 +2,4 @@
 pub(crate) mod archetype;
 pub(crate) mod dense;
 
-pub(crate) use archetype::{
-    ArchetypeExecutionBinding, ArchetypeRegistry, ContiguousArchetypeSpan, EntityLocationMap,
-};
+pub(crate) use archetype::{ArchetypeRegistry, ContiguousArchetypeSpan, EntityLocationMap};
