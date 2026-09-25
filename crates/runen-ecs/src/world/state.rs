@@ -28,7 +28,9 @@ pub struct World {
         RefCell<HashMap<ComponentIndexKey, Box<dyn ComponentIndexStorage>>>,
 
     pub(super) archetype_registry: ArchetypeRegistry,
-    pub(super) entity_locations: EntityLocationMap,
+    // Independently allocated so invocation-scoped worker location views retain
+    // valid provenance while other prepared systems reborrow the containing World.
+    pub(super) entity_locations: Box<EntityLocationMap>,
 
     pub(super) change_tick: super::change_tracking::ChangeCursor,
     pub(super) component_change_ticks: HashMap<TypeId, super::change_tracking::ChangeCursor>,
@@ -58,7 +60,7 @@ impl World {
             component_indexes: RefCell::new(HashMap::new()),
 
             archetype_registry: ArchetypeRegistry::new(),
-            entity_locations: Default::default(),
+            entity_locations: Box::default(),
 
             change_tick,
             component_change_ticks: HashMap::new(),

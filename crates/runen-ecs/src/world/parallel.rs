@@ -479,7 +479,7 @@ impl<'world> WorkerWorldBuilder<'world> {
         // reborrows World before the prepared package moves to a worker.
         let entity_locations = {
             let world = unsafe { self.world.as_ref() };
-            NonNull::from(&world.entity_locations)
+            NonNull::from(world.entity_locations.as_ref())
         };
 
         PreparedWorkerWorld {
@@ -526,9 +526,11 @@ pub(crate) struct PreparedWorkerWorld<'world> {
 
 // Safety: every erased payload entry is itself `Send` because it was created by
 // a type-directed constructor carrying the exact `T: Sync` shared-access or
-// `T: Send` exclusive-access proof. The entity-location pointer observes only
-// immutable structural metadata while the invoker-owned structural lease prevents
-// mutation or rehash; worker APIs can only copy one requested location and must
+// `T: Send` exclusive-access proof. The entity-location pointer targets an
+// independently allocated map whose address and borrow provenance are not affected
+// by later field-disjoint preparation reborrows of the containing World. The
+// invoker-owned structural lease prevents location mutation or rehash while any
+// worker package is live; worker APIs can only copy one requested location and must
 // revalidate it against the exact prepared query projection before payload access.
 // The phantom lifetime keeps the package inside that structural-freeze scope; no
 // pointer to World or heterogeneous payload-owning container is stored.
