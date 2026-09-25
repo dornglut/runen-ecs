@@ -76,8 +76,7 @@ fn build_lookup_world(count: usize) -> LookupFixture {
     let early = early.expect("lookup fixture must contain an early row");
     let middle = middle.expect("lookup fixture must contain a middle row");
     let late = late.expect("lookup fixture must contain a late row");
-    let non_member = world.spawn((Position(count as u32), Velocity(1))).unwrap();
-    world.despawn(non_member).unwrap();
+    let non_member = world.spawn(Velocity(1)).unwrap();
 
     let query = world.query::<&Position>();
     assert_eq!(query.get(&world, early).map(|position| position.0), Some(0));
