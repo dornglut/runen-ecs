@@ -178,9 +178,7 @@ impl<'world> QueryCapability<'world> {
                 archetype_registry: unsafe {
                     NonNull::new_unchecked(std::ptr::addr_of_mut!((*world_ptr).archetype_registry))
                 },
-                entity_locations: unsafe {
-                    NonNull::from((*world_ptr).entity_locations.as_mut())
-                },
+                entity_locations: unsafe { NonNull::from((*world_ptr).entity_locations.as_mut()) },
                 component_indexes: unsafe {
                     NonNull::new_unchecked(std::ptr::addr_of_mut!((*world_ptr).component_indexes))
                 },
