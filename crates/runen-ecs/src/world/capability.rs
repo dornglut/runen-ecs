@@ -13,9 +13,7 @@ use super::relation::{Relation, RelationReadCapability, RelationWriteCapability}
 use crate::component::Component;
 use crate::entity::{Entity, WorldScopeId};
 use crate::errors::{ContiguousQueryError, ResourceError};
-use crate::storage::{
-    ArchetypeExecutionBinding, ArchetypeRegistry, ContiguousArchetypeSpan, EntityLocationMap,
-};
+use crate::storage::{ArchetypeRegistry, ContiguousArchetypeSpan, EntityLocationMap};
 use std::any::{TypeId, type_name};
 use std::cell::RefCell;
 use std::collections::{BTreeSet, HashMap};
@@ -244,47 +242,59 @@ impl<'world> QueryCapability<'world> {
         }
     }
 
-    pub(crate) fn matching_archetype_bindings_into(
-        self,
-        required_present: &[TypeId],
-        excluded: &[TypeId],
-        out: &mut Vec<ArchetypeExecutionBinding>,
-    ) -> bool {
-        match self.backing {
-            QueryCapabilityBacking::Serial(serial) => unsafe {
-                serial
-                    .archetype_registry
-                    .as_ref()
-                    .collect_matching_bindings(required_present, excluded, out)
-            },
-            QueryCapabilityBacking::Worker(worker) => {
-                worker.matching_archetype_bindings_into(required_present, excluded, out)
-            }
-        }
-    }
-
-    pub(crate) fn collect_read_only_query_spans(
+    pub(crate) fn collect_serial_query_spans(
         self,
         required_present: &[TypeId],
         excluded: &[TypeId],
         component_types: &[TypeId],
+        mutable_types: &[TypeId],
     ) -> Option<Vec<ContiguousArchetypeSpan>> {
         match self.backing {
-            QueryCapabilityBacking::Serial(serial) => {
-                let spans = unsafe {
-                    serial
-                        .archetype_registry
-                        .as_ref()
-                        .collect_contiguous_spans_shared(
-                            required_present,
-                            excluded,
-                            component_types,
-                            &[],
-                        )
+            QueryCapabilityBacking::Serial(mut serial) => {
+                let spans = if mutable_types.is_empty() {
+                    unsafe {
+                        serial
+                            .archetype_registry
+                            .as_ref()
+                            .collect_contiguous_spans_shared(
+                                required_present,
+                                excluded,
+                                component_types,
+                                mutable_types,
+                            )
+                    }
+                } else {
+                    if !serial.world_mutable {
+                        return None;
+                    }
+                    if serial.mutation_journal.is_none() {
+                        unsafe {
+                            serial.archetype_registry.as_mut().collect_contiguous_spans(
+                                required_present,
+                                excluded,
+                                component_types,
+                                mutable_types,
+                            )
+                        }
+                    } else {
+                        // Journal-backed ordinary queries publish mutable exposure
+                        // through the invocation journal. Reuse the exact validated
+                        // exclusive span collector without capturing row changed-tick
+                        // pointers; the sealed query shape still owns which projected
+                        // columns are mutable.
+                        unsafe {
+                            serial.archetype_registry.as_mut().collect_contiguous_spans(
+                                required_present,
+                                excluded,
+                                component_types,
+                                &[],
+                            )
+                        }
+                    }
                 }
                 .unwrap_or_else(|()| {
                     panic!(
-                        "validated read-only query projection violated archetype storage invariants"
+                        "validated serial query projection violated archetype storage invariants"
                     )
                 });
                 Some(spans)
@@ -333,6 +343,45 @@ impl<'world> QueryCapability<'world> {
         }
     }
 
+    pub(crate) fn mark_serial_query_component_modified(
+        self,
+        entity: Entity,
+        component_type: TypeId,
+        changed_tick: Option<NonNull<ChangeCursor>>,
+    ) {
+        match self.backing {
+            QueryCapabilityBacking::Serial(mut serial) if serial.world_mutable => {
+                if let Some(mut journal) = serial.mutation_journal {
+                    unsafe {
+                        journal
+                            .as_mut()
+                            .record_component_modified(entity, component_type)
+                    };
+                    return;
+                }
+                let changed_tick = changed_tick.unwrap_or_else(|| {
+                    panic!(
+                        "direct mutable serial query projection is missing changed-tick metadata"
+                    )
+                });
+                let tick = Self::record_serial_component_change(
+                    &mut serial,
+                    entity,
+                    component_type,
+                    false,
+                );
+                // Safety: the pointer was captured for this exact projected
+                // component row while structural mutation is excluded.
+                unsafe { changed_tick.as_ptr().write(tick) };
+            }
+            QueryCapabilityBacking::Serial(_) | QueryCapabilityBacking::Worker(_) => {
+                unreachable!(
+                    "serial mutable query row marking requires a mutable serial capability"
+                )
+            }
+        }
+    }
+
     pub(crate) fn mark_contiguous_component_modified(
         self,
         entity: Entity,
@@ -355,20 +404,6 @@ impl<'world> QueryCapability<'world> {
             }
             QueryCapabilityBacking::Serial(_) | QueryCapabilityBacking::Worker(_) => {
                 unreachable!("mutable contiguous spans require a direct exclusive World borrow")
-            }
-        }
-    }
-
-    pub(crate) fn archetype_entity_at(self, archetype_index: usize, row: usize) -> Option<Entity> {
-        match self.backing {
-            QueryCapabilityBacking::Serial(serial) => unsafe {
-                serial
-                    .archetype_registry
-                    .as_ref()
-                    .entity_at(archetype_index, row)
-            },
-            QueryCapabilityBacking::Worker(worker) => {
-                worker.archetype_entity_at(archetype_index, row)
             }
         }
     }

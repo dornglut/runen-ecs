@@ -774,3 +774,161 @@ fn added_filter_respects_command_publication_frontier() {
 
     assert_eq!(world.resource::<QueryAddedCounts>().unwrap().0, vec![1, 0]);
 }
+
+#[test]
+fn mutable_iteration_marks_only_rows_that_are_actually_yielded_before_early_drop() {
+    let mut world = World::new();
+    let first = world.spawn(A(1)).expect("spawn should succeed");
+    let second = world.spawn(A(2)).expect("spawn should succeed");
+    let entities = [first, second];
+    let before = entities.map(|entity| {
+        world
+            .__entity_component_ticks::<A>(entity)
+            .expect("A ticks should exist")
+            .1
+    });
+
+    let query = world.query::<&mut A>();
+    {
+        let mut iter = query.iter(&mut world);
+        let _ = iter.next().expect("one mutable row should be yielded");
+    }
+
+    let changed = entities
+        .into_iter()
+        .zip(before)
+        .filter(|(entity, before)| {
+            world
+                .__entity_component_ticks::<A>(*entity)
+                .expect("A ticks should exist")
+                .1
+                > *before
+        })
+        .count();
+    assert_eq!(changed, 1);
+}
+
+#[test]
+fn system_mutable_iteration_journals_only_rows_yielded_before_early_drop() {
+    let mut world = World::new();
+    let first = world.spawn(A(1)).expect("spawn should succeed");
+    let second = world.spawn(A(2)).expect("spawn should succeed");
+    let entities = [first, second];
+    let before = entities.map(|entity| {
+        world
+            .__entity_component_ticks::<A>(entity)
+            .expect("A ticks should exist")
+            .1
+    });
+
+    let mut runtime = Runtime::new();
+    runtime
+        .add_systems(QueryUpdate, |mut query: Query<&mut A>| {
+            let _ = query
+                .iter()
+                .next()
+                .expect("one mutable row should be yielded");
+        })
+        .unwrap();
+    runtime.run_schedule::<QueryUpdate>(&mut world).unwrap();
+
+    let changed = entities
+        .into_iter()
+        .zip(before)
+        .filter(|(entity, before)| {
+            world
+                .__entity_component_ticks::<A>(*entity)
+                .expect("A ticks should exist")
+                .1
+                > *before
+        })
+        .count();
+    assert_eq!(changed, 1);
+}
+
+#[test]
+fn changed_filter_rejects_unmodified_rows_before_mutable_change_admission() {
+    let mut world = World::new();
+    let changed_entity = world.spawn(A(1)).expect("spawn should succeed");
+    let untouched_entity = world.spawn(A(2)).expect("spawn should succeed");
+    let non_member = world.spawn(B(3)).expect("spawn should succeed");
+
+    let query = world.query_filtered::<&mut A, Changed<A>>();
+    assert!(
+        query.get(&mut world, non_member).is_none(),
+        "non-member lookup should advance the query observation window without mutable admission"
+    );
+
+    world.require_mut::<A>(changed_entity).unwrap().0 += 1;
+
+    let changed_before = world
+        .__entity_component_ticks::<A>(changed_entity)
+        .expect("changed A ticks should exist")
+        .1;
+    let untouched_before = world
+        .__entity_component_ticks::<A>(untouched_entity)
+        .expect("untouched A ticks should exist")
+        .1;
+
+    let mut yielded = 0;
+    for value in query.iter(&mut world) {
+        value.0 += 1;
+        yielded += 1;
+    }
+    assert_eq!(yielded, 1);
+
+    let changed_after = world
+        .__entity_component_ticks::<A>(changed_entity)
+        .expect("changed A ticks should exist")
+        .1;
+    let untouched_after = world
+        .__entity_component_ticks::<A>(untouched_entity)
+        .expect("untouched A ticks should exist")
+        .1;
+    assert!(changed_after > changed_before);
+    assert_eq!(untouched_after, untouched_before);
+}
+
+#[test]
+fn added_filter_rejects_preexisting_rows_before_mutable_change_admission() {
+    let mut world = World::new();
+    let existing_entity = world.spawn(A(1)).expect("spawn should succeed");
+    let newly_added_entity = world.spawn(B(2)).expect("spawn should succeed");
+
+    let query = world.query_filtered::<&mut A, Added<A>>();
+    assert!(
+        query.get(&mut world, newly_added_entity).is_none(),
+        "non-member lookup should establish the observation window before A is added"
+    );
+
+    world
+        .insert(newly_added_entity, A(3))
+        .expect("inserting A should succeed");
+
+    let existing_before = world
+        .__entity_component_ticks::<A>(existing_entity)
+        .expect("existing A ticks should exist")
+        .1;
+    let newly_added_before = world
+        .__entity_component_ticks::<A>(newly_added_entity)
+        .expect("new A ticks should exist")
+        .1;
+
+    let mut yielded = 0;
+    for value in query.iter(&mut world) {
+        value.0 += 1;
+        yielded += 1;
+    }
+    assert_eq!(yielded, 1);
+
+    let existing_after = world
+        .__entity_component_ticks::<A>(existing_entity)
+        .expect("existing A ticks should exist")
+        .1;
+    let newly_added_after = world
+        .__entity_component_ticks::<A>(newly_added_entity)
+        .expect("new A ticks should exist")
+        .1;
+    assert_eq!(existing_after, existing_before);
+    assert!(newly_added_after > newly_added_before);
+}

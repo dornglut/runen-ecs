@@ -1,47 +1,15 @@
 // Owner: RunenECS - Query Runtime
 use super::access_and_filters::QueryAccess;
-use super::traits_and_state::{
-    QueryArchetypeRow, QueryData, QueryFastCache, QueryReadOnlyArchetypeBinding,
-    TransferableQueryData,
-};
+use super::traits_and_state::{QueryArchetypeBinding, QueryData, TransferableQueryData};
 use crate::component::Component;
 use crate::entity::Entity;
-use crate::storage::ArchetypeExecutionBinding;
 use crate::world::{QueryCapability, WorkerWorldBuilder};
 use std::any::TypeId;
-
-fn required_types_match(required_present: &[TypeId], expected: &[TypeId]) -> bool {
-    required_present.len() == expected.len()
-        && expected
-            .iter()
-            .all(|type_id| required_present.contains(type_id))
-}
-
-fn collect_rows_from_bindings(
-    world: QueryCapability<'_>,
-    bindings: &[ArchetypeExecutionBinding],
-    rows: &mut Vec<QueryArchetypeRow>,
-) {
-    rows.clear();
-    for binding in bindings {
-        for row in 0..binding.row_count {
-            if let Some(entity) = world.archetype_entity_at(binding.archetype_index, row) {
-                rows.push(QueryArchetypeRow {
-                    entity,
-                    archetype_index: binding.archetype_index,
-                    row,
-                });
-            }
-        }
-    }
-    rows.sort_unstable();
-    rows.dedup_by_key(|row| row.entity);
-}
 
 impl<T: Component> QueryData for &T {
     type Item<'w> = &'w T;
 
-    fn supports_read_only_archetype_spans() -> bool {
+    fn supports_serial_archetype_spans() -> bool {
         true
     }
 
@@ -57,44 +25,28 @@ impl<T: Component> QueryData for &T {
         access.add_component_read::<T>();
     }
 
-    fn supports_fast_path() -> bool {
-        true
-    }
-
-    fn prepare_fast_cache(world: QueryCapability<'_>, cache: &mut QueryFastCache) -> bool {
-        let world_scope = world.world_scope();
-        if cache.world_scope != Some(world_scope) {
-            cache.world_scope = Some(world_scope);
-            cache.archetype_bindings.clear();
-        }
-        true
-    }
-
     unsafe fn fetch<'w>(world: QueryCapability<'w>, entity: Entity) -> Option<Self::Item<'w>> {
         world.component::<T>(entity)
     }
 
-    unsafe fn fetch_read_only_archetype_row<'w>(
+    unsafe fn fetch_archetype_row<'w>(
         _world: QueryCapability<'w>,
-        binding: &QueryReadOnlyArchetypeBinding,
+        binding: &QueryArchetypeBinding,
         row: usize,
     ) -> Option<Self::Item<'w>> {
         let ptr = binding.component_ptr_at::<T>(0, row)?;
         Some(unsafe { &*ptr })
     }
-
-    unsafe fn fetch_fast<'w>(
-        world: QueryCapability<'w>,
-        entity: Entity,
-        cache: &mut QueryFastCache,
-    ) -> Option<Self::Item<'w>> {
-        let _ = cache;
-        unsafe { Self::fetch(world, entity) }
-    }
 }
 
 impl<T: Component> QueryData for &mut T {
+    const MARKS_COMPONENT_CHANGES: bool = true;
+
     type Item<'w> = &'w mut T;
+
+    fn supports_serial_archetype_spans() -> bool {
+        true
+    }
 
     fn supports_contiguous_segments() -> bool {
         true
@@ -108,75 +60,44 @@ impl<T: Component> QueryData for &mut T {
         access.add_component_write::<T>();
     }
 
-    fn supports_fast_path() -> bool {
-        true
-    }
-
-    fn prepare_fast_cache(world: QueryCapability<'_>, cache: &mut QueryFastCache) -> bool {
-        let world_scope = world.world_scope();
-        if cache.world_scope != Some(world_scope) {
-            cache.world_scope = Some(world_scope);
-            cache.archetype_bindings.clear();
-        }
-        true
-    }
-
-    fn supports_archetype_execution() -> bool {
-        true
-    }
-
-    fn collect_archetype_rows(
-        world: QueryCapability<'_>,
-        required_present: &[TypeId],
-        excluded: &[TypeId],
-        rows: &mut Vec<QueryArchetypeRow>,
-        cache: &mut QueryFastCache,
-    ) -> bool {
-        if !required_types_match(required_present, &[TypeId::of::<T>()]) || !excluded.is_empty() {
-            return false;
-        }
-
-        let world_ref = world;
-        if !world_ref.matching_archetype_bindings_into(
-            required_present,
-            excluded,
-            &mut cache.archetype_bindings,
-        ) {
-            return false;
-        }
-
-        collect_rows_from_bindings(world_ref, &cache.archetype_bindings, rows);
-        true
-    }
-
     fn mark_changed(world: QueryCapability<'_>, entity: Entity) {
         // Safety: query execution ensures exclusive mutable world access for this query form.
         world.mark_component_modified_by_id(entity, TypeId::of::<T>());
     }
 
-    fn mark_changed_fast(world: QueryCapability<'_>, entity: Entity, _cache: &mut QueryFastCache) {
-        let world_mut = world;
-        world_mut.mark_component_modified_by_id(entity, TypeId::of::<T>());
+    fn mark_changed_archetype_row(
+        world: QueryCapability<'_>,
+        binding: &QueryArchetypeBinding,
+        row: usize,
+    ) {
+        let entity = binding
+            .entity_at(row)
+            .expect("validated mutable query row must contain an entity");
+        world.mark_serial_query_component_modified(
+            entity,
+            TypeId::of::<T>(),
+            binding.changed_tick_ptr_at(0, row),
+        );
     }
 
     unsafe fn fetch<'w>(world: QueryCapability<'w>, entity: Entity) -> Option<Self::Item<'w>> {
         unsafe { world.component_mut::<T>(entity) }
     }
 
-    unsafe fn fetch_fast<'w>(
-        world: QueryCapability<'w>,
-        entity: Entity,
-        cache: &mut QueryFastCache,
+    unsafe fn fetch_archetype_row<'w>(
+        _world: QueryCapability<'w>,
+        binding: &QueryArchetypeBinding,
+        row: usize,
     ) -> Option<Self::Item<'w>> {
-        let _ = cache;
-        unsafe { Self::fetch(world, entity) }
+        let ptr = unsafe { binding.component_mut_ptr_at::<T>(0, row) }?;
+        Some(unsafe { &mut *ptr })
     }
 }
 
 impl<T: Component> QueryData for (Entity, &T) {
     type Item<'w> = (Entity, &'w T);
 
-    fn supports_read_only_archetype_spans() -> bool {
+    fn supports_serial_archetype_spans() -> bool {
         true
     }
 
@@ -196,9 +117,9 @@ impl<T: Component> QueryData for (Entity, &T) {
         world.component::<T>(entity).map(|value| (entity, value))
     }
 
-    unsafe fn fetch_read_only_archetype_row<'w>(
+    unsafe fn fetch_archetype_row<'w>(
         _world: QueryCapability<'w>,
-        binding: &QueryReadOnlyArchetypeBinding,
+        binding: &QueryArchetypeBinding,
         row: usize,
     ) -> Option<Self::Item<'w>> {
         let entity = binding.entity_at(row)?;
@@ -208,6 +129,8 @@ impl<T: Component> QueryData for (Entity, &T) {
 }
 
 impl<T: Component> QueryData for (Entity, &mut T) {
+    const MARKS_COMPONENT_CHANGES: bool = true;
+
     type Item<'w> = (Entity, &'w mut T);
 
     fn supports_contiguous_segments() -> bool {
@@ -235,7 +158,7 @@ impl<T: Component> QueryData for (Entity, &mut T) {
 impl<A: Component, B: Component> QueryData for (&A, &B) {
     type Item<'w> = (&'w A, &'w B);
 
-    fn supports_read_only_archetype_spans() -> bool {
+    fn supports_serial_archetype_spans() -> bool {
         true
     }
 
@@ -258,9 +181,9 @@ impl<A: Component, B: Component> QueryData for (&A, &B) {
         Some((a, b))
     }
 
-    unsafe fn fetch_read_only_archetype_row<'w>(
+    unsafe fn fetch_archetype_row<'w>(
         _world: QueryCapability<'w>,
-        binding: &QueryReadOnlyArchetypeBinding,
+        binding: &QueryArchetypeBinding,
         row: usize,
     ) -> Option<Self::Item<'w>> {
         let a = binding.component_ptr_at::<A>(0, row)?;
@@ -270,7 +193,13 @@ impl<A: Component, B: Component> QueryData for (&A, &B) {
 }
 
 impl<A: Component, B: Component> QueryData for (&mut A, &B) {
+    const MARKS_COMPONENT_CHANGES: bool = true;
+
     type Item<'w> = (&'w mut A, &'w B);
+
+    fn supports_serial_archetype_spans() -> bool {
+        true
+    }
 
     fn supports_contiguous_segments() -> bool {
         true
@@ -285,64 +214,24 @@ impl<A: Component, B: Component> QueryData for (&mut A, &B) {
         access.add_component_read::<B>();
     }
 
-    fn supports_fast_path() -> bool {
-        true
-    }
-
-    fn prepare_fast_cache(world: QueryCapability<'_>, cache: &mut QueryFastCache) -> bool {
-        if TypeId::of::<A>() == TypeId::of::<B>() {
-            cache.archetype_bindings.clear();
-            return false;
-        }
-
-        let world_scope = world.world_scope();
-        if cache.world_scope != Some(world_scope) {
-            cache.world_scope = Some(world_scope);
-            cache.archetype_bindings.clear();
-        }
-
-        true
-    }
-
-    fn supports_archetype_execution() -> bool {
-        true
-    }
-
-    fn collect_archetype_rows(
-        world: QueryCapability<'_>,
-        required_present: &[TypeId],
-        excluded: &[TypeId],
-        rows: &mut Vec<QueryArchetypeRow>,
-        cache: &mut QueryFastCache,
-    ) -> bool {
-        if TypeId::of::<A>() == TypeId::of::<B>()
-            || !required_types_match(required_present, &[TypeId::of::<A>(), TypeId::of::<B>()])
-            || !excluded.is_empty()
-        {
-            return false;
-        }
-
-        let world_ref = world;
-        if !world_ref.matching_archetype_bindings_into(
-            required_present,
-            excluded,
-            &mut cache.archetype_bindings,
-        ) {
-            return false;
-        }
-
-        collect_rows_from_bindings(world_ref, &cache.archetype_bindings, rows);
-        true
-    }
-
     fn mark_changed(world: QueryCapability<'_>, entity: Entity) {
         // Safety: query execution ensures exclusive mutable world access for this query form.
         world.mark_component_modified_by_id(entity, TypeId::of::<A>());
     }
 
-    fn mark_changed_fast(world: QueryCapability<'_>, entity: Entity, _cache: &mut QueryFastCache) {
-        let world_mut = world;
-        world_mut.mark_component_modified_by_id(entity, TypeId::of::<A>());
+    fn mark_changed_archetype_row(
+        world: QueryCapability<'_>,
+        binding: &QueryArchetypeBinding,
+        row: usize,
+    ) {
+        let entity = binding
+            .entity_at(row)
+            .expect("validated mutable/read query row must contain an entity");
+        world.mark_serial_query_component_modified(
+            entity,
+            TypeId::of::<A>(),
+            binding.changed_tick_ptr_at(0, row),
+        );
     }
 
     unsafe fn fetch<'w>(world: QueryCapability<'w>, entity: Entity) -> Option<Self::Item<'w>> {
@@ -360,17 +249,20 @@ impl<A: Component, B: Component> QueryData for (&mut A, &B) {
         Some(unsafe { (&mut *a, &*b) })
     }
 
-    unsafe fn fetch_fast<'w>(
-        world: QueryCapability<'w>,
-        entity: Entity,
-        cache: &mut QueryFastCache,
+    unsafe fn fetch_archetype_row<'w>(
+        _world: QueryCapability<'w>,
+        binding: &QueryArchetypeBinding,
+        row: usize,
     ) -> Option<Self::Item<'w>> {
-        let _ = cache;
-        unsafe { Self::fetch(world, entity) }
+        let a = unsafe { binding.component_mut_ptr_at::<A>(0, row) }?;
+        let b = binding.component_ptr_at::<B>(1, row)?;
+        Some(unsafe { (&mut *a, &*b) })
     }
 }
 
 impl<A: Component, B: Component> QueryData for (&A, &mut B) {
+    const MARKS_COMPONENT_CHANGES: bool = true;
+
     type Item<'w> = (&'w A, &'w mut B);
 
     fn supports_contiguous_segments() -> bool {
@@ -408,7 +300,13 @@ impl<A: Component, B: Component> QueryData for (&A, &mut B) {
 }
 
 impl<A: Component, B: Component> QueryData for (&mut A, &mut B) {
+    const MARKS_COMPONENT_CHANGES: bool = true;
+
     type Item<'w> = (&'w mut A, &'w mut B);
+
+    fn supports_serial_archetype_spans() -> bool {
+        true
+    }
 
     fn supports_contiguous_segments() -> bool {
         true
@@ -423,56 +321,6 @@ impl<A: Component, B: Component> QueryData for (&mut A, &mut B) {
         access.add_component_write::<B>();
     }
 
-    fn supports_fast_path() -> bool {
-        true
-    }
-
-    fn prepare_fast_cache(world: QueryCapability<'_>, cache: &mut QueryFastCache) -> bool {
-        if TypeId::of::<A>() == TypeId::of::<B>() {
-            cache.archetype_bindings.clear();
-            return false;
-        }
-
-        let world_scope = world.world_scope();
-        if cache.world_scope != Some(world_scope) {
-            cache.world_scope = Some(world_scope);
-            cache.archetype_bindings.clear();
-        }
-
-        true
-    }
-
-    fn supports_archetype_execution() -> bool {
-        true
-    }
-
-    fn collect_archetype_rows(
-        world: QueryCapability<'_>,
-        required_present: &[TypeId],
-        excluded: &[TypeId],
-        rows: &mut Vec<QueryArchetypeRow>,
-        cache: &mut QueryFastCache,
-    ) -> bool {
-        if TypeId::of::<A>() == TypeId::of::<B>()
-            || !required_types_match(required_present, &[TypeId::of::<A>(), TypeId::of::<B>()])
-            || !excluded.is_empty()
-        {
-            return false;
-        }
-
-        let world_ref = world;
-        if !world_ref.matching_archetype_bindings_into(
-            required_present,
-            excluded,
-            &mut cache.archetype_bindings,
-        ) {
-            return false;
-        }
-
-        collect_rows_from_bindings(world_ref, &cache.archetype_bindings, rows);
-        true
-    }
-
     fn mark_changed(world: QueryCapability<'_>, entity: Entity) {
         // Safety: query execution ensures exclusive mutable world access for this query form.
         let world_mut = world;
@@ -480,10 +328,24 @@ impl<A: Component, B: Component> QueryData for (&mut A, &mut B) {
         world_mut.mark_component_modified::<B>(entity);
     }
 
-    fn mark_changed_fast(world: QueryCapability<'_>, entity: Entity, _cache: &mut QueryFastCache) {
-        let world_mut = world;
-        world_mut.mark_component_modified_by_id(entity, TypeId::of::<A>());
-        world_mut.mark_component_modified_by_id(entity, TypeId::of::<B>());
+    fn mark_changed_archetype_row(
+        world: QueryCapability<'_>,
+        binding: &QueryArchetypeBinding,
+        row: usize,
+    ) {
+        let entity = binding
+            .entity_at(row)
+            .expect("validated double-mutable query row must contain an entity");
+        world.mark_serial_query_component_modified(
+            entity,
+            TypeId::of::<A>(),
+            binding.changed_tick_ptr_at(0, row),
+        );
+        world.mark_serial_query_component_modified(
+            entity,
+            TypeId::of::<B>(),
+            binding.changed_tick_ptr_at(1, row),
+        );
     }
 
     unsafe fn fetch<'w>(world: QueryCapability<'w>, entity: Entity) -> Option<Self::Item<'w>> {
@@ -501,13 +363,14 @@ impl<A: Component, B: Component> QueryData for (&mut A, &mut B) {
         Some(unsafe { (&mut *a, &mut *b) })
     }
 
-    unsafe fn fetch_fast<'w>(
-        world: QueryCapability<'w>,
-        entity: Entity,
-        cache: &mut QueryFastCache,
+    unsafe fn fetch_archetype_row<'w>(
+        _world: QueryCapability<'w>,
+        binding: &QueryArchetypeBinding,
+        row: usize,
     ) -> Option<Self::Item<'w>> {
-        let _ = cache;
-        unsafe { Self::fetch(world, entity) }
+        let a = unsafe { binding.component_mut_ptr_at::<A>(0, row) }?;
+        let b = unsafe { binding.component_mut_ptr_at::<B>(1, row) }?;
+        Some(unsafe { (&mut *a, &mut *b) })
     }
 }
 
@@ -528,6 +391,8 @@ impl<T: Component> QueryData for Option<&T> {
 }
 
 impl<T: Component> QueryData for Option<&mut T> {
+    const MARKS_COMPONENT_CHANGES: bool = true;
+
     type Item<'w> = Option<&'w mut T>;
 
     fn query_types() -> Vec<TypeId> {
@@ -553,6 +418,8 @@ impl<T: Component> QueryData for Option<&mut T> {
 }
 
 impl<A: Component, B: Component> QueryData for (&mut A, Option<&B>) {
+    const MARKS_COMPONENT_CHANGES: bool = true;
+
     type Item<'w> = (&'w mut A, Option<&'w B>);
 
     fn query_types() -> Vec<TypeId> {
@@ -608,6 +475,8 @@ impl<A: Component, B: Component> QueryData for (&A, Option<&B>) {
 }
 
 impl<A: Component, B: Component> QueryData for (&A, Option<&mut B>) {
+    const MARKS_COMPONENT_CHANGES: bool = true;
+
     type Item<'w> = (&'w A, Option<&'w mut B>);
 
     fn query_types() -> Vec<TypeId> {
@@ -644,6 +513,8 @@ impl<A: Component, B: Component> QueryData for (&A, Option<&mut B>) {
 }
 
 impl<A: Component, B: Component> QueryData for (&mut A, Option<&mut B>) {
+    const MARKS_COMPONENT_CHANGES: bool = true;
+
     type Item<'w> = (&'w mut A, Option<&'w mut B>);
 
     fn query_types() -> Vec<TypeId> {
@@ -698,7 +569,7 @@ impl<T: Component> QueryData for (Entity, Option<&T>) {
 impl<A: Component, B: Component, C: Component> QueryData for (&A, &B, &C) {
     type Item<'w> = (&'w A, &'w B, &'w C);
 
-    fn supports_read_only_archetype_spans() -> bool {
+    fn supports_serial_archetype_spans() -> bool {
         true
     }
 
@@ -719,9 +590,9 @@ impl<A: Component, B: Component, C: Component> QueryData for (&A, &B, &C) {
         Some((a, b, c))
     }
 
-    unsafe fn fetch_read_only_archetype_row<'w>(
+    unsafe fn fetch_archetype_row<'w>(
         _world: QueryCapability<'w>,
-        binding: &QueryReadOnlyArchetypeBinding,
+        binding: &QueryArchetypeBinding,
         row: usize,
     ) -> Option<Self::Item<'w>> {
         let a = binding.component_ptr_at::<A>(0, row)?;
@@ -732,6 +603,8 @@ impl<A: Component, B: Component, C: Component> QueryData for (&A, &B, &C) {
 }
 
 impl<A: Component, B: Component, C: Component> QueryData for (&mut A, &B, &C) {
+    const MARKS_COMPONENT_CHANGES: bool = true;
+
     type Item<'w> = (&'w mut A, &'w B, &'w C);
 
     fn query_types() -> Vec<TypeId> {
@@ -772,6 +645,8 @@ impl<A: Component, B: Component, C: Component> QueryData for (&mut A, &B, &C) {
 }
 
 impl<A: Component, B: Component, C: Component> QueryData for (&mut A, &mut B, &C) {
+    const MARKS_COMPONENT_CHANGES: bool = true;
+
     type Item<'w> = (&'w mut A, &'w mut B, &'w C);
 
     fn query_types() -> Vec<TypeId> {

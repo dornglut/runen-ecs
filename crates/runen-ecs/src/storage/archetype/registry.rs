@@ -9,9 +9,9 @@ use std::collections::HashMap;
 use std::ptr::NonNull;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub(crate) struct ArchetypeExecutionBinding {
-    pub(crate) archetype_index: usize,
-    pub(crate) row_count: usize,
+struct ArchetypeExecutionBinding {
+    archetype_index: usize,
+    row_count: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -59,6 +59,33 @@ impl ContiguousArchetypeSpan {
         // Safety: span construction proves this allocation is the requested
         // typed column and has exactly `row_count` initialized entries.
         Some(unsafe { component.values.cast::<T>().as_ptr().add(row) })
+    }
+
+    /// # Safety
+    /// The caller must have exclusive query access to the component type at
+    /// `component_index` for the complete lifetime of the projected span.
+    pub(crate) unsafe fn component_mut_ptr_at<T: Component>(
+        &self,
+        component_index: usize,
+        row: usize,
+    ) -> Option<*mut T> {
+        self.component_ptr_at::<T>(component_index, row)
+            .map(|ptr| ptr.cast_mut())
+    }
+
+    pub(crate) fn changed_tick_ptr_at(
+        &self,
+        component_index: usize,
+        row: usize,
+    ) -> Option<NonNull<ChangeCursor>> {
+        if row >= self.row_count {
+            return None;
+        }
+        let component = self.components.get(component_index)?;
+        if component.row_count != self.row_count {
+            return None;
+        }
+        component.changed_ticks.get(row).copied()
     }
 }
 
@@ -423,7 +450,7 @@ impl ArchetypeRegistry {
         Some(removed.into_typed_value::<T>())
     }
 
-    pub(crate) fn collect_matching_bindings(
+    fn collect_matching_bindings(
         &self,
         required_present: &[TypeId],
         excluded: &[TypeId],

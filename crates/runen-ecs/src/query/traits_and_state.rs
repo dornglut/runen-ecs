@@ -4,7 +4,7 @@ use super::contiguous::ContiguousSegments;
 use crate::component::Component;
 use crate::entity::{Entity, WorldScopeId};
 use crate::errors::{ContiguousQueryError, QueryError};
-use crate::storage::{ArchetypeExecutionBinding, ContiguousArchetypeSpan};
+use crate::storage::ContiguousArchetypeSpan;
 use crate::world::{ChangeCursor, QueryCapability, WorkerWorldBuilder, World};
 use std::any::TypeId;
 use std::cell::{Cell, RefCell};
@@ -14,48 +14,31 @@ use std::ptr::NonNull;
 pub trait QueryData {
     type Item<'w>;
 
+    const MARKS_COMPONENT_CHANGES: bool = false;
+
     fn query_types() -> Vec<TypeId>;
     fn append_access(access: &mut QueryAccess);
 
     fn mark_changed(_world: QueryCapability<'_>, _entity: Entity) {}
 
-    /// Enables cached mark/fetch hooks that avoid per-entity setup work inside the iterator loop.
-    fn supports_fast_path() -> bool {
+    /// Enables direct serial row iteration from a validated archetype/span
+    /// projection instead of materializing entity or row scratch lists.
+    fn supports_serial_archetype_spans() -> bool {
         false
     }
 
-    fn prepare_fast_cache(_world: QueryCapability<'_>, _cache: &mut QueryFastCache) -> bool {
-        false
-    }
-
-    fn mark_changed_fast(world: QueryCapability<'_>, entity: Entity, _cache: &mut QueryFastCache) {
-        Self::mark_changed(world, entity);
-    }
-
-    /// Enables a serial shared-column projection that walks matching archetype
-    /// rows lazily without materializing an entity list. Only framework-owned
-    /// read-only required-component shapes may opt into this path.
-    fn supports_read_only_archetype_spans() -> bool {
-        false
-    }
-
-    /// Enables archetype-row execution instead of the entity-list fallback path.
-    fn supports_archetype_execution() -> bool {
-        false
+    fn mark_changed_archetype_row(
+        world: QueryCapability<'_>,
+        binding: &QueryArchetypeBinding,
+        row: usize,
+    ) {
+        if let Some(entity) = binding.entity_at(row) {
+            Self::mark_changed(world, entity);
+        }
     }
 
     /// Whether this sealed query shape has a typed contiguous projection.
     fn supports_contiguous_segments() -> bool {
-        false
-    }
-
-    fn collect_archetype_rows(
-        _world: QueryCapability<'_>,
-        _required_present: &[TypeId],
-        _excluded: &[TypeId],
-        _rows: &mut Vec<QueryArchetypeRow>,
-        _cache: &mut QueryFastCache,
-    ) -> bool {
         false
     }
 
@@ -64,21 +47,12 @@ pub trait QueryData {
 
     /// Safety: `binding` must have been projected from `world` for this
     /// query shape, and `row` must be within the binding's validated row range.
-    unsafe fn fetch_read_only_archetype_row<'w>(
+    unsafe fn fetch_archetype_row<'w>(
         world: QueryCapability<'w>,
-        binding: &QueryReadOnlyArchetypeBinding,
+        binding: &QueryArchetypeBinding,
         row: usize,
     ) -> Option<Self::Item<'w>> {
         let entity = binding.entity_at(row)?;
-        unsafe { Self::fetch(world, entity) }
-    }
-
-    /// Safety: the caller must uphold the access guarantees described by `Self::append_access`.
-    unsafe fn fetch_fast<'w>(
-        world: QueryCapability<'w>,
-        entity: Entity,
-        _cache: &mut QueryFastCache,
-    ) -> Option<Self::Item<'w>> {
         unsafe { Self::fetch(world, entity) }
     }
 }
@@ -101,6 +75,9 @@ pub trait QuerySpec: sealed::QuerySpecSealed {
     type Item<'w>;
 
     #[doc(hidden)]
+    const MARKS_COMPONENT_CHANGES: bool;
+
+    #[doc(hidden)]
     fn query_types() -> Vec<TypeId>;
 
     #[doc(hidden)]
@@ -110,31 +87,17 @@ pub trait QuerySpec: sealed::QuerySpecSealed {
     fn mark_changed(world: QueryCapability<'_>, entity: Entity);
 
     #[doc(hidden)]
-    fn supports_fast_path() -> bool;
+    fn supports_serial_archetype_spans() -> bool;
 
     #[doc(hidden)]
-    fn prepare_fast_cache(world: QueryCapability<'_>, cache: &mut QueryFastCache) -> bool;
-
-    #[doc(hidden)]
-    fn mark_changed_fast(world: QueryCapability<'_>, entity: Entity, cache: &mut QueryFastCache);
-
-    #[doc(hidden)]
-    fn supports_read_only_archetype_spans() -> bool;
-
-    #[doc(hidden)]
-    fn supports_archetype_execution() -> bool;
+    fn mark_changed_archetype_row(
+        world: QueryCapability<'_>,
+        binding: &QueryArchetypeBinding,
+        row: usize,
+    );
 
     #[doc(hidden)]
     fn supports_contiguous_segments() -> bool;
-
-    #[doc(hidden)]
-    fn collect_archetype_rows(
-        world: QueryCapability<'_>,
-        required_present: &[TypeId],
-        excluded: &[TypeId],
-        rows: &mut Vec<QueryArchetypeRow>,
-        cache: &mut QueryFastCache,
-    ) -> bool;
 
     /// # Safety
     /// The caller must uphold the access guarantees described by `Self::append_access`.
@@ -145,19 +108,10 @@ pub trait QuerySpec: sealed::QuerySpecSealed {
     /// `binding` must have been projected from `world` for this query shape,
     /// and `row` must be within its validated row range.
     #[doc(hidden)]
-    unsafe fn fetch_read_only_archetype_row<'w>(
+    unsafe fn fetch_archetype_row<'w>(
         world: QueryCapability<'w>,
-        binding: &QueryReadOnlyArchetypeBinding,
+        binding: &QueryArchetypeBinding,
         row: usize,
-    ) -> Option<Self::Item<'w>>;
-
-    /// # Safety
-    /// The caller must uphold the access guarantees described by `Self::append_access`.
-    #[doc(hidden)]
-    unsafe fn fetch_fast<'w>(
-        world: QueryCapability<'w>,
-        entity: Entity,
-        cache: &mut QueryFastCache,
     ) -> Option<Self::Item<'w>>;
 }
 
@@ -232,6 +186,8 @@ where
 {
     type Item<'w> = T::Item<'w>;
 
+    const MARKS_COMPONENT_CHANGES: bool = T::MARKS_COMPONENT_CHANGES;
+
     fn query_types() -> Vec<TypeId> {
         T::query_types()
     }
@@ -244,73 +200,66 @@ where
         T::mark_changed(world, entity);
     }
 
-    fn supports_fast_path() -> bool {
-        T::supports_fast_path()
+    fn supports_serial_archetype_spans() -> bool {
+        T::supports_serial_archetype_spans()
     }
 
-    fn prepare_fast_cache(world: QueryCapability<'_>, cache: &mut QueryFastCache) -> bool {
-        T::prepare_fast_cache(world, cache)
-    }
-
-    fn mark_changed_fast(world: QueryCapability<'_>, entity: Entity, cache: &mut QueryFastCache) {
-        T::mark_changed_fast(world, entity, cache);
-    }
-
-    fn supports_read_only_archetype_spans() -> bool {
-        T::supports_read_only_archetype_spans()
-    }
-
-    fn supports_archetype_execution() -> bool {
-        T::supports_archetype_execution()
+    fn mark_changed_archetype_row(
+        world: QueryCapability<'_>,
+        binding: &QueryArchetypeBinding,
+        row: usize,
+    ) {
+        T::mark_changed_archetype_row(world, binding, row);
     }
 
     fn supports_contiguous_segments() -> bool {
         T::supports_contiguous_segments()
     }
 
-    fn collect_archetype_rows(
-        world: QueryCapability<'_>,
-        required_present: &[TypeId],
-        excluded: &[TypeId],
-        rows: &mut Vec<QueryArchetypeRow>,
-        cache: &mut QueryFastCache,
-    ) -> bool {
-        T::collect_archetype_rows(world, required_present, excluded, rows, cache)
-    }
-
     unsafe fn fetch<'w>(world: QueryCapability<'w>, entity: Entity) -> Option<Self::Item<'w>> {
         unsafe { T::fetch(world, entity) }
     }
 
-    unsafe fn fetch_read_only_archetype_row<'w>(
+    unsafe fn fetch_archetype_row<'w>(
         world: QueryCapability<'w>,
-        binding: &QueryReadOnlyArchetypeBinding,
+        binding: &QueryArchetypeBinding,
         row: usize,
     ) -> Option<Self::Item<'w>> {
-        unsafe { T::fetch_read_only_archetype_row(world, binding, row) }
-    }
-
-    unsafe fn fetch_fast<'w>(
-        world: QueryCapability<'w>,
-        entity: Entity,
-        cache: &mut QueryFastCache,
-    ) -> Option<Self::Item<'w>> {
-        unsafe { T::fetch_fast(world, entity, cache) }
+        unsafe { T::fetch_archetype_row(world, binding, row) }
     }
 }
 
 #[doc(hidden)]
-pub struct QueryReadOnlyArchetypeBinding {
+pub struct QueryArchetypeBinding {
     span: ContiguousArchetypeSpan,
+    eligible_rows: Option<Vec<bool>>,
 }
 
-impl QueryReadOnlyArchetypeBinding {
+impl QueryArchetypeBinding {
     fn new(span: ContiguousArchetypeSpan) -> Self {
-        Self { span }
+        Self {
+            span,
+            eligible_rows: None,
+        }
     }
 
     fn len(&self) -> usize {
         self.span.row_count()
+    }
+
+    fn set_eligible_rows(&mut self, eligible_rows: Vec<bool>) {
+        assert_eq!(
+            eligible_rows.len(),
+            self.len(),
+            "query archetype filter mask must match projected row count"
+        );
+        self.eligible_rows = Some(eligible_rows);
+    }
+
+    fn row_is_eligible(&self, row: usize) -> bool {
+        self.eligible_rows
+            .as_ref()
+            .is_none_or(|eligible| eligible.get(row).copied().unwrap_or(false))
     }
 
     pub(crate) fn entity_at(&self, row: usize) -> Option<Entity> {
@@ -324,37 +273,37 @@ impl QueryReadOnlyArchetypeBinding {
     ) -> Option<*const T> {
         self.span.component_ptr_at::<T>(component_index, row)
     }
-}
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub struct QueryArchetypeRow {
-    pub entity: Entity,
-    pub archetype_index: usize,
-    pub row: usize,
-}
+    /// # Safety
+    /// The sealed query shape must own exclusive access to this projected
+    /// component column for the complete query invocation.
+    pub(crate) unsafe fn component_mut_ptr_at<T: Component>(
+        &self,
+        component_index: usize,
+        row: usize,
+    ) -> Option<*mut T> {
+        unsafe { self.span.component_mut_ptr_at::<T>(component_index, row) }
+    }
 
-#[derive(Debug, Clone, Default)]
-pub struct QueryFastCache {
-    // QueryState semantic ownership is bound separately to C1's opaque world
-    // identity. This field is only a cache invalidation marker.
-    pub(crate) world_scope: Option<WorldScopeId>,
-    // Reused archetype bindings for archetype-row execution forms.
-    pub(crate) archetype_bindings: Vec<ArchetypeExecutionBinding>,
+    pub(crate) fn changed_tick_ptr_at(
+        &self,
+        component_index: usize,
+        row: usize,
+    ) -> Option<NonNull<ChangeCursor>> {
+        self.span.changed_tick_ptr_at(component_index, row)
+    }
 }
 
 pub struct QueryState<Q, F = ()> {
     world_scope: Cell<Option<WorldScopeId>>,
     query_types: Vec<TypeId>,
+    mutable_types: Vec<TypeId>,
     required_present: Vec<TypeId>,
     excluded: Vec<TypeId>,
     access: QueryAccess,
     last_run_tick: Cell<Option<ChangeCursor>>,
     scratch_pool: RefCell<Vec<Vec<Entity>>>,
-    archetype_row_scratch_pool: RefCell<Vec<Vec<QueryArchetypeRow>>>,
-    fast_fetch_enabled: bool,
-    read_only_archetype_spans_enabled: bool,
-    archetype_execution_enabled: bool,
-    fast_cache: RefCell<QueryFastCache>,
+    serial_archetype_spans_enabled: bool,
     _marker: PhantomData<fn() -> (Q, F)>,
 }
 
@@ -415,15 +364,24 @@ impl<Q: QuerySpec, F: QueryFilter> QueryState<Q, F> {
             }
         }
 
-        let mutable_types: Vec<_> = self
-            .access
-            .component_writes()
-            .iter()
-            .map(|access| access.type_id())
-            .collect();
-        if !W::MUTABLE_WORLD && !mutable_types.is_empty() {
-            return Err(ContiguousQueryError::MutableWorldRequired);
-        }
+        let mutable_types = if Q::MARKS_COMPONENT_CHANGES {
+            let mutable_types = self
+                .access
+                .component_writes()
+                .iter()
+                .map(|access| access.type_id())
+                .collect::<Vec<_>>();
+            debug_assert!(
+                !mutable_types.is_empty(),
+                "change-marking query shape must declare component writes"
+            );
+            if !W::MUTABLE_WORLD {
+                return Err(ContiguousQueryError::MutableWorldRequired);
+            }
+            mutable_types
+        } else {
+            Vec::new()
+        };
         let world = world.into_query_capability();
         self.rebind_world_scope(world.world_scope());
         let segments = ContiguousSegments::new(
@@ -493,28 +451,37 @@ impl<Q: QuerySpec, F: QueryFilter> QueryState<Q, F> {
             .get()
             .expect("query state must be bound before iteration");
 
-        if self.read_only_archetype_spans_enabled
-            && let Some(spans) = world.collect_read_only_query_spans(
+        if self.serial_archetype_spans_enabled
+            && let Some(spans) = world.collect_serial_query_spans(
                 &self.required_present,
                 &self.excluded,
                 &self.query_types,
+                &self.mutable_types,
             )
         {
-            let bindings = spans
+            let mut bindings = spans
                 .into_iter()
-                .map(QueryReadOnlyArchetypeBinding::new)
-                .collect();
+                .map(QueryArchetypeBinding::new)
+                .collect::<Vec<_>>();
+            if F::needs_tick_filter() {
+                for binding in &mut bindings {
+                    let eligible_rows = (0..binding.len())
+                        .map(|row| {
+                            let entity = binding
+                                .entity_at(row)
+                                .expect("validated query archetype row must contain an entity");
+                            F::matches_entity(world, entity, since_tick)
+                        })
+                        .collect();
+                    binding.set_eligible_rows(eligible_rows);
+                }
+            }
             self.last_run_tick.set(Some(world.current_change_tick()));
             return QueryIter {
                 world,
-                read_only_archetype_bindings: Some(bindings),
+                archetype_bindings: Some(bindings),
                 entities: None,
-                archetype_rows: None,
                 scratch_pool: &self.scratch_pool,
-                archetype_row_scratch_pool: &self.archetype_row_scratch_pool,
-                use_fast_fetch: false,
-                fast_cache: QueryFastCache::default(),
-                since_tick,
                 binding_index: 0,
                 binding_row: 0,
                 index: 0,
@@ -522,53 +489,16 @@ impl<Q: QuerySpec, F: QueryFilter> QueryState<Q, F> {
             };
         }
 
-        let (use_fast_fetch, mut fast_cache) = self.prepare_fast_fetch(world);
-        if self.archetype_execution_enabled {
-            let mut rows = self.acquire_archetype_row_vec();
-            if Q::collect_archetype_rows(
-                world,
-                &self.required_present,
-                &self.excluded,
-                &mut rows,
-                &mut fast_cache,
-            ) {
-                if F::needs_tick_filter() {
-                    rows.retain(|row| F::matches_entity(world, row.entity, since_tick));
-                }
-                self.last_run_tick.set(Some(world.current_change_tick()));
-                return QueryIter {
-                    world,
-                    read_only_archetype_bindings: None,
-                    entities: None,
-                    archetype_rows: Some(rows),
-                    scratch_pool: &self.scratch_pool,
-                    archetype_row_scratch_pool: &self.archetype_row_scratch_pool,
-                    use_fast_fetch,
-                    fast_cache,
-                    since_tick,
-                    binding_index: 0,
-                    binding_row: 0,
-                    index: 0,
-                    _marker: PhantomData,
-                };
-            }
-            self.release_archetype_row_vec(rows);
-        }
-
         let mut entities = self.acquire_scratch_vec();
-        // Fallback path for query forms that do not support archetype-row execution.
+        // Fallback path for query forms or worker capabilities that do not
+        // support direct serial archetype/span iteration.
         self.matching_entities_into(world, &mut entities);
         self.last_run_tick.set(Some(world.current_change_tick()));
         QueryIter {
             world,
-            read_only_archetype_bindings: None,
+            archetype_bindings: None,
             entities: Some(entities),
-            archetype_rows: None,
             scratch_pool: &self.scratch_pool,
-            archetype_row_scratch_pool: &self.archetype_row_scratch_pool,
-            use_fast_fetch,
-            fast_cache,
-            since_tick,
             binding_index: 0,
             binding_row: 0,
             index: 0,
@@ -650,22 +580,22 @@ impl<Q: QuerySpec, F: QueryFilter> QueryState<Q, F> {
         // from the alias proof captured from Q itself.
         access.restore_borrow_checkpoint(query_borrow_checkpoint);
 
-        let read_only_archetype_spans_enabled =
-            Q::supports_read_only_archetype_spans() && access.component_writes().is_empty();
+        let mutable_types = access
+            .component_writes()
+            .iter()
+            .map(|component| component.type_id())
+            .collect();
 
         Self {
             world_scope: Cell::new(world_scope),
             query_types,
+            mutable_types,
             required_present,
             excluded,
             access,
             last_run_tick: Cell::new(world_scope.map(ChangeCursor::origin)),
             scratch_pool: RefCell::new(Vec::new()),
-            archetype_row_scratch_pool: RefCell::new(Vec::new()),
-            fast_fetch_enabled: Q::supports_fast_path(),
-            read_only_archetype_spans_enabled,
-            archetype_execution_enabled: Q::supports_archetype_execution(),
-            fast_cache: RefCell::new(QueryFastCache::default()),
+            serial_archetype_spans_enabled: Q::supports_serial_archetype_spans(),
             _marker: PhantomData,
         }
     }
@@ -677,17 +607,6 @@ impl<Q: QuerySpec, F: QueryFilter> QueryState<Q, F> {
 
         self.world_scope.set(Some(actual));
         self.last_run_tick.set(Some(ChangeCursor::origin(actual)));
-        *self.fast_cache.borrow_mut() = QueryFastCache::default();
-    }
-
-    fn prepare_fast_fetch(&self, world: QueryCapability<'_>) -> (bool, QueryFastCache) {
-        if !self.fast_fetch_enabled {
-            return (false, QueryFastCache::default());
-        }
-
-        let mut cache = self.fast_cache.borrow_mut();
-        let prepared = Q::prepare_fast_cache(world, &mut cache);
-        (prepared, cache.clone())
     }
 
     fn matching_entities_into(&self, world: QueryCapability<'_>, out: &mut Vec<Entity>) {
@@ -719,21 +638,6 @@ impl<Q: QuerySpec, F: QueryFilter> QueryState<Q, F> {
         let mut pool = self.scratch_pool.borrow_mut();
         if pool.len() < 4 {
             pool.push(entities);
-        }
-    }
-
-    fn acquire_archetype_row_vec(&self) -> Vec<QueryArchetypeRow> {
-        self.archetype_row_scratch_pool
-            .borrow_mut()
-            .pop()
-            .unwrap_or_default()
-    }
-
-    fn release_archetype_row_vec(&self, mut rows: Vec<QueryArchetypeRow>) {
-        rows.clear();
-        let mut pool = self.archetype_row_scratch_pool.borrow_mut();
-        if pool.len() < 4 {
-            pool.push(rows);
         }
     }
 }
@@ -794,41 +698,20 @@ impl<'world, 'state, Q: QuerySpec, F: QueryFilter> Query<'world, 'state, Q, F> {
 
 struct QueryIter<'w, 'state, Q: QuerySpec, F> {
     world: QueryCapability<'w>,
-    read_only_archetype_bindings: Option<Vec<QueryReadOnlyArchetypeBinding>>,
+    archetype_bindings: Option<Vec<QueryArchetypeBinding>>,
     entities: Option<Vec<Entity>>,
-    archetype_rows: Option<Vec<QueryArchetypeRow>>,
     scratch_pool: &'state RefCell<Vec<Vec<Entity>>>,
-    archetype_row_scratch_pool: &'state RefCell<Vec<Vec<QueryArchetypeRow>>>,
-    use_fast_fetch: bool,
-    fast_cache: QueryFastCache,
-    since_tick: ChangeCursor,
     binding_index: usize,
     binding_row: usize,
     index: usize,
     _marker: PhantomData<QueryIterMarker<'w, 'state, Q, F>>,
 }
 
-impl<'w, 'state, Q: QuerySpec, F> QueryIter<'w, 'state, Q, F> {
-    fn mark_and_fetch(&mut self, entity: Entity) -> Option<Q::Item<'w>> {
-        if self.use_fast_fetch {
-            Q::mark_changed_fast(self.world, entity, &mut self.fast_cache);
-            // Safety: QueryState validated aliasing before constructing this iterator,
-            // which holds the invocation-scoped query capability contract.
-            return unsafe { Q::fetch_fast(self.world, entity, &mut self.fast_cache) };
-        }
-
-        Q::mark_changed(self.world, entity);
-        // Safety: QueryState validated aliasing before constructing this iterator,
-        // which holds the invocation-scoped query capability contract.
-        unsafe { Q::fetch(self.world, entity) }
-    }
-}
-
 impl<'w, 'state, Q: QuerySpec, F: QueryFilter> Iterator for QueryIter<'w, 'state, Q, F> {
     type Item = Q::Item<'w>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if let Some(bindings) = self.read_only_archetype_bindings.as_ref() {
+        if let Some(bindings) = self.archetype_bindings.as_ref() {
             loop {
                 let binding = bindings.get(self.binding_index)?;
                 if self.binding_row >= binding.len() {
@@ -839,38 +722,23 @@ impl<'w, 'state, Q: QuerySpec, F: QueryFilter> Iterator for QueryIter<'w, 'state
 
                 let row = self.binding_row;
                 self.binding_row += 1;
-                let entity = binding
-                    .entity_at(row)
-                    .expect("validated read-only archetype row must contain an entity");
-                if F::needs_tick_filter() && !F::matches_entity(self.world, entity, self.since_tick)
-                {
+                if !binding.row_is_eligible(row) {
                     continue;
                 }
 
-                // Safety: the binding was projected from this serial query
-                // capability for Q's exact data component types, and row is
-                // within the preflighted archetype range.
-                let item = unsafe { Q::fetch_read_only_archetype_row(self.world, binding, row) }
-                    .expect(
-                        "validated read-only archetype row must contain every projected component",
-                    );
-                return Some(item);
-            }
-        }
-
-        if let Some(rows) = self.archetype_rows.as_ref() {
-            let rows_ptr = rows.as_ptr();
-            let rows_len = rows.len();
-
-            while self.index < rows_len {
-                // Safety: `self.index < rows_len` and `rows_ptr` points to `rows`.
-                let row = unsafe { *rows_ptr.add(self.index) };
-                self.index += 1;
-                if let Some(item) = self.mark_and_fetch(row.entity) {
-                    return Some(item);
+                if Q::MARKS_COMPONENT_CHANGES {
+                    Q::mark_changed_archetype_row(self.world, binding, row);
                 }
+                // Safety: the binding was freshly projected from this serial
+                // query capability for Q's exact sealed access shape. Row is
+                // within the validated archetype range and any per-entity
+                // filter was evaluated before mutable exposure.
+                return Some(
+                    unsafe { Q::fetch_archetype_row(self.world, binding, row) }.expect(
+                        "validated query archetype row must contain every projected component",
+                    ),
+                );
             }
-            return None;
         }
 
         let entities = self.entities.as_ref()?;
@@ -881,7 +749,12 @@ impl<'w, 'state, Q: QuerySpec, F: QueryFilter> Iterator for QueryIter<'w, 'state
             // Safety: `self.index < entities_len` and `entities_ptr` points to `entities`.
             let entity = unsafe { *entities_ptr.add(self.index) };
             self.index += 1;
-            if let Some(item) = self.mark_and_fetch(entity) {
+            if Q::MARKS_COMPONENT_CHANGES {
+                Q::mark_changed(self.world, entity);
+            }
+            // Safety: QueryState validated aliasing before constructing this iterator,
+            // which holds the invocation-scoped query capability contract.
+            if let Some(item) = unsafe { Q::fetch(self.world, entity) } {
                 return Some(item);
             }
         }
@@ -896,14 +769,6 @@ impl<'w, 'state, Q: QuerySpec, F> Drop for QueryIter<'w, 'state, Q, F> {
             let mut pool = self.scratch_pool.borrow_mut();
             if pool.len() < 4 {
                 pool.push(entities);
-            }
-        }
-
-        if let Some(mut rows) = self.archetype_rows.take() {
-            rows.clear();
-            let mut pool = self.archetype_row_scratch_pool.borrow_mut();
-            if pool.len() < 4 {
-                pool.push(rows);
             }
         }
     }

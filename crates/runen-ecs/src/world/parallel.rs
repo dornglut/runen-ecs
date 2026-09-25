@@ -8,7 +8,6 @@ use super::{ChangeCursor, QueryCapability, ResourceCapability, World};
 use crate::component::{Component, Resource};
 use crate::entity::{Entity, EntityValidationSnapshot, WorldScopeId};
 use crate::errors::ResourceError;
-use crate::storage::ArchetypeExecutionBinding;
 use std::any::{Any, TypeId, type_name};
 use std::collections::{BTreeSet, HashMap};
 use std::marker::PhantomData;
@@ -590,24 +589,6 @@ impl<'world> WorkerQueryCapability<'world> {
                     .contains(entity)
             })
         }));
-    }
-
-    pub(crate) fn matching_archetype_bindings_into(
-        self,
-        _required_present: &[TypeId],
-        _excluded: &[TypeId],
-        out: &mut Vec<ArchetypeExecutionBinding>,
-    ) -> bool {
-        out.clear();
-        false
-    }
-
-    pub(crate) fn archetype_entity_at(
-        self,
-        _archetype_index: usize,
-        _row: usize,
-    ) -> Option<Entity> {
-        None
     }
 
     pub(crate) fn entity_matches_component_constraints(
