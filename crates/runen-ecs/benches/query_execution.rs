@@ -78,7 +78,10 @@ fn prove_fixture_semantics() {
 
     let mut direct_mutable_world = build_world(COUNT);
     let direct_mutable_query = direct_mutable_world.query::<&mut Position>();
-    assert_eq!(direct_mutable_query.iter(&mut direct_mutable_world).count(), COUNT);
+    assert_eq!(
+        direct_mutable_query.iter(&mut direct_mutable_world).count(),
+        COUNT
+    );
     assert_eq!(
         position_checksum(&direct_mutable_world),
         initial_checksum,
