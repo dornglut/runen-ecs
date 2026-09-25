@@ -179,9 +179,7 @@ impl<'world> SystemParamContext<'world> {
         }
     }
 
-    pub(crate) fn query_for<Q: 'static, F: 'static>(
-        self,
-    ) -> crate::world::QueryCapability<'world> {
+    pub(crate) fn query_for<Q: 'static, F: 'static>(self) -> crate::world::QueryCapability<'world> {
         match self.backing {
             SystemParamContextBacking::Serial {
                 authority,

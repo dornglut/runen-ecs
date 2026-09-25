@@ -244,14 +244,12 @@ impl<'world> WorkerWorldBuilder<'world> {
 
         let world = unsafe { self.world.as_mut() };
         let spans = if mutable_types.is_empty() {
-            world
-                .archetype_registry
-                .collect_contiguous_spans_shared(
-                    required_present,
-                    excluded,
-                    component_types,
-                    &[],
-                )
+            world.archetype_registry.collect_contiguous_spans_shared(
+                required_present,
+                excluded,
+                component_types,
+                &[],
+            )
         } else {
             // Worker mutations publish through the invocation-local
             // MutationJournal, so no row changed-tick pointers are needed.
@@ -673,7 +671,9 @@ impl<'world> WorkerQueryCapability<'world> {
     pub(crate) fn prepared_query_spans(self) -> Option<Vec<ContiguousArchetypeSpan>> {
         let key = self.query_projection_key?;
         let projections = unsafe { self.query_projections.as_ref() };
-        projections.get(&key).map(|projection| projection.spans.clone())
+        projections
+            .get(&key)
+            .map(|projection| projection.spans.clone())
     }
 
     pub(crate) fn matching_entities_into(

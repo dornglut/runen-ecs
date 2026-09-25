@@ -333,10 +333,7 @@ impl<Q: QuerySpec, F: QueryFilter> QueryState<Q, F> {
         &self.access
     }
 
-    pub(crate) fn prepare_worker_projection(
-        &self,
-        builder: &mut WorkerWorldBuilder<'_>,
-    ) -> bool
+    pub(crate) fn prepare_worker_projection(&self, builder: &mut WorkerWorldBuilder<'_>) -> bool
     where
         Q: TransferableQueryData + 'static,
         F: 'static,
@@ -581,7 +578,10 @@ impl<Q: QuerySpec, F: QueryFilter> QueryState<Q, F> {
             && let Some(spans) = world.prepared_worker_query_spans()
         {
             self.last_run_tick.set(Some(world.current_change_tick()));
-            let count = spans.iter().map(ContiguousArchetypeSpan::row_count).sum::<usize>();
+            let count = spans
+                .iter()
+                .map(ContiguousArchetypeSpan::row_count)
+                .sum::<usize>();
             if count == 0 {
                 return Err(QueryError::NoResults);
             }
