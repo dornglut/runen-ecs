@@ -4,7 +4,7 @@ use super::contiguous::ContiguousSegments;
 use crate::component::Component;
 use crate::entity::{Entity, WorldScopeId};
 use crate::errors::{ContiguousQueryError, QueryError};
-use crate::storage::ArchetypeExecutionBinding;
+use crate::storage::{ArchetypeExecutionBinding, ContiguousArchetypeSpan};
 use crate::world::{ChangeCursor, QueryCapability, WorkerWorldBuilder, World};
 use std::any::TypeId;
 use std::cell::{Cell, RefCell};
@@ -32,6 +32,13 @@ pub trait QueryData {
         Self::mark_changed(world, entity);
     }
 
+    /// Enables a serial shared-column projection that walks matching archetype
+    /// rows lazily without materializing an entity list. Only framework-owned
+    /// read-only required-component shapes may opt into this path.
+    fn supports_read_only_archetype_spans() -> bool {
+        false
+    }
+
     /// Enables archetype-row execution instead of the entity-list fallback path.
     fn supports_archetype_execution() -> bool {
         false
@@ -54,6 +61,17 @@ pub trait QueryData {
 
     /// Safety: the caller must uphold the access guarantees described by `Self::append_access`.
     unsafe fn fetch<'w>(world: QueryCapability<'w>, entity: Entity) -> Option<Self::Item<'w>>;
+
+    /// Safety: `binding` must have been projected from `world` for this
+    /// query shape, and `row` must be within the binding's validated row range.
+    unsafe fn fetch_read_only_archetype_row<'w>(
+        world: QueryCapability<'w>,
+        binding: &QueryReadOnlyArchetypeBinding,
+        row: usize,
+    ) -> Option<Self::Item<'w>> {
+        let entity = binding.entity_at(row)?;
+        unsafe { Self::fetch(world, entity) }
+    }
 
     /// Safety: the caller must uphold the access guarantees described by `Self::append_access`.
     unsafe fn fetch_fast<'w>(
@@ -101,6 +119,9 @@ pub trait QuerySpec: sealed::QuerySpecSealed {
     fn mark_changed_fast(world: QueryCapability<'_>, entity: Entity, cache: &mut QueryFastCache);
 
     #[doc(hidden)]
+    fn supports_read_only_archetype_spans() -> bool;
+
+    #[doc(hidden)]
     fn supports_archetype_execution() -> bool;
 
     #[doc(hidden)]
@@ -119,6 +140,16 @@ pub trait QuerySpec: sealed::QuerySpecSealed {
     /// The caller must uphold the access guarantees described by `Self::append_access`.
     #[doc(hidden)]
     unsafe fn fetch<'w>(world: QueryCapability<'w>, entity: Entity) -> Option<Self::Item<'w>>;
+
+    /// # Safety
+    /// `binding` must have been projected from `world` for this query shape,
+    /// and `row` must be within its validated row range.
+    #[doc(hidden)]
+    unsafe fn fetch_read_only_archetype_row<'w>(
+        world: QueryCapability<'w>,
+        binding: &QueryReadOnlyArchetypeBinding,
+        row: usize,
+    ) -> Option<Self::Item<'w>>;
 
     /// # Safety
     /// The caller must uphold the access guarantees described by `Self::append_access`.
@@ -225,6 +256,10 @@ where
         T::mark_changed_fast(world, entity, cache);
     }
 
+    fn supports_read_only_archetype_spans() -> bool {
+        T::supports_read_only_archetype_spans()
+    }
+
     fn supports_archetype_execution() -> bool {
         T::supports_archetype_execution()
     }
@@ -247,12 +282,47 @@ where
         unsafe { T::fetch(world, entity) }
     }
 
+    unsafe fn fetch_read_only_archetype_row<'w>(
+        world: QueryCapability<'w>,
+        binding: &QueryReadOnlyArchetypeBinding,
+        row: usize,
+    ) -> Option<Self::Item<'w>> {
+        unsafe { T::fetch_read_only_archetype_row(world, binding, row) }
+    }
+
     unsafe fn fetch_fast<'w>(
         world: QueryCapability<'w>,
         entity: Entity,
         cache: &mut QueryFastCache,
     ) -> Option<Self::Item<'w>> {
         unsafe { T::fetch_fast(world, entity, cache) }
+    }
+}
+
+#[doc(hidden)]
+pub struct QueryReadOnlyArchetypeBinding {
+    span: ContiguousArchetypeSpan,
+}
+
+impl QueryReadOnlyArchetypeBinding {
+    fn new(span: ContiguousArchetypeSpan) -> Self {
+        Self { span }
+    }
+
+    fn len(&self) -> usize {
+        self.span.row_count()
+    }
+
+    pub(crate) fn entity_at(&self, row: usize) -> Option<Entity> {
+        self.span.entity_at(row)
+    }
+
+    pub(crate) fn component_ptr_at<T: Component>(
+        &self,
+        component_index: usize,
+        row: usize,
+    ) -> Option<*const T> {
+        self.span.component_ptr_at::<T>(component_index, row)
     }
 }
 
@@ -274,6 +344,7 @@ pub struct QueryFastCache {
 
 pub struct QueryState<Q, F = ()> {
     world_scope: Cell<Option<WorldScopeId>>,
+    query_types: Vec<TypeId>,
     required_present: Vec<TypeId>,
     excluded: Vec<TypeId>,
     access: QueryAccess,
@@ -281,6 +352,7 @@ pub struct QueryState<Q, F = ()> {
     scratch_pool: RefCell<Vec<Vec<Entity>>>,
     archetype_row_scratch_pool: RefCell<Vec<Vec<QueryArchetypeRow>>>,
     fast_fetch_enabled: bool,
+    read_only_archetype_spans_enabled: bool,
     archetype_execution_enabled: bool,
     fast_cache: RefCell<QueryFastCache>,
     _marker: PhantomData<fn() -> (Q, F)>,
@@ -420,8 +492,37 @@ impl<Q: QuerySpec, F: QueryFilter> QueryState<Q, F> {
             .last_run_tick
             .get()
             .expect("query state must be bound before iteration");
-        let (use_fast_fetch, mut fast_cache) = self.prepare_fast_fetch(world);
 
+        if self.read_only_archetype_spans_enabled
+            && let Some(spans) = world.collect_read_only_query_spans(
+                &self.required_present,
+                &self.excluded,
+                &self.query_types,
+            )
+        {
+            let bindings = spans
+                .into_iter()
+                .map(QueryReadOnlyArchetypeBinding::new)
+                .collect();
+            self.last_run_tick.set(Some(world.current_change_tick()));
+            return QueryIter {
+                world,
+                read_only_archetype_bindings: Some(bindings),
+                entities: None,
+                archetype_rows: None,
+                scratch_pool: &self.scratch_pool,
+                archetype_row_scratch_pool: &self.archetype_row_scratch_pool,
+                use_fast_fetch: false,
+                fast_cache: QueryFastCache::default(),
+                since_tick,
+                binding_index: 0,
+                binding_row: 0,
+                index: 0,
+                _marker: PhantomData,
+            };
+        }
+
+        let (use_fast_fetch, mut fast_cache) = self.prepare_fast_fetch(world);
         if self.archetype_execution_enabled {
             let mut rows = self.acquire_archetype_row_vec();
             if Q::collect_archetype_rows(
@@ -437,12 +538,16 @@ impl<Q: QuerySpec, F: QueryFilter> QueryState<Q, F> {
                 self.last_run_tick.set(Some(world.current_change_tick()));
                 return QueryIter {
                     world,
+                    read_only_archetype_bindings: None,
                     entities: None,
                     archetype_rows: Some(rows),
                     scratch_pool: &self.scratch_pool,
                     archetype_row_scratch_pool: &self.archetype_row_scratch_pool,
                     use_fast_fetch,
                     fast_cache,
+                    since_tick,
+                    binding_index: 0,
+                    binding_row: 0,
                     index: 0,
                     _marker: PhantomData,
                 };
@@ -456,12 +561,16 @@ impl<Q: QuerySpec, F: QueryFilter> QueryState<Q, F> {
         self.last_run_tick.set(Some(world.current_change_tick()));
         QueryIter {
             world,
+            read_only_archetype_bindings: None,
             entities: Some(entities),
             archetype_rows: None,
             scratch_pool: &self.scratch_pool,
             archetype_row_scratch_pool: &self.archetype_row_scratch_pool,
             use_fast_fetch,
             fast_cache,
+            since_tick,
+            binding_index: 0,
+            binding_row: 0,
             index: 0,
             _marker: PhantomData,
         }
@@ -541,8 +650,12 @@ impl<Q: QuerySpec, F: QueryFilter> QueryState<Q, F> {
         // from the alias proof captured from Q itself.
         access.restore_borrow_checkpoint(query_borrow_checkpoint);
 
+        let read_only_archetype_spans_enabled =
+            Q::supports_read_only_archetype_spans() && access.component_writes().is_empty();
+
         Self {
             world_scope: Cell::new(world_scope),
+            query_types,
             required_present,
             excluded,
             access,
@@ -550,6 +663,7 @@ impl<Q: QuerySpec, F: QueryFilter> QueryState<Q, F> {
             scratch_pool: RefCell::new(Vec::new()),
             archetype_row_scratch_pool: RefCell::new(Vec::new()),
             fast_fetch_enabled: Q::supports_fast_path(),
+            read_only_archetype_spans_enabled,
             archetype_execution_enabled: Q::supports_archetype_execution(),
             fast_cache: RefCell::new(QueryFastCache::default()),
             _marker: PhantomData,
@@ -680,12 +794,16 @@ impl<'world, 'state, Q: QuerySpec, F: QueryFilter> Query<'world, 'state, Q, F> {
 
 struct QueryIter<'w, 'state, Q: QuerySpec, F> {
     world: QueryCapability<'w>,
+    read_only_archetype_bindings: Option<Vec<QueryReadOnlyArchetypeBinding>>,
     entities: Option<Vec<Entity>>,
     archetype_rows: Option<Vec<QueryArchetypeRow>>,
     scratch_pool: &'state RefCell<Vec<Vec<Entity>>>,
     archetype_row_scratch_pool: &'state RefCell<Vec<Vec<QueryArchetypeRow>>>,
     use_fast_fetch: bool,
     fast_cache: QueryFastCache,
+    since_tick: ChangeCursor,
+    binding_index: usize,
+    binding_row: usize,
     index: usize,
     _marker: PhantomData<QueryIterMarker<'w, 'state, Q, F>>,
 }
@@ -706,10 +824,40 @@ impl<'w, 'state, Q: QuerySpec, F> QueryIter<'w, 'state, Q, F> {
     }
 }
 
-impl<'w, 'state, Q: QuerySpec, F> Iterator for QueryIter<'w, 'state, Q, F> {
+impl<'w, 'state, Q: QuerySpec, F: QueryFilter> Iterator for QueryIter<'w, 'state, Q, F> {
     type Item = Q::Item<'w>;
 
     fn next(&mut self) -> Option<Self::Item> {
+        if let Some(bindings) = self.read_only_archetype_bindings.as_ref() {
+            loop {
+                let binding = bindings.get(self.binding_index)?;
+                if self.binding_row >= binding.len() {
+                    self.binding_index += 1;
+                    self.binding_row = 0;
+                    continue;
+                }
+
+                let row = self.binding_row;
+                self.binding_row += 1;
+                let entity = binding
+                    .entity_at(row)
+                    .expect("validated read-only archetype row must contain an entity");
+                if F::needs_tick_filter() && !F::matches_entity(self.world, entity, self.since_tick)
+                {
+                    continue;
+                }
+
+                // Safety: the binding was projected from this serial query
+                // capability for Q's exact data component types, and row is
+                // within the preflighted archetype range.
+                let item = unsafe { Q::fetch_read_only_archetype_row(self.world, binding, row) }
+                    .expect(
+                        "validated read-only archetype row must contain every projected component",
+                    );
+                return Some(item);
+            }
+        }
+
         if let Some(rows) = self.archetype_rows.as_ref() {
             let rows_ptr = rows.as_ptr();
             let rows_len = rows.len();

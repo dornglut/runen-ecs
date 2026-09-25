@@ -1,7 +1,8 @@
 // Owner: RunenECS - Query Runtime
 use super::access_and_filters::QueryAccess;
 use super::traits_and_state::{
-    QueryArchetypeRow, QueryData, QueryFastCache, TransferableQueryData,
+    QueryArchetypeRow, QueryData, QueryFastCache, QueryReadOnlyArchetypeBinding,
+    TransferableQueryData,
 };
 use crate::component::Component;
 use crate::entity::Entity;
@@ -40,6 +41,10 @@ fn collect_rows_from_bindings(
 impl<T: Component> QueryData for &T {
     type Item<'w> = &'w T;
 
+    fn supports_read_only_archetype_spans() -> bool {
+        true
+    }
+
     fn supports_contiguous_segments() -> bool {
         true
     }
@@ -67,6 +72,15 @@ impl<T: Component> QueryData for &T {
 
     unsafe fn fetch<'w>(world: QueryCapability<'w>, entity: Entity) -> Option<Self::Item<'w>> {
         world.component::<T>(entity)
+    }
+
+    unsafe fn fetch_read_only_archetype_row<'w>(
+        _world: QueryCapability<'w>,
+        binding: &QueryReadOnlyArchetypeBinding,
+        row: usize,
+    ) -> Option<Self::Item<'w>> {
+        let ptr = binding.component_ptr_at::<T>(0, row)?;
+        Some(unsafe { &*ptr })
     }
 
     unsafe fn fetch_fast<'w>(
@@ -162,6 +176,10 @@ impl<T: Component> QueryData for &mut T {
 impl<T: Component> QueryData for (Entity, &T) {
     type Item<'w> = (Entity, &'w T);
 
+    fn supports_read_only_archetype_spans() -> bool {
+        true
+    }
+
     fn supports_contiguous_segments() -> bool {
         true
     }
@@ -176,6 +194,16 @@ impl<T: Component> QueryData for (Entity, &T) {
 
     unsafe fn fetch<'w>(world: QueryCapability<'w>, entity: Entity) -> Option<Self::Item<'w>> {
         world.component::<T>(entity).map(|value| (entity, value))
+    }
+
+    unsafe fn fetch_read_only_archetype_row<'w>(
+        _world: QueryCapability<'w>,
+        binding: &QueryReadOnlyArchetypeBinding,
+        row: usize,
+    ) -> Option<Self::Item<'w>> {
+        let entity = binding.entity_at(row)?;
+        let ptr = binding.component_ptr_at::<T>(0, row)?;
+        Some((entity, unsafe { &*ptr }))
     }
 }
 
@@ -207,6 +235,10 @@ impl<T: Component> QueryData for (Entity, &mut T) {
 impl<A: Component, B: Component> QueryData for (&A, &B) {
     type Item<'w> = (&'w A, &'w B);
 
+    fn supports_read_only_archetype_spans() -> bool {
+        true
+    }
+
     fn supports_contiguous_segments() -> bool {
         true
     }
@@ -224,6 +256,16 @@ impl<A: Component, B: Component> QueryData for (&A, &B) {
         let a = world.component::<A>(entity)?;
         let b = world.component::<B>(entity)?;
         Some((a, b))
+    }
+
+    unsafe fn fetch_read_only_archetype_row<'w>(
+        _world: QueryCapability<'w>,
+        binding: &QueryReadOnlyArchetypeBinding,
+        row: usize,
+    ) -> Option<Self::Item<'w>> {
+        let a = binding.component_ptr_at::<A>(0, row)?;
+        let b = binding.component_ptr_at::<B>(1, row)?;
+        Some(unsafe { (&*a, &*b) })
     }
 }
 
@@ -656,6 +698,10 @@ impl<T: Component> QueryData for (Entity, Option<&T>) {
 impl<A: Component, B: Component, C: Component> QueryData for (&A, &B, &C) {
     type Item<'w> = (&'w A, &'w B, &'w C);
 
+    fn supports_read_only_archetype_spans() -> bool {
+        true
+    }
+
     fn query_types() -> Vec<TypeId> {
         vec![TypeId::of::<A>(), TypeId::of::<B>(), TypeId::of::<C>()]
     }
@@ -671,6 +717,17 @@ impl<A: Component, B: Component, C: Component> QueryData for (&A, &B, &C) {
         let b = world.component::<B>(entity)?;
         let c = world.component::<C>(entity)?;
         Some((a, b, c))
+    }
+
+    unsafe fn fetch_read_only_archetype_row<'w>(
+        _world: QueryCapability<'w>,
+        binding: &QueryReadOnlyArchetypeBinding,
+        row: usize,
+    ) -> Option<Self::Item<'w>> {
+        let a = binding.component_ptr_at::<A>(0, row)?;
+        let b = binding.component_ptr_at::<B>(1, row)?;
+        let c = binding.component_ptr_at::<C>(2, row)?;
+        Some(unsafe { (&*a, &*b, &*c) })
     }
 }
 

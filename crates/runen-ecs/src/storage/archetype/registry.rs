@@ -29,6 +29,39 @@ pub(crate) struct ContiguousArchetypeSpan {
     pub(crate) components: Vec<ContiguousComponentSpan>,
 }
 
+impl ContiguousArchetypeSpan {
+    pub(crate) fn row_count(&self) -> usize {
+        self.row_count
+    }
+
+    pub(crate) fn entity_at(&self, row: usize) -> Option<Entity> {
+        if row >= self.row_count {
+            return None;
+        }
+        // Safety: span construction verifies that the entity allocation contains
+        // exactly `row_count` initialized entries and structural mutation is
+        // excluded for the lifetime of every consumer of this span.
+        Some(unsafe { *self.entities.as_ptr().add(row) })
+    }
+
+    pub(crate) fn component_ptr_at<T: Component>(
+        &self,
+        component_index: usize,
+        row: usize,
+    ) -> Option<*const T> {
+        if row >= self.row_count {
+            return None;
+        }
+        let component = self.components.get(component_index)?;
+        if component.component_type != TypeId::of::<T>() || component.row_count != self.row_count {
+            return None;
+        }
+        // Safety: span construction proves this allocation is the requested
+        // typed column and has exactly `row_count` initialized entries.
+        Some(unsafe { component.values.cast::<T>().as_ptr().add(row) })
+    }
+}
+
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub(crate) struct ArchetypeId(usize);
 

@@ -1,8 +1,8 @@
-error[E0046]: not all trait items implemented, missing: `Item`, `query_types`, `append_access`, `mark_changed`, `supports_fast_path`, `prepare_fast_cache`, `mark_changed_fast`, `supports_archetype_execution`, `supports_contiguous_segments`, `collect_archetype_rows`, `fetch`, `fetch_fast`
+error[E0046]: not all trait items implemented, missing: `Item`, `query_types`, `append_access`, `mark_changed`, `supports_fast_path`, `prepare_fast_cache`, `mark_changed_fast`, `supports_read_only_archetype_spans`, `supports_archetype_execution`, `supports_contiguous_segments`, `collect_archetype_rows`, `fetch`, `fetch_read_only_archetype_row`, `fetch_fast`
  --> tests/ui/sealed_query_spec.rs:5:1
   |
 5 | impl QuerySpec for UnsupportedQuery {}
-  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ missing `Item`, `query_types`, `append_access`, `mark_changed`, `supports_fast_path`, `prepare_fast_cache`, `mark_changed_fast`, `supports_archetype_execution`, `supports_contiguous_segments`, `collect_archetype_rows`, `fetch`, `fetch_fast` in implementation
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ missing `Item`, `query_types`, `append_access`, `mark_changed`, `supports_fast_path`, `prepare_fast_cache`, `mark_changed_fast`, `supports_read_only_archetype_spans`, `supports_archetype_execution`, `supports_contiguous_segments`, `collect_archetype_rows`, `fetch`, `fetch_read_only_archetype_row`, `fetch_fast` in implementation
   |
   = help: implement the missing item: `type Item<'w> = /* Type */;`
   = help: implement the missing item: `fn query_types() -> Vec<TypeId> { todo!() }`
@@ -11,10 +11,12 @@ error[E0046]: not all trait items implemented, missing: `Item`, `query_types`, `
   = help: implement the missing item: `fn supports_fast_path() -> bool { todo!() }`
   = help: implement the missing item: `fn prepare_fast_cache(_: runen_ecs::world::capability::QueryCapability<'_>, _: &mut query::traits_and_state::QueryFastCache) -> bool { todo!() }`
   = help: implement the missing item: `fn mark_changed_fast(_: runen_ecs::world::capability::QueryCapability<'_>, _: runen_ecs::Entity, _: &mut query::traits_and_state::QueryFastCache) { todo!() }`
+  = help: implement the missing item: `fn supports_read_only_archetype_spans() -> bool { todo!() }`
   = help: implement the missing item: `fn supports_archetype_execution() -> bool { todo!() }`
   = help: implement the missing item: `fn supports_contiguous_segments() -> bool { todo!() }`
   = help: implement the missing item: `fn collect_archetype_rows(_: runen_ecs::world::capability::QueryCapability<'_>, _: &[TypeId], _: &[TypeId], _: &mut Vec<query::traits_and_state::QueryArchetypeRow>, _: &mut query::traits_and_state::QueryFastCache) -> bool { todo!() }`
   = help: implement the missing item: `unsafe fn fetch(_: runen_ecs::world::capability::QueryCapability<'w>, _: runen_ecs::Entity) -> Option<<Self as runen_ecs::query::QuerySpec>::Item<'w>> { todo!() }`
+  = help: implement the missing item: `unsafe fn fetch_read_only_archetype_row(_: runen_ecs::world::capability::QueryCapability<'w>, _: &query::traits_and_state::QueryReadOnlyArchetypeBinding, _: usize) -> Option<<Self as runen_ecs::query::QuerySpec>::Item<'w>> { todo!() }`
   = help: implement the missing item: `unsafe fn fetch_fast(_: runen_ecs::world::capability::QueryCapability<'w>, _: runen_ecs::Entity, _: &mut query::traits_and_state::QueryFastCache) -> Option<<Self as runen_ecs::query::QuerySpec>::Item<'w>> { todo!() }`
 
 error[E0277]: the trait bound `UnsupportedQuery: query::traits_and_state::sealed::QuerySpecSealed` is not satisfied
