@@ -278,17 +278,19 @@ impl<'world> QueryCapability<'world> {
                         }
                     } else {
                         // Journal-backed ordinary queries publish mutable exposure
-                        // through the invocation journal. Reuse the exact validated
-                        // exclusive span collector without capturing row changed-tick
-                        // pointers; the sealed query shape still owns which projected
-                        // columns are mutable.
+                        // through the invocation journal. Preserve exact shared versus
+                        // mutable column provenance without capturing row changed-tick
+                        // pointers.
                         unsafe {
-                            serial.archetype_registry.as_mut().collect_contiguous_spans(
-                                required_present,
-                                excluded,
-                                component_types,
-                                &[],
-                            )
+                            serial
+                                .archetype_registry
+                                .as_mut()
+                                .collect_journal_query_spans(
+                                    required_present,
+                                    excluded,
+                                    component_types,
+                                    mutable_types,
+                                )
                         }
                     }
                 }

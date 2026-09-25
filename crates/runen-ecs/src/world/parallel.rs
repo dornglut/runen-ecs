@@ -243,28 +243,22 @@ impl<'world> WorkerWorldBuilder<'world> {
         }
 
         let world = unsafe { self.world.as_mut() };
-        let spans = if mutable_types.is_empty() {
-            world.archetype_registry.collect_contiguous_spans_shared(
+        // Worker mutations publish through the invocation-local MutationJournal,
+        // so the projection needs exact shared/mutable payload bases but no
+        // row changed-tick pointers.
+        let spans = world
+            .archetype_registry
+            .collect_journal_query_spans(
                 required_present,
                 excluded,
                 component_types,
-                &[],
+                mutable_types,
             )
-        } else {
-            // Worker mutations publish through the invocation-local
-            // MutationJournal, so no row changed-tick pointers are needed.
-            world.archetype_registry.collect_contiguous_spans(
-                required_present,
-                excluded,
-                component_types,
-                &[],
-            )
-        }
-        .unwrap_or_else(|()| {
-            panic_worker_projection_violation(
-                "worker query projection violated archetype storage invariants",
-            )
-        });
+            .unwrap_or_else(|()| {
+                panic_worker_projection_violation(
+                    "worker query projection violated archetype storage invariants",
+                )
+            });
 
         self.query_projections
             .insert(key, PreparedWorkerQueryProjection { spans });
