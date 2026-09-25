@@ -493,33 +493,33 @@ impl<Q: QuerySpec, F: QueryFilter> QueryState<Q, F> {
             .get()
             .expect("query state must be bound before iteration");
 
-        if self.read_only_archetype_spans_enabled {
-            if let Some(spans) = world.collect_read_only_query_spans(
+        if self.read_only_archetype_spans_enabled
+            && let Some(spans) = world.collect_read_only_query_spans(
                 &self.required_present,
                 &self.excluded,
                 &self.query_types,
-            ) {
-                let bindings = spans
-                    .into_iter()
-                    .map(QueryReadOnlyArchetypeBinding::new)
-                    .collect();
-                self.last_run_tick.set(Some(world.current_change_tick()));
-                return QueryIter {
-                    world,
-                    read_only_archetype_bindings: Some(bindings),
-                    entities: None,
-                    archetype_rows: None,
-                    scratch_pool: &self.scratch_pool,
-                    archetype_row_scratch_pool: &self.archetype_row_scratch_pool,
-                    use_fast_fetch: false,
-                    fast_cache: QueryFastCache::default(),
-                    since_tick,
-                    binding_index: 0,
-                    binding_row: 0,
-                    index: 0,
-                    _marker: PhantomData,
-                };
-            }
+            )
+        {
+            let bindings = spans
+                .into_iter()
+                .map(QueryReadOnlyArchetypeBinding::new)
+                .collect();
+            self.last_run_tick.set(Some(world.current_change_tick()));
+            return QueryIter {
+                world,
+                read_only_archetype_bindings: Some(bindings),
+                entities: None,
+                archetype_rows: None,
+                scratch_pool: &self.scratch_pool,
+                archetype_row_scratch_pool: &self.archetype_row_scratch_pool,
+                use_fast_fetch: false,
+                fast_cache: QueryFastCache::default(),
+                since_tick,
+                binding_index: 0,
+                binding_row: 0,
+                index: 0,
+                _marker: PhantomData,
+            };
         }
 
         let (use_fast_fetch, mut fast_cache) = self.prepare_fast_fetch(world);
@@ -828,12 +828,8 @@ impl<'w, 'state, Q: QuerySpec, F: QueryFilter> Iterator for QueryIter<'w, 'state
     type Item = Q::Item<'w>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.read_only_archetype_bindings.is_some() {
+        if let Some(bindings) = self.read_only_archetype_bindings.as_ref() {
             loop {
-                let bindings = self
-                    .read_only_archetype_bindings
-                    .as_ref()
-                    .expect("read-only archetype bindings must remain present");
                 let binding = bindings.get(self.binding_index)?;
                 if self.binding_row >= binding.len() {
                     self.binding_index += 1;
