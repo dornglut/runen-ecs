@@ -10,7 +10,8 @@ use super::{ChangeCursor, QueryCapability, ResourceCapability, World};
 use crate::component::{Component, Resource};
 use crate::entity::{Entity, EntityValidationSnapshot, WorldScopeId};
 use crate::errors::ResourceError;
-use crate::storage::ContiguousArchetypeSpan;
+use crate::storage::archetype::ArchetypeId;
+use crate::storage::{ContiguousArchetypeSpan, EntityLocationMap};
 use std::any::{Any, TypeId, type_name};
 use std::collections::{BTreeSet, HashMap};
 use std::marker::PhantomData;
@@ -36,6 +37,7 @@ struct MutableComponentProjection<T: Component> {
 #[derive(Debug, Clone)]
 struct PreparedWorkerQueryProjection {
     spans: Vec<ContiguousArchetypeSpan>,
+    span_indices: HashMap<ArchetypeId, usize>,
 }
 
 // Safety: construction is restricted to the invoker-owned structural lease and
@@ -257,8 +259,19 @@ impl<'world> WorkerWorldBuilder<'world> {
                 )
             });
 
-        self.query_projections
-            .insert(key, PreparedWorkerQueryProjection { spans });
+        let span_indices = spans
+            .iter()
+            .enumerate()
+            .map(|(index, span)| (span.archetype_id, index))
+            .collect();
+
+        self.query_projections.insert(
+            key,
+            PreparedWorkerQueryProjection {
+                spans,
+                span_indices,
+            },
+        );
     }
 
     pub(crate) fn prepare_component_read<T: Component + Sync>(&mut self) {
@@ -461,6 +474,14 @@ impl<'world> WorkerWorldBuilder<'world> {
     }
 
     pub(crate) fn finish(self) -> PreparedWorkerWorld<'world> {
+        // Project the independently allocated location map only after this
+        // system's preparation is complete. Later cohort preparation may
+        // reborrow World, but cannot invalidate the boxed map allocation.
+        let entity_locations = {
+            let world = unsafe { self.world.as_ref() };
+            NonNull::from(world.entity_locations.as_ref())
+        };
+
         PreparedWorkerWorld {
             world_scope: self.world_scope,
             change_cursor: self.change_cursor,
@@ -470,6 +491,7 @@ impl<'world> WorkerWorldBuilder<'world> {
             component_reads: self.component_reads,
             component_writes: self.component_writes,
             component_metadata: self.component_metadata,
+            entity_locations,
             query_projections: self.query_projections,
             removed_records: self.removed_records,
             resource_reads: self.resource_reads,
@@ -492,6 +514,7 @@ pub(crate) struct PreparedWorkerWorld<'world> {
     component_reads: HashMap<TypeId, ErasedWorkerProjection>,
     component_writes: HashMap<TypeId, ErasedWorkerProjection>,
     component_metadata: WorkerComponentMetadata,
+    entity_locations: NonNull<EntityLocationMap>,
     query_projections: HashMap<TypeId, PreparedWorkerQueryProjection>,
     removed_records: HashMap<TypeId, Vec<(Entity, ChangeCursor)>>,
     resource_reads: HashMap<TypeId, ErasedWorkerProjection>,
@@ -503,9 +526,14 @@ pub(crate) struct PreparedWorkerWorld<'world> {
 
 // Safety: every erased payload entry is itself `Send` because it was created by
 // a type-directed constructor carrying the exact `T: Sync` shared-access or
-// `T: Send` exclusive-access proof. Metadata is copied and contains no payload.
-// The phantom lifetime ties this package to the invoker-owned structural lease;
-// no pointer to World or any heterogeneous payload-owning container is stored.
+// `T: Send` exclusive-access proof. The entity-location pointer targets an
+// independently allocated map whose address and borrow provenance are not affected
+// by later field-disjoint preparation reborrows of the containing World. The
+// invoker-owned structural lease prevents location mutation or rehash while any
+// worker package is live; worker APIs can only copy one requested location and must
+// revalidate it against the exact prepared query projection before payload access.
+// The phantom lifetime keeps the package inside that structural-freeze scope; no
+// pointer to World or heterogeneous payload-owning container is stored.
 unsafe impl Send for PreparedWorkerWorld<'_> {}
 
 impl PreparedWorkerWorld<'_> {
@@ -523,6 +551,7 @@ impl PreparedWorkerWorld<'_> {
                 component_reads: NonNull::from(&mut self.component_reads),
                 component_writes: NonNull::from(&mut self.component_writes),
                 component_metadata: NonNull::from(&mut self.component_metadata),
+                entity_locations: self.entity_locations,
                 query_projections: NonNull::from(&mut self.query_projections),
                 query_projection_key: None,
                 removed_records: NonNull::from(&mut self.removed_records),
@@ -643,6 +672,7 @@ pub(crate) struct WorkerQueryCapability<'world> {
     component_reads: NonNull<HashMap<TypeId, ErasedWorkerProjection>>,
     component_writes: NonNull<HashMap<TypeId, ErasedWorkerProjection>>,
     component_metadata: NonNull<WorkerComponentMetadata>,
+    entity_locations: NonNull<EntityLocationMap>,
     query_projections: NonNull<HashMap<TypeId, PreparedWorkerQueryProjection>>,
     query_projection_key: Option<TypeId>,
     removed_records: NonNull<HashMap<TypeId, Vec<(Entity, ChangeCursor)>>>,
@@ -659,12 +689,41 @@ impl<'world> WorkerQueryCapability<'world> {
         self.world_scope
     }
 
+    pub(crate) fn has_prepared_query_projection(self) -> bool {
+        let Some(key) = self.query_projection_key else {
+            return false;
+        };
+        let projections = unsafe { self.query_projections.as_ref() };
+        projections.contains_key(&key)
+    }
+
     pub(crate) fn prepared_query_spans(self) -> Option<Vec<ContiguousArchetypeSpan>> {
         let key = self.query_projection_key?;
         let projections = unsafe { self.query_projections.as_ref() };
         projections
             .get(&key)
             .map(|projection| projection.spans.clone())
+    }
+
+    pub(crate) fn prepared_query_span_for_entity(
+        self,
+        entity: Entity,
+    ) -> Option<(ContiguousArchetypeSpan, usize)> {
+        let key = self.query_projection_key?;
+        let locations = unsafe { self.entity_locations.as_ref() };
+        let location = locations.get(entity)?;
+        let projections = unsafe { self.query_projections.as_ref() };
+        let projection = projections.get(&key)?;
+        let span_index = *projection.span_indices.get(&location.archetype_id)?;
+        let span = projection.spans.get(span_index)?;
+
+        if span.entity_at(location.row) != Some(entity) {
+            panic_worker_projection_violation(
+                "worker query point locator disagreed with the prepared archetype row",
+            );
+        }
+
+        Some((span.clone(), location.row))
     }
 
     pub(crate) fn matching_entities_into(

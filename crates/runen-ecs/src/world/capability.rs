@@ -127,7 +127,7 @@ impl<'world> QueryCapability<'world> {
                 world_mutable: false,
                 alive_entities: NonNull::from(&world.alive_entities),
                 archetype_registry: NonNull::from(&world.archetype_registry),
-                entity_locations: NonNull::from(&world.entity_locations),
+                entity_locations: NonNull::from(world.entity_locations.as_ref()),
                 component_indexes: NonNull::from(&world.component_indexes),
                 change_tick: NonNull::from(&world.change_tick),
                 component_change_ticks: NonNull::from(&world.component_change_ticks),
@@ -145,7 +145,7 @@ impl<'world> QueryCapability<'world> {
                 world_mutable: true,
                 alive_entities: NonNull::from(&mut world.alive_entities),
                 archetype_registry: NonNull::from(&mut world.archetype_registry),
-                entity_locations: NonNull::from(&mut world.entity_locations),
+                entity_locations: NonNull::from(world.entity_locations.as_mut()),
                 component_indexes: NonNull::from(&mut world.component_indexes),
                 change_tick: NonNull::from(&mut world.change_tick),
                 component_change_ticks: NonNull::from(&mut world.component_change_ticks),
@@ -178,9 +178,7 @@ impl<'world> QueryCapability<'world> {
                 archetype_registry: unsafe {
                     NonNull::new_unchecked(std::ptr::addr_of_mut!((*world_ptr).archetype_registry))
                 },
-                entity_locations: unsafe {
-                    NonNull::new_unchecked(std::ptr::addr_of_mut!((*world_ptr).entity_locations))
-                },
+                entity_locations: unsafe { NonNull::from((*world_ptr).entity_locations.as_mut()) },
                 component_indexes: unsafe {
                     NonNull::new_unchecked(std::ptr::addr_of_mut!((*world_ptr).component_indexes))
                 },
@@ -305,10 +303,27 @@ impl<'world> QueryCapability<'world> {
         }
     }
 
+    pub(crate) fn has_prepared_worker_query_projection(self) -> bool {
+        match self.backing {
+            QueryCapabilityBacking::Serial(_) => false,
+            QueryCapabilityBacking::Worker(worker) => worker.has_prepared_query_projection(),
+        }
+    }
+
     pub(crate) fn prepared_worker_query_spans(self) -> Option<Vec<ContiguousArchetypeSpan>> {
         match self.backing {
             QueryCapabilityBacking::Serial(_) => None,
             QueryCapabilityBacking::Worker(worker) => worker.prepared_query_spans(),
+        }
+    }
+
+    pub(crate) fn prepared_worker_query_span_for_entity(
+        self,
+        entity: Entity,
+    ) -> Option<(ContiguousArchetypeSpan, usize)> {
+        match self.backing {
+            QueryCapabilityBacking::Serial(_) => None,
+            QueryCapabilityBacking::Worker(worker) => worker.prepared_query_span_for_entity(entity),
         }
     }
 
