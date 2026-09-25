@@ -248,12 +248,7 @@ impl<'world> WorkerWorldBuilder<'world> {
         // row changed-tick pointers.
         let spans = world
             .archetype_registry
-            .collect_journal_query_spans(
-                required_present,
-                excluded,
-                component_types,
-                mutable_types,
-            )
+            .collect_journal_query_spans(required_present, excluded, component_types, mutable_types)
             .unwrap_or_else(|()| {
                 panic_worker_projection_violation(
                     "worker query projection violated archetype storage invariants",
