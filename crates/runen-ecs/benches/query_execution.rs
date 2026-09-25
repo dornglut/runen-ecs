@@ -21,6 +21,84 @@ fn build_world(count: usize) -> World {
     world
 }
 
+#[derive(Debug, Copy, Clone)]
+enum LookupTarget {
+    Early,
+    Middle,
+    Late,
+    NonMember,
+}
+
+struct LookupFixture {
+    world: World,
+    early: Entity,
+    middle: Entity,
+    late: Entity,
+    non_member: Entity,
+}
+
+impl LookupFixture {
+    fn target(&self, target: LookupTarget) -> Entity {
+        match target {
+            LookupTarget::Early => self.early,
+            LookupTarget::Middle => self.middle,
+            LookupTarget::Late => self.late,
+            LookupTarget::NonMember => self.non_member,
+        }
+    }
+}
+
+fn build_lookup_world(count: usize) -> LookupFixture {
+    assert!(
+        count >= 3,
+        "lookup benchmark requires early, middle, and late rows"
+    );
+
+    let middle_index = count / 2;
+    let mut world = World::new();
+    let mut early = None;
+    let mut middle = None;
+    let mut late = None;
+
+    for index in 0..count {
+        let entity = world.spawn((Position(index as u32), Velocity(1))).unwrap();
+        if index == 0 {
+            early = Some(entity);
+        }
+        if index == middle_index {
+            middle = Some(entity);
+        }
+        if index + 1 == count {
+            late = Some(entity);
+        }
+    }
+
+    let early = early.expect("lookup fixture must contain an early row");
+    let middle = middle.expect("lookup fixture must contain a middle row");
+    let late = late.expect("lookup fixture must contain a late row");
+    let non_member = world.spawn(Velocity(1)).unwrap();
+
+    let query = world.query::<&Position>();
+    assert_eq!(query.get(&world, early).map(|position| position.0), Some(0));
+    assert_eq!(
+        query.get(&world, middle).map(|position| position.0),
+        Some(middle_index as u32)
+    );
+    assert_eq!(
+        query.get(&world, late).map(|position| position.0),
+        Some((count - 1) as u32)
+    );
+    assert!(query.get(&world, non_member).is_none());
+
+    LookupFixture {
+        world,
+        early,
+        middle,
+        late,
+        non_member,
+    }
+}
+
 fn position_checksum(world: &World) -> u64 {
     world
         .query::<&Position>()
@@ -85,6 +163,17 @@ fn read_only_parameter_runtime() -> Runtime {
     let mut runtime = Runtime::new();
     runtime
         .add_systems(Measure, receive_read_only_query)
+        .unwrap();
+    runtime.validate().unwrap();
+    runtime
+}
+
+fn read_only_get_runtime(entity: Entity) -> Runtime {
+    let mut runtime = Runtime::new();
+    runtime
+        .add_systems(Measure, move |mut query: Query<&Position>| {
+            let _ = black_box(query.get(entity).map(|position| position.0));
+        })
         .unwrap();
     runtime.validate().unwrap();
     runtime
@@ -300,6 +389,50 @@ fn bench_serial_read_only_schedule(c: &mut Criterion) {
     });
 }
 
+fn bench_serial_read_only_parameter_schedule(c: &mut Criterion) {
+    let mut world = build_world(QUERY_ENTITY_COUNT);
+    let mut runtime = read_only_parameter_runtime();
+
+    c.bench_function(
+        "serial_schedule_read_only_query_parameter_only_10000",
+        |b| b.iter(|| runtime.run_schedule::<Measure>(&mut world).unwrap()),
+    );
+}
+
+fn bench_serial_read_only_get_case(c: &mut Criterion, name: &'static str, target: LookupTarget) {
+    let fixture = build_lookup_world(QUERY_ENTITY_COUNT);
+    let entity = fixture.target(target);
+    let mut world = fixture.world;
+    let mut runtime = read_only_get_runtime(entity);
+
+    c.bench_function(name, |b| {
+        b.iter(|| runtime.run_schedule::<Measure>(&mut world).unwrap())
+    });
+}
+
+fn bench_serial_read_only_get(c: &mut Criterion) {
+    bench_serial_read_only_get_case(
+        c,
+        "serial_schedule_read_only_query_get_early_10000",
+        LookupTarget::Early,
+    );
+    bench_serial_read_only_get_case(
+        c,
+        "serial_schedule_read_only_query_get_middle_10000",
+        LookupTarget::Middle,
+    );
+    bench_serial_read_only_get_case(
+        c,
+        "serial_schedule_read_only_query_get_late_10000",
+        LookupTarget::Late,
+    );
+    bench_serial_read_only_get_case(
+        c,
+        "serial_schedule_read_only_query_get_non_member_10000",
+        LookupTarget::NonMember,
+    );
+}
+
 fn bench_serial_mutable_schedule(c: &mut Criterion) {
     let mut world = build_world(QUERY_ENTITY_COUNT);
     let mut runtime = mutable_runtime();
@@ -378,6 +511,44 @@ fn bench_parallel_read_only_schedule(c: &mut Criterion) {
     });
 }
 
+fn bench_parallel_read_only_get_case(c: &mut Criterion, name: &'static str, target: LookupTarget) {
+    let fixture = build_lookup_world(QUERY_ENTITY_COUNT);
+    let entity = fixture.target(target);
+    let mut world = fixture.world;
+    let mut runtime = read_only_get_runtime(entity);
+
+    c.bench_function(name, |b| {
+        b.iter(|| {
+            runtime
+                .run_schedule_parallel::<Measure>(&mut world, 1)
+                .unwrap()
+        })
+    });
+}
+
+fn bench_parallel_read_only_get(c: &mut Criterion) {
+    bench_parallel_read_only_get_case(
+        c,
+        "parallel_schedule_read_only_query_get_early_10000_worker_1",
+        LookupTarget::Early,
+    );
+    bench_parallel_read_only_get_case(
+        c,
+        "parallel_schedule_read_only_query_get_middle_10000_worker_1",
+        LookupTarget::Middle,
+    );
+    bench_parallel_read_only_get_case(
+        c,
+        "parallel_schedule_read_only_query_get_late_10000_worker_1",
+        LookupTarget::Late,
+    );
+    bench_parallel_read_only_get_case(
+        c,
+        "parallel_schedule_read_only_query_get_non_member_10000_worker_1",
+        LookupTarget::NonMember,
+    );
+}
+
 fn bench_parallel_mutable_parameter_schedule(c: &mut Criterion) {
     let mut world = build_world(QUERY_ENTITY_COUNT);
     let mut runtime = mutable_parameter_runtime();
@@ -445,6 +616,8 @@ criterion_group!(
     bench_direct_mutable_read,
     bench_serial_no_op_schedule,
     bench_serial_read_only_schedule,
+    bench_serial_read_only_parameter_schedule,
+    bench_serial_read_only_get,
     bench_serial_mutable_schedule,
     bench_serial_mutable_parameter_schedule,
     bench_serial_mutable_yield_only_schedule,
@@ -452,6 +625,7 @@ criterion_group!(
     bench_parallel_no_op_schedule,
     bench_parallel_read_only_parameter_schedule,
     bench_parallel_read_only_schedule,
+    bench_parallel_read_only_get,
     bench_parallel_mutable_parameter_schedule,
     bench_parallel_mutable_schedule,
     bench_parallel_mutable_yield_only_schedule,
