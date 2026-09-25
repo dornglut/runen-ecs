@@ -278,17 +278,19 @@ impl<'world> QueryCapability<'world> {
                         }
                     } else {
                         // Journal-backed ordinary queries publish mutable exposure
-                        // through the invocation journal. Reuse the exact validated
-                        // exclusive span collector without capturing row changed-tick
-                        // pointers; the sealed query shape still owns which projected
-                        // columns are mutable.
+                        // through the invocation journal. Preserve exact shared versus
+                        // mutable column provenance without capturing row changed-tick
+                        // pointers.
                         unsafe {
-                            serial.archetype_registry.as_mut().collect_contiguous_spans(
-                                required_present,
-                                excluded,
-                                component_types,
-                                &[],
-                            )
+                            serial
+                                .archetype_registry
+                                .as_mut()
+                                .collect_journal_query_spans(
+                                    required_present,
+                                    excluded,
+                                    component_types,
+                                    mutable_types,
+                                )
                         }
                     }
                 }
@@ -299,7 +301,14 @@ impl<'world> QueryCapability<'world> {
                 });
                 Some(spans)
             }
-            QueryCapabilityBacking::Worker(_) => None,
+            QueryCapabilityBacking::Worker(worker) => worker.prepared_query_spans(),
+        }
+    }
+
+    pub(crate) fn prepared_worker_query_spans(self) -> Option<Vec<ContiguousArchetypeSpan>> {
+        match self.backing {
+            QueryCapabilityBacking::Serial(_) => None,
+            QueryCapabilityBacking::Worker(worker) => worker.prepared_query_spans(),
         }
     }
 
@@ -343,7 +352,7 @@ impl<'world> QueryCapability<'world> {
         }
     }
 
-    pub(crate) fn mark_serial_query_component_modified(
+    pub(crate) fn mark_query_component_modified(
         self,
         entity: Entity,
         component_type: TypeId,
@@ -374,10 +383,11 @@ impl<'world> QueryCapability<'world> {
                 // component row while structural mutation is excluded.
                 unsafe { changed_tick.as_ptr().write(tick) };
             }
-            QueryCapabilityBacking::Serial(_) | QueryCapabilityBacking::Worker(_) => {
-                unreachable!(
-                    "serial mutable query row marking requires a mutable serial capability"
-                )
+            QueryCapabilityBacking::Worker(worker) => {
+                worker.mark_component_modified_by_id(entity, component_type);
+            }
+            QueryCapabilityBacking::Serial(_) => {
+                unreachable!("mutable query row marking requires a mutable capability")
             }
         }
     }

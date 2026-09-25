@@ -333,6 +333,33 @@ impl<Q: QuerySpec, F: QueryFilter> QueryState<Q, F> {
         &self.access
     }
 
+    pub(crate) fn prepare_worker_projection(&self, builder: &mut WorkerWorldBuilder<'_>) -> bool
+    where
+        Q: TransferableQueryData + 'static,
+        F: 'static,
+    {
+        if !self.serial_archetype_spans_enabled
+            || !F::supports_contiguous_segments()
+            || F::needs_tick_filter()
+        {
+            return false;
+        }
+
+        // Safety: Q's TransferableQueryData implementation is the
+        // framework-owned proof for the exact Sync/Send requirements of every
+        // payload projected by this query shape. The builder is invoker-local
+        // under the active structural lease.
+        unsafe {
+            builder.prepare_query_projection::<Q, F>(
+                &self.required_present,
+                &self.excluded,
+                &self.query_types,
+                &self.mutable_types,
+            );
+        }
+        true
+    }
+
     /// Fallibly expose one typed, row-aligned segment per matching archetype.
     ///
     /// The returned borrow excludes structural mutation of `world` until all
@@ -511,6 +538,26 @@ impl<Q: QuerySpec, F: QueryFilter> QueryState<Q, F> {
         Q: 'w,
     {
         self.rebind_world_scope(world.world_scope());
+
+        if self.serial_archetype_spans_enabled
+            && let Some(spans) = world.prepared_worker_query_spans()
+        {
+            self.last_run_tick.set(Some(world.current_change_tick()));
+            for span in spans {
+                let binding = QueryArchetypeBinding::new(span);
+                for row in 0..binding.len() {
+                    if binding.entity_at(row) != Some(entity) {
+                        continue;
+                    }
+                    Q::mark_changed_archetype_row(world, &binding, row);
+                    // Safety: this row belongs to the prepared projection for
+                    // this exact sealed query shape.
+                    return unsafe { Q::fetch_archetype_row(world, &binding, row) };
+                }
+            }
+            return None;
+        }
+
         let matches = self.matches_entity(world, entity);
         self.last_run_tick.set(Some(world.current_change_tick()));
         if !matches {
@@ -526,6 +573,34 @@ impl<Q: QuerySpec, F: QueryFilter> QueryState<Q, F> {
         Q: 'w,
     {
         self.rebind_world_scope(world.world_scope());
+
+        if self.serial_archetype_spans_enabled
+            && let Some(spans) = world.prepared_worker_query_spans()
+        {
+            self.last_run_tick.set(Some(world.current_change_tick()));
+            let count = spans
+                .iter()
+                .map(ContiguousArchetypeSpan::row_count)
+                .sum::<usize>();
+            if count == 0 {
+                return Err(QueryError::NoResults);
+            }
+            if count > 1 {
+                return Err(QueryError::MultipleResults { count });
+            }
+            let binding = QueryArchetypeBinding::new(
+                spans
+                    .into_iter()
+                    .find(|span| span.row_count() == 1)
+                    .expect("single prepared worker query row must have one owning span"),
+            );
+            Q::mark_changed_archetype_row(world, &binding, 0);
+            // Safety: the sole row belongs to the prepared projection for this
+            // exact sealed query shape.
+            return unsafe { Q::fetch_archetype_row(world, &binding, 0) }
+                .ok_or(QueryError::NoResults);
+        }
+
         let mut entities = self.acquire_scratch_vec();
         self.matching_entities_into(world, &mut entities);
         self.last_run_tick.set(Some(world.current_change_tick()));

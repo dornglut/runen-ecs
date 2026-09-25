@@ -137,7 +137,7 @@ where
         state: &'state mut Self::State,
         context: SystemParamContext<'world>,
     ) -> Result<Self::Item<'world, 'state>, SystemParamError> {
-        Ok(Query::new(context.query(), state))
+        Ok(Query::new(context.query_for::<Q, F>(), state))
     }
 }
 
@@ -147,10 +147,10 @@ where
     F: QueryFilter + TransferableQueryFilter + 'static,
 {
     fn prepare_worker(
-        _state: &Self::State,
+        state: &Self::State,
         context: &mut WorkerPrepareContext<'_>,
     ) -> Result<(), SystemParamError> {
-        prepare_query::<Q, F>(context.builder());
+        prepare_query::<Q, F>(state, context.builder());
         Ok(())
     }
 }

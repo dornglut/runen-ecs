@@ -8,6 +8,7 @@ use super::{ChangeCursor, QueryCapability, ResourceCapability, World};
 use crate::component::{Component, Resource};
 use crate::entity::{Entity, EntityValidationSnapshot, WorldScopeId};
 use crate::errors::ResourceError;
+use crate::storage::ContiguousArchetypeSpan;
 use std::any::{Any, TypeId, type_name};
 use std::collections::{BTreeSet, HashMap};
 use std::marker::PhantomData;
@@ -29,6 +30,19 @@ unsafe impl<T: Component + Sync> Send for SharedComponentProjection<T> {}
 struct MutableComponentProjection<T: Component> {
     values: HashMap<Entity, NonNull<T>>,
 }
+
+#[derive(Debug, Clone)]
+struct PreparedWorkerQueryProjection {
+    spans: Vec<ContiguousArchetypeSpan>,
+}
+
+// Safety: construction is restricted to the invoker-owned structural lease and
+// only occurs after the concrete TransferableQueryData implementation has
+// established the exact Sync/Send bounds for every projected payload. The
+// projection carries allocation bases plus copied shape metadata, never a World
+// or archetype-registry owner. The structural lease prevents relocation until
+// every worker using these spans has joined.
+unsafe impl Send for PreparedWorkerQueryProjection {}
 
 // Safety: one prepared worker invocation owns this projection and construction
 // is restricted to `T: Send`. Pairwise scheduler access validation prevents a
@@ -142,12 +156,13 @@ pub(crate) struct WorkerWorldBuilder<'world> {
     world: NonNull<World>,
     world_scope: WorldScopeId,
     change_cursor: ChangeCursor,
-    alive_entities: BTreeSet<Entity>,
+    alive_entities: Option<BTreeSet<Entity>>,
     entity_validation: Option<EntityValidationSnapshot>,
     membership: HashMap<TypeId, BTreeSet<Entity>>,
     component_reads: HashMap<TypeId, ErasedWorkerProjection>,
     component_writes: HashMap<TypeId, ErasedWorkerProjection>,
     component_metadata: WorkerComponentMetadata,
+    query_projections: HashMap<TypeId, PreparedWorkerQueryProjection>,
     removed_records: HashMap<TypeId, Vec<(Entity, ChangeCursor)>>,
     resource_reads: HashMap<TypeId, ErasedWorkerProjection>,
     resource_writes: HashMap<TypeId, ErasedWorkerProjection>,
@@ -164,12 +179,13 @@ impl<'world> WorkerWorldBuilder<'world> {
             world,
             world_scope: world_ref.scope_id(),
             change_cursor,
-            alive_entities: world_ref.alive_entities.clone(),
+            alive_entities: None,
             entity_validation: None,
             membership: HashMap::new(),
             component_reads: HashMap::new(),
             component_writes: HashMap::new(),
             component_metadata: HashMap::new(),
+            query_projections: HashMap::new(),
             removed_records: HashMap::new(),
             resource_reads: HashMap::new(),
             resource_writes: HashMap::new(),
@@ -179,18 +195,68 @@ impl<'world> WorkerWorldBuilder<'world> {
         }
     }
 
+    fn ensure_alive_entities(&mut self) -> &BTreeSet<Entity> {
+        if self.alive_entities.is_none() {
+            let world = unsafe { self.world.as_ref() };
+            self.alive_entities = Some(world.alive_entities.clone());
+        }
+        self.alive_entities
+            .as_ref()
+            .expect("worker alive-entity projection must be initialized")
+    }
+
     pub(crate) fn prepare_membership(&mut self, type_id: TypeId) {
         if self.membership.contains_key(&type_id) {
             return;
         }
-        let world = unsafe { self.world.as_ref() };
-        let entities = self
-            .alive_entities
+        let candidates = self
+            .ensure_alive_entities()
             .iter()
             .copied()
+            .collect::<Vec<_>>();
+        let world = unsafe { self.world.as_ref() };
+        let entities = candidates
+            .into_iter()
             .filter(|entity| world.has_component_by_type_id(*entity, type_id))
             .collect();
         self.membership.insert(type_id, entities);
+    }
+
+    /// Prepare one complete query-shaped row projection under the active
+    /// structural lease.
+    ///
+    /// # Safety
+    ///
+    /// The caller must be a framework-owned TransferableQueryData
+    /// implementation for Q and therefore prove Sync for every shared payload
+    /// and Send for every mutable payload projected by this query shape.
+    pub(crate) unsafe fn prepare_query_projection<Q: 'static, F: 'static>(
+        &mut self,
+        required_present: &[TypeId],
+        excluded: &[TypeId],
+        component_types: &[TypeId],
+        mutable_types: &[TypeId],
+    ) {
+        let key = TypeId::of::<(Q, F)>();
+        if self.query_projections.contains_key(&key) {
+            return;
+        }
+
+        let world = unsafe { self.world.as_mut() };
+        // Worker mutations publish through the invocation-local MutationJournal,
+        // so the projection needs exact shared/mutable payload bases but no
+        // row changed-tick pointers.
+        let spans = world
+            .archetype_registry
+            .collect_journal_query_spans(required_present, excluded, component_types, mutable_types)
+            .unwrap_or_else(|()| {
+                panic_worker_projection_violation(
+                    "worker query projection violated archetype storage invariants",
+                )
+            });
+
+        self.query_projections
+            .insert(key, PreparedWorkerQueryProjection { spans });
     }
 
     pub(crate) fn prepare_component_read<T: Component + Sync>(&mut self) {
@@ -203,9 +269,14 @@ impl<'world> WorkerWorldBuilder<'world> {
             !self.component_writes.contains_key(&type_id),
             "worker preparation mixed shared and exclusive component projections"
         );
+        let candidates = self
+            .ensure_alive_entities()
+            .iter()
+            .copied()
+            .collect::<Vec<_>>();
         let world = unsafe { self.world.as_ref() };
         let mut values = HashMap::new();
-        for entity in self.alive_entities.iter().copied() {
+        for entity in candidates {
             if let Some(value) = world.archetype_component::<T>(entity) {
                 values.insert(entity, NonNull::from(value));
             }
@@ -224,7 +295,11 @@ impl<'world> WorkerWorldBuilder<'world> {
             !self.component_reads.contains_key(&type_id),
             "worker preparation mixed shared and exclusive component projections"
         );
-        let entities = self.alive_entities.iter().copied().collect::<Vec<_>>();
+        let entities = self
+            .ensure_alive_entities()
+            .iter()
+            .copied()
+            .collect::<Vec<_>>();
         let world = unsafe { self.world.as_mut() };
         let mut values = HashMap::new();
         for entity in entities {
@@ -248,9 +323,14 @@ impl<'world> WorkerWorldBuilder<'world> {
         if self.component_metadata.contains_key(&type_id) {
             return;
         }
+        let candidates = self
+            .ensure_alive_entities()
+            .iter()
+            .copied()
+            .collect::<Vec<_>>();
         let world = unsafe { self.world.as_ref() };
         let mut metadata = HashMap::new();
-        for entity in self.alive_entities.iter().copied() {
+        for entity in candidates {
             if let Some(value) = world.archetype_component_metadata::<T>(entity) {
                 metadata.insert(entity, value);
             }
@@ -337,6 +417,7 @@ impl<'world> WorkerWorldBuilder<'world> {
         if self.entity_validation.is_some() {
             return;
         }
+        let _ = self.ensure_alive_entities();
         let world = unsafe { self.world.as_ref() };
         self.entity_validation = Some(world.allocator.validation_snapshot());
     }
@@ -381,12 +462,13 @@ impl<'world> WorkerWorldBuilder<'world> {
         PreparedWorkerWorld {
             world_scope: self.world_scope,
             change_cursor: self.change_cursor,
-            alive_entities: self.alive_entities,
+            alive_entities: self.alive_entities.unwrap_or_default(),
             entity_validation: self.entity_validation,
             membership: self.membership,
             component_reads: self.component_reads,
             component_writes: self.component_writes,
             component_metadata: self.component_metadata,
+            query_projections: self.query_projections,
             removed_records: self.removed_records,
             resource_reads: self.resource_reads,
             resource_writes: self.resource_writes,
@@ -408,6 +490,7 @@ pub(crate) struct PreparedWorkerWorld<'world> {
     component_reads: HashMap<TypeId, ErasedWorkerProjection>,
     component_writes: HashMap<TypeId, ErasedWorkerProjection>,
     component_metadata: WorkerComponentMetadata,
+    query_projections: HashMap<TypeId, PreparedWorkerQueryProjection>,
     removed_records: HashMap<TypeId, Vec<(Entity, ChangeCursor)>>,
     resource_reads: HashMap<TypeId, ErasedWorkerProjection>,
     resource_writes: HashMap<TypeId, ErasedWorkerProjection>,
@@ -438,6 +521,8 @@ impl PreparedWorkerWorld<'_> {
                 component_reads: NonNull::from(&mut self.component_reads),
                 component_writes: NonNull::from(&mut self.component_writes),
                 component_metadata: NonNull::from(&mut self.component_metadata),
+                query_projections: NonNull::from(&mut self.query_projections),
+                query_projection_key: None,
                 removed_records: NonNull::from(&mut self.removed_records),
                 mutation_journal: None,
                 _marker: PhantomData,
@@ -470,6 +555,16 @@ impl<'world> WorkerWorldAuthority<'world> {
     ) -> QueryCapability<'world> {
         let mut query = self.query;
         query.mutation_journal = Some(journal);
+        QueryCapability::from_worker(query)
+    }
+
+    pub(crate) fn query_with_journal_for<Q: 'static, F: 'static>(
+        self,
+        journal: NonNull<MutationJournal>,
+    ) -> QueryCapability<'world> {
+        let mut query = self.query;
+        query.mutation_journal = Some(journal);
+        query.query_projection_key = Some(TypeId::of::<(Q, F)>());
         QueryCapability::from_worker(query)
     }
 
@@ -546,6 +641,8 @@ pub(crate) struct WorkerQueryCapability<'world> {
     component_reads: NonNull<HashMap<TypeId, ErasedWorkerProjection>>,
     component_writes: NonNull<HashMap<TypeId, ErasedWorkerProjection>>,
     component_metadata: NonNull<WorkerComponentMetadata>,
+    query_projections: NonNull<HashMap<TypeId, PreparedWorkerQueryProjection>>,
+    query_projection_key: Option<TypeId>,
     removed_records: NonNull<HashMap<TypeId, Vec<(Entity, ChangeCursor)>>>,
     mutation_journal: Option<NonNull<MutationJournal>>,
     _marker: PhantomData<&'world mut ()>,
@@ -558,6 +655,14 @@ impl<'world> WorkerQueryCapability<'world> {
 
     pub(crate) fn world_scope(self) -> WorldScopeId {
         self.world_scope
+    }
+
+    pub(crate) fn prepared_query_spans(self) -> Option<Vec<ContiguousArchetypeSpan>> {
+        let key = self.query_projection_key?;
+        let projections = unsafe { self.query_projections.as_ref() };
+        projections
+            .get(&key)
+            .map(|projection| projection.spans.clone())
     }
 
     pub(crate) fn matching_entities_into(
