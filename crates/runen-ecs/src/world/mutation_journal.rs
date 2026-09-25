@@ -2,12 +2,35 @@ use super::World;
 use super::change_tracking::{ChangeCursor, panic_change_cursor_exhausted};
 use crate::entity::Entity;
 use std::any::TypeId;
+use std::ptr::NonNull;
 use std::sync::{Arc, Mutex};
+
+#[derive(Debug, Copy, Clone)]
+pub(crate) struct PrevalidatedComponentMutationTarget {
+    changed_tick: NonNull<ChangeCursor>,
+}
+
+impl PrevalidatedComponentMutationTarget {
+    pub(crate) fn new(changed_tick: NonNull<ChangeCursor>) -> Self {
+        Self { changed_tick }
+    }
+
+    pub(crate) fn changed_tick(self) -> NonNull<ChangeCursor> {
+        self.changed_tick
+    }
+}
+
+// Safety: targets are created only from row metadata preflighted under either
+// the serial World borrow or ParallelWorldLease structural freeze. Workers only
+// carry the address; only invoker-side journal reconciliation writes through it
+// after workers have joined and before structural relocation becomes possible.
+unsafe impl Send for PrevalidatedComponentMutationTarget {}
 
 enum MutationEvent {
     ComponentModified {
         entity: Entity,
         component_type: TypeId,
+        target: Option<PrevalidatedComponentMutationTarget>,
     },
     ResourceModified {
         resource_type: TypeId,
@@ -100,10 +123,29 @@ impl MutationJournal {
     }
 
     pub(crate) fn record_component_modified(&mut self, entity: Entity, component_type: TypeId) {
+        self.record_component_modified_inner(entity, component_type, None);
+    }
+
+    pub(crate) fn record_prevalidated_component_modified(
+        &mut self,
+        entity: Entity,
+        component_type: TypeId,
+        target: PrevalidatedComponentMutationTarget,
+    ) {
+        self.record_component_modified_inner(entity, component_type, Some(target));
+    }
+
+    fn record_component_modified_inner(
+        &mut self,
+        entity: Entity,
+        component_type: TypeId,
+        target: Option<PrevalidatedComponentMutationTarget>,
+    ) {
         self.reserve_next_event();
         self.events.push(MutationEvent::ComponentModified {
             entity,
             component_type,
+            target,
         });
     }
 
@@ -166,7 +208,15 @@ impl MutationJournal {
                 MutationEvent::ComponentModified {
                     entity,
                     component_type,
-                } => world.commit_component_mutation_event(entity, component_type),
+                    target,
+                } => match target {
+                    Some(target) => world.commit_prevalidated_component_mutation_event(
+                        entity,
+                        component_type,
+                        target.changed_tick(),
+                    ),
+                    None => world.commit_component_mutation_event(entity, component_type),
+                },
                 MutationEvent::ResourceModified { resource_type } => {
                     world.commit_resource_mutation_event(resource_type)
                 }
@@ -237,6 +287,75 @@ mod tests {
 
         assert!(a_tick < b_tick);
         assert_eq!(world.current_change_cursor().tick(), base.tick() + 2);
+    }
+
+    #[test]
+    fn prevalidated_component_target_publishes_only_during_reconciliation() {
+        let mut world = World::new();
+        let entity = world.spawn(A).unwrap();
+        let before = world.archetype_component_metadata::<A>(entity).unwrap().1;
+        let component_type = TypeId::of::<A>();
+        let spans = world
+            .archetype_registry
+            .collect_journal_query_spans(
+                &[component_type],
+                &[],
+                &[component_type],
+                &[component_type],
+            )
+            .unwrap();
+        let changed_tick = spans[0].changed_tick_ptr_at(0, 0).unwrap();
+
+        let mut journal = MutationJournal::new(&world);
+        journal.record_prevalidated_component_modified(
+            entity,
+            component_type,
+            PrevalidatedComponentMutationTarget::new(changed_tick),
+        );
+
+        assert_eq!(
+            world.archetype_component_metadata::<A>(entity).unwrap().1,
+            before,
+            "recording a journal target must not publish row change metadata early"
+        );
+
+        journal.commit(&mut world);
+
+        assert!(
+            world.archetype_component_metadata::<A>(entity).unwrap().1 > before,
+            "reconciliation must publish the canonical row change cursor"
+        );
+    }
+
+    #[test]
+    fn repeated_prevalidated_component_events_preserve_change_positions() {
+        let mut world = World::new();
+        let entity = world.spawn(A).unwrap();
+        let base = world.current_change_cursor();
+        let component_type = TypeId::of::<A>();
+        let spans = world
+            .archetype_registry
+            .collect_journal_query_spans(
+                &[component_type],
+                &[],
+                &[component_type],
+                &[component_type],
+            )
+            .unwrap();
+        let changed_tick = spans[0].changed_tick_ptr_at(0, 0).unwrap();
+
+        let mut journal = MutationJournal::new(&world);
+        let target = PrevalidatedComponentMutationTarget::new(changed_tick);
+        journal.record_prevalidated_component_modified(entity, component_type, target);
+        journal.record_prevalidated_component_modified(entity, component_type, target);
+        journal.commit(&mut world);
+
+        assert_eq!(world.current_change_cursor().tick(), base.tick() + 2);
+        assert_eq!(
+            world.archetype_component_metadata::<A>(entity).unwrap().1,
+            world.current_change_cursor(),
+            "the row must retain the last canonical repeated-mutation position"
+        );
     }
 
     #[test]

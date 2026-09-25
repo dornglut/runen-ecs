@@ -6,6 +6,7 @@ use crate::world::change_tracking::{advance_change_cursor, next_change_cursor};
 use crate::world::entity_handles::Mut;
 use crate::world::{ChangeCursor, World};
 use std::any::{TypeId, type_name};
+use std::ptr::NonNull;
 
 impl World {
     pub fn get<T: Component>(&self, entity: Entity) -> Option<&T> {
@@ -190,6 +191,19 @@ impl World {
         component_type: TypeId,
     ) {
         self.mark_component_modified_by_id(entity, component_type);
+    }
+
+    pub(crate) fn commit_prevalidated_component_mutation_event(
+        &mut self,
+        entity: Entity,
+        component_type: TypeId,
+        changed_tick: NonNull<ChangeCursor>,
+    ) {
+        self.record_component_change(entity, component_type, false);
+        // Safety: the target was captured for this exact live component row
+        // while structural relocation was excluded, and journal reconciliation
+        // still owns that exclusion when it publishes the canonical cursor.
+        unsafe { changed_tick.as_ptr().write(self.change_tick) };
     }
 
     pub(crate) fn matching_entities_into(
