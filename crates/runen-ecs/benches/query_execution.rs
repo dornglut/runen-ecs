@@ -49,7 +49,10 @@ impl LookupFixture {
 }
 
 fn build_lookup_world(count: usize) -> LookupFixture {
-    assert!(count >= 3, "lookup benchmark requires early, middle, and late rows");
+    assert!(
+        count >= 3,
+        "lookup benchmark requires early, middle, and late rows"
+    );
 
     let middle_index = count / 2;
     let mut world = World::new();
@@ -58,9 +61,7 @@ fn build_lookup_world(count: usize) -> LookupFixture {
     let mut late = None;
 
     for index in 0..count {
-        let entity = world
-            .spawn((Position(index as u32), Velocity(1)))
-            .unwrap();
+        let entity = world.spawn((Position(index as u32), Velocity(1))).unwrap();
         if index == 0 {
             early = Some(entity);
         }
@@ -75,9 +76,7 @@ fn build_lookup_world(count: usize) -> LookupFixture {
     let early = early.expect("lookup fixture must contain an early row");
     let middle = middle.expect("lookup fixture must contain a middle row");
     let late = late.expect("lookup fixture must contain a late row");
-    let non_member = world
-        .spawn((Position(count as u32), Velocity(1)))
-        .unwrap();
+    let non_member = world.spawn((Position(count as u32), Velocity(1))).unwrap();
     world.despawn(non_member).unwrap();
 
     let query = world.query::<&Position>();
@@ -395,16 +394,13 @@ fn bench_serial_read_only_parameter_schedule(c: &mut Criterion) {
     let mut world = build_world(QUERY_ENTITY_COUNT);
     let mut runtime = read_only_parameter_runtime();
 
-    c.bench_function("serial_schedule_read_only_query_parameter_only_10000", |b| {
-        b.iter(|| runtime.run_schedule::<Measure>(&mut world).unwrap())
-    });
+    c.bench_function(
+        "serial_schedule_read_only_query_parameter_only_10000",
+        |b| b.iter(|| runtime.run_schedule::<Measure>(&mut world).unwrap()),
+    );
 }
 
-fn bench_serial_read_only_get_case(
-    c: &mut Criterion,
-    name: &'static str,
-    target: LookupTarget,
-) {
+fn bench_serial_read_only_get_case(c: &mut Criterion, name: &'static str, target: LookupTarget) {
     let fixture = build_lookup_world(QUERY_ENTITY_COUNT);
     let entity = fixture.target(target);
     let mut world = fixture.world;
@@ -516,11 +512,7 @@ fn bench_parallel_read_only_schedule(c: &mut Criterion) {
     });
 }
 
-fn bench_parallel_read_only_get_case(
-    c: &mut Criterion,
-    name: &'static str,
-    target: LookupTarget,
-) {
+fn bench_parallel_read_only_get_case(c: &mut Criterion, name: &'static str, target: LookupTarget) {
     let fixture = build_lookup_world(QUERY_ENTITY_COUNT);
     let entity = fixture.target(target);
     let mut world = fixture.world;
