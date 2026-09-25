@@ -37,7 +37,6 @@ impl<T: Component> QueryData for &T {
         let ptr = binding.component_ptr_at::<T>(0, row)?;
         Some(unsafe { &*ptr })
     }
-
 }
 
 impl<T: Component> QueryData for &mut T {
@@ -91,7 +90,6 @@ impl<T: Component> QueryData for &mut T {
         let ptr = unsafe { binding.component_mut_ptr_at::<T>(0, row) }?;
         Some(unsafe { &mut *ptr })
     }
-
 }
 
 impl<T: Component> QueryData for (Entity, &T) {
@@ -254,7 +252,6 @@ impl<A: Component, B: Component> QueryData for (&mut A, &B) {
         let b = binding.component_ptr_at::<B>(1, row)?;
         Some(unsafe { (&mut *a, &*b) })
     }
-
 }
 
 impl<A: Component, B: Component> QueryData for (&A, &mut B) {
@@ -365,7 +362,6 @@ impl<A: Component, B: Component> QueryData for (&mut A, &mut B) {
         let b = unsafe { binding.component_mut_ptr_at::<B>(1, row) }?;
         Some(unsafe { (&mut *a, &mut *b) })
     }
-
 }
 
 impl<T: Component> QueryData for Option<&T> {

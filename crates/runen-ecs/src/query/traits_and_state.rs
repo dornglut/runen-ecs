@@ -624,7 +624,6 @@ impl<Q: QuerySpec, F: QueryFilter> QueryState<Q, F> {
             pool.push(entities);
         }
     }
-
 }
 
 type QueryIterMarker<'w, 'state, Q, F> =

@@ -775,7 +775,6 @@ fn added_filter_respects_command_publication_frontier() {
     assert_eq!(world.resource::<QueryAddedCounts>().unwrap().0, vec![1, 0]);
 }
 
-
 #[test]
 fn mutable_iteration_marks_only_rows_that_are_actually_yielded_before_early_drop() {
     let mut world = World::new();

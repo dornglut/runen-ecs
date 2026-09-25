@@ -279,7 +279,9 @@ impl<'world> QueryCapability<'world> {
                     }
                 }
                 .unwrap_or_else(|()| {
-                    panic!("validated serial query projection violated archetype storage invariants")
+                    panic!(
+                        "validated serial query projection violated archetype storage invariants"
+                    )
                 });
                 Some(spans)
             }
@@ -360,7 +362,9 @@ impl<'world> QueryCapability<'world> {
                 unsafe { changed_tick.as_ptr().write(tick) };
             }
             QueryCapabilityBacking::Serial(_) | QueryCapabilityBacking::Worker(_) => {
-                unreachable!("serial mutable query row marking requires a mutable serial capability")
+                unreachable!(
+                    "serial mutable query row marking requires a mutable serial capability"
+                )
             }
         }
     }
