@@ -99,7 +99,9 @@ fn mutable_parameter_runtime() -> Runtime {
 
 fn mutable_yield_runtime() -> Runtime {
     let mut runtime = Runtime::new();
-    runtime.add_systems(Measure, consume_mutable_positions).unwrap();
+    runtime
+        .add_systems(Measure, consume_mutable_positions)
+        .unwrap();
     runtime.validate().unwrap();
     runtime
 }
@@ -311,10 +313,9 @@ fn bench_serial_mutable_parameter_schedule(c: &mut Criterion) {
     let mut world = build_world(QUERY_ENTITY_COUNT);
     let mut runtime = mutable_parameter_runtime();
 
-    c.bench_function(
-        "serial_schedule_mutable_query_parameter_only_10000",
-        |b| b.iter(|| runtime.run_schedule::<Measure>(&mut world).unwrap()),
-    );
+    c.bench_function("serial_schedule_mutable_query_parameter_only_10000", |b| {
+        b.iter(|| runtime.run_schedule::<Measure>(&mut world).unwrap())
+    });
 }
 
 fn bench_serial_mutable_yield_only_schedule(c: &mut Criterion) {
@@ -330,10 +331,9 @@ fn bench_serial_double_mutable_yield_only_schedule(c: &mut Criterion) {
     let mut world = build_world(QUERY_ENTITY_COUNT);
     let mut runtime = double_mutable_yield_runtime();
 
-    c.bench_function(
-        "serial_schedule_double_mutable_yield_only_10000",
-        |b| b.iter(|| runtime.run_schedule::<Measure>(&mut world).unwrap()),
-    );
+    c.bench_function("serial_schedule_double_mutable_yield_only_10000", |b| {
+        b.iter(|| runtime.run_schedule::<Measure>(&mut world).unwrap())
+    });
 }
 
 fn bench_parallel_no_op_schedule(c: &mut Criterion) {
@@ -411,16 +411,13 @@ fn bench_parallel_mutable_yield_only_schedule(c: &mut Criterion) {
     let mut world = build_world(QUERY_ENTITY_COUNT);
     let mut runtime = mutable_yield_runtime();
 
-    c.bench_function(
-        "parallel_schedule_mutable_yield_only_10000_worker_1",
-        |b| {
-            b.iter(|| {
-                runtime
-                    .run_schedule_parallel::<Measure>(&mut world, 1)
-                    .unwrap()
-            });
-        },
-    );
+    c.bench_function("parallel_schedule_mutable_yield_only_10000_worker_1", |b| {
+        b.iter(|| {
+            runtime
+                .run_schedule_parallel::<Measure>(&mut world, 1)
+                .unwrap()
+        });
+    });
 }
 
 fn bench_parallel_double_mutable_yield_only_schedule(c: &mut Criterion) {
