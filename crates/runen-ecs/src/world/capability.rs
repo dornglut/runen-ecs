@@ -269,26 +269,22 @@ impl<'world> QueryCapability<'world> {
                     }
                     if serial.mutation_journal.is_none() {
                         unsafe {
-                            serial
-                                .archetype_registry
-                                .as_mut()
-                                .collect_contiguous_spans::<true>(
-                                    required_present,
-                                    excluded,
-                                    component_types,
-                                    mutable_types,
-                                )
+                            serial.archetype_registry.as_mut().collect_contiguous_spans(
+                                required_present,
+                                excluded,
+                                component_types,
+                                mutable_types,
+                            )
                         }
                     } else {
                         unsafe {
                             serial
                                 .archetype_registry
                                 .as_mut()
-                                .collect_contiguous_spans::<false>(
+                                .collect_journal_query_spans(
                                     required_present,
                                     excluded,
                                     component_types,
-                                    mutable_types,
                                 )
                         }
                     }
@@ -317,15 +313,12 @@ impl<'world> QueryCapability<'world> {
             QueryCapabilityBacking::Serial(mut serial) => {
                 if serial.world_mutable {
                     unsafe {
-                        serial
-                            .archetype_registry
-                            .as_mut()
-                            .collect_contiguous_spans::<true>(
-                                required_present,
-                                excluded,
-                                component_types,
-                                mutable_types,
-                            )
+                        serial.archetype_registry.as_mut().collect_contiguous_spans(
+                            required_present,
+                            excluded,
+                            component_types,
+                            mutable_types,
+                        )
                     }
                     .map_err(|()| ContiguousQueryError::StorageInvariant)
                 } else {

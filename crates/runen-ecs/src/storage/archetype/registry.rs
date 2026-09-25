@@ -476,7 +476,7 @@ impl ArchetypeRegistry {
     /// Capture private allocation bases after checking every matching payload
     /// and metadata column against its entity-row count. The caller must retain
     /// the exclusive World borrow for every later dereference of these pointers.
-    pub(crate) fn collect_contiguous_spans<const CAPTURE_CHANGED_TICKS: bool>(
+    pub(crate) fn collect_contiguous_spans(
         &mut self,
         required_present: &[TypeId],
         excluded: &[TypeId],
@@ -502,19 +502,63 @@ impl ArchetypeRegistry {
                     return Err(());
                 }
                 let values = NonNull::new(column.as_mut_ptr()).ok_or(())?;
-                let changed_ticks =
-                    if CAPTURE_CHANGED_TICKS && mutable_types.contains(component_type) {
-                        (0..row_count)
-                            .map(|row| column.changed_tick_ptr(row).ok_or(()))
-                            .collect::<Result<Vec<_>, _>>()?
-                    } else {
-                        Vec::new()
-                    };
+                let changed_ticks = if mutable_types.contains(component_type) {
+                    (0..row_count)
+                        .map(|row| column.changed_tick_ptr(row).ok_or(()))
+                        .collect::<Result<Vec<_>, _>>()?
+                } else {
+                    Vec::new()
+                };
                 components.push(ContiguousComponentSpan {
                     component_type: *component_type,
                     values,
                     row_count,
                     changed_ticks,
+                });
+            }
+
+            spans.push(ContiguousArchetypeSpan {
+                entities,
+                row_count,
+                components,
+            });
+        }
+        Ok(spans)
+    }
+
+    /// Capture the same validated mutable payload spans for a journal-backed
+    /// ordinary query without retaining changed-tick row pointers. Mutation
+    /// publication remains owned by the invocation journal.
+    pub(crate) fn collect_journal_query_spans(
+        &mut self,
+        required_present: &[TypeId],
+        excluded: &[TypeId],
+        component_types: &[TypeId],
+    ) -> Result<Vec<ContiguousArchetypeSpan>, ()> {
+        let mut bindings = Vec::new();
+        self.collect_matching_bindings(required_present, excluded, &mut bindings);
+
+        let mut spans = Vec::with_capacity(bindings.len());
+        for binding in bindings {
+            let archetype = self.archetypes.get_mut(binding.archetype_index).ok_or(())?;
+            let row_count = archetype.entities.len();
+            if row_count != binding.row_count || row_count == 0 {
+                return Err(());
+            }
+
+            let entities = NonNull::new(archetype.entities.as_ptr().cast_mut()).ok_or(())?;
+            let mut components = Vec::with_capacity(component_types.len());
+            for component_type in component_types {
+                let column = archetype.columns.get_mut(component_type).ok_or(())?;
+                if column.len() != row_count || column.metadata_len() != row_count {
+                    return Err(());
+                }
+                let values = NonNull::new(column.as_mut_ptr()).ok_or(())?;
+                components.push(ContiguousComponentSpan {
+                    component_type: *component_type,
+                    values,
+                    row_count,
+                    changed_ticks: Vec::new(),
                 });
             }
 
