@@ -846,7 +846,6 @@ fn system_mutable_iteration_journals_only_rows_yielded_before_early_drop() {
     assert_eq!(changed, 1);
 }
 
-
 #[test]
 fn changed_filter_rejects_unmodified_rows_before_mutable_change_admission() {
     let mut world = World::new();
