@@ -166,7 +166,6 @@ pub(crate) struct WorkerWorldBuilder<'world> {
     component_reads: HashMap<TypeId, ErasedWorkerProjection>,
     component_writes: HashMap<TypeId, ErasedWorkerProjection>,
     component_metadata: WorkerComponentMetadata,
-    entity_locations: NonNull<EntityLocationMap>,
     query_projections: HashMap<TypeId, PreparedWorkerQueryProjection>,
     removed_records: HashMap<TypeId, Vec<(Entity, ChangeCursor)>>,
     resource_reads: HashMap<TypeId, ErasedWorkerProjection>,
@@ -190,7 +189,6 @@ impl<'world> WorkerWorldBuilder<'world> {
             component_reads: HashMap::new(),
             component_writes: HashMap::new(),
             component_metadata: HashMap::new(),
-            entity_locations: NonNull::from(&world_ref.entity_locations),
             query_projections: HashMap::new(),
             removed_records: HashMap::new(),
             resource_reads: HashMap::new(),
@@ -476,6 +474,14 @@ impl<'world> WorkerWorldBuilder<'world> {
     }
 
     pub(crate) fn finish(self) -> PreparedWorkerWorld<'world> {
+        // Create the immutable location projection only after every invoker-side
+        // preparation step has finished. No later builder operation uniquely
+        // reborrows World before the prepared package moves to a worker.
+        let entity_locations = {
+            let world = unsafe { self.world.as_ref() };
+            NonNull::from(&world.entity_locations)
+        };
+
         PreparedWorkerWorld {
             world_scope: self.world_scope,
             change_cursor: self.change_cursor,
@@ -485,7 +491,7 @@ impl<'world> WorkerWorldBuilder<'world> {
             component_reads: self.component_reads,
             component_writes: self.component_writes,
             component_metadata: self.component_metadata,
-            entity_locations: self.entity_locations,
+            entity_locations,
             query_projections: self.query_projections,
             removed_records: self.removed_records,
             resource_reads: self.resource_reads,
