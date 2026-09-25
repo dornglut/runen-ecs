@@ -48,6 +48,10 @@ fn increment_positions(mut query: Query<&mut Position>) {
     black_box(checksum);
 }
 
+fn receive_read_only_query(_query: Query<&Position>) {}
+
+fn receive_mutable_query(_query: Query<&mut Position>) {}
+
 fn no_op_runtime() -> Runtime {
     let mut runtime = Runtime::new();
     runtime.add_systems(Measure, no_op).unwrap();
@@ -65,6 +69,20 @@ fn read_only_runtime() -> Runtime {
 fn mutable_runtime() -> Runtime {
     let mut runtime = Runtime::new();
     runtime.add_systems(Measure, increment_positions).unwrap();
+    runtime.validate().unwrap();
+    runtime
+}
+
+fn read_only_parameter_runtime() -> Runtime {
+    let mut runtime = Runtime::new();
+    runtime.add_systems(Measure, receive_read_only_query).unwrap();
+    runtime.validate().unwrap();
+    runtime
+}
+
+fn mutable_parameter_runtime() -> Runtime {
+    let mut runtime = Runtime::new();
+    runtime.add_systems(Measure, receive_mutable_query).unwrap();
     runtime.validate().unwrap();
     runtime
 }
@@ -116,6 +134,24 @@ fn prove_fixture_semantics() {
     assert_eq!(
         position_checksum(&parallel_world),
         initial_checksum + COUNT as u64
+    );
+
+    let mut parameter_read_world = build_world(COUNT);
+    let mut parameter_read_runtime = read_only_parameter_runtime();
+    parameter_read_runtime
+        .run_schedule_parallel::<Measure>(&mut parameter_read_world, 1)
+        .unwrap();
+    assert_eq!(position_checksum(&parameter_read_world), initial_checksum);
+
+    let mut parameter_mutable_world = build_world(COUNT);
+    let mut parameter_mutable_runtime = mutable_parameter_runtime();
+    parameter_mutable_runtime
+        .run_schedule_parallel::<Measure>(&mut parameter_mutable_world, 1)
+        .unwrap();
+    assert_eq!(
+        position_checksum(&parameter_mutable_world),
+        initial_checksum,
+        "parameter-only mutable query preparation must not mutate payloads"
     );
 }
 
@@ -207,6 +243,22 @@ fn bench_parallel_no_op_schedule(c: &mut Criterion) {
     });
 }
 
+fn bench_parallel_read_only_parameter_schedule(c: &mut Criterion) {
+    let mut world = build_world(QUERY_ENTITY_COUNT);
+    let mut runtime = read_only_parameter_runtime();
+
+    c.bench_function(
+        "parallel_schedule_read_only_query_parameter_only_10000_worker_1",
+        |b| {
+            b.iter(|| {
+                runtime
+                    .run_schedule_parallel::<Measure>(&mut world, 1)
+                    .unwrap()
+            });
+        },
+    );
+}
+
 fn bench_parallel_read_only_schedule(c: &mut Criterion) {
     let mut world = build_world(QUERY_ENTITY_COUNT);
     let mut runtime = read_only_runtime();
@@ -218,6 +270,22 @@ fn bench_parallel_read_only_schedule(c: &mut Criterion) {
                 .unwrap()
         });
     });
+}
+
+fn bench_parallel_mutable_parameter_schedule(c: &mut Criterion) {
+    let mut world = build_world(QUERY_ENTITY_COUNT);
+    let mut runtime = mutable_parameter_runtime();
+
+    c.bench_function(
+        "parallel_schedule_mutable_query_parameter_only_10000_worker_1",
+        |b| {
+            b.iter(|| {
+                runtime
+                    .run_schedule_parallel::<Measure>(&mut world, 1)
+                    .unwrap()
+            });
+        },
+    );
 }
 
 fn bench_parallel_mutable_schedule(c: &mut Criterion) {
@@ -242,7 +310,9 @@ criterion_group!(
     bench_serial_read_only_schedule,
     bench_serial_mutable_schedule,
     bench_parallel_no_op_schedule,
+    bench_parallel_read_only_parameter_schedule,
     bench_parallel_read_only_schedule,
+    bench_parallel_mutable_parameter_schedule,
     bench_parallel_mutable_schedule,
 );
 criterion_main!(query_execution);
