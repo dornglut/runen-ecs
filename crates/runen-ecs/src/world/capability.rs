@@ -305,10 +305,27 @@ impl<'world> QueryCapability<'world> {
         }
     }
 
+    pub(crate) fn has_prepared_worker_query_projection(self) -> bool {
+        match self.backing {
+            QueryCapabilityBacking::Serial(_) => false,
+            QueryCapabilityBacking::Worker(worker) => worker.has_prepared_query_projection(),
+        }
+    }
+
     pub(crate) fn prepared_worker_query_spans(self) -> Option<Vec<ContiguousArchetypeSpan>> {
         match self.backing {
             QueryCapabilityBacking::Serial(_) => None,
             QueryCapabilityBacking::Worker(worker) => worker.prepared_query_spans(),
+        }
+    }
+
+    pub(crate) fn prepared_worker_query_span_for_entity(
+        self,
+        entity: Entity,
+    ) -> Option<(ContiguousArchetypeSpan, usize)> {
+        match self.backing {
+            QueryCapabilityBacking::Serial(_) => None,
+            QueryCapabilityBacking::Worker(worker) => worker.prepared_query_span_for_entity(entity),
         }
     }
 

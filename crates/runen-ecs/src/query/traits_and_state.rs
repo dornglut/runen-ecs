@@ -539,23 +539,15 @@ impl<Q: QuerySpec, F: QueryFilter> QueryState<Q, F> {
     {
         self.rebind_world_scope(world.world_scope());
 
-        if self.serial_archetype_spans_enabled
-            && let Some(spans) = world.prepared_worker_query_spans()
-        {
+        if self.serial_archetype_spans_enabled && world.has_prepared_worker_query_projection() {
             self.last_run_tick.set(Some(world.current_change_tick()));
-            for span in spans {
-                let binding = QueryArchetypeBinding::new(span);
-                for row in 0..binding.len() {
-                    if binding.entity_at(row) != Some(entity) {
-                        continue;
-                    }
-                    Q::mark_changed_archetype_row(world, &binding, row);
-                    // Safety: this row belongs to the prepared projection for
-                    // this exact sealed query shape.
-                    return unsafe { Q::fetch_archetype_row(world, &binding, row) };
-                }
-            }
-            return None;
+            let (span, row) = world.prepared_worker_query_span_for_entity(entity)?;
+            let binding = QueryArchetypeBinding::new(span);
+            Q::mark_changed_archetype_row(world, &binding, row);
+            // Safety: the worker point locator validated that this entity's
+            // frozen location belongs to the exact prepared query projection
+            // and that the projected row still contains this entity.
+            return unsafe { Q::fetch_archetype_row(world, &binding, row) };
         }
 
         let matches = self.matches_entity(world, entity);

@@ -452,6 +452,52 @@ mod tests {
     }
 
     #[test]
+    fn worker_query_point_locator_preserves_filtered_mixed_lookup_semantics() {
+        let mut world = World::new();
+        let early = world.spawn((A(1), B(10), C(100))).unwrap();
+        let middle = world.spawn((A(2), B(20), C(200))).unwrap();
+        let late = world.spawn((A(3), B(30), C(300))).unwrap();
+        let filtered_out = world.spawn((A(4), B(40), C(400), Marker(1))).unwrap();
+        let non_member = world.spawn((B(50), C(500))).unwrap();
+        let stale = world.spawn((A(6), B(60), C(600))).unwrap();
+        world.despawn(stale).unwrap();
+
+        let mut foreign_world = World::new();
+        let foreign = foreign_world.spawn((A(7), B(70), C(700))).unwrap();
+
+        let system = register(
+            &mut world,
+            move |mut query: Query<(&mut A, &B), (With<C>, Without<Marker>)>| {
+                for (entity, expected_a, expected_b) in [
+                    (early, 1, 10),
+                    (middle, 2, 20),
+                    (late, 3, 30),
+                ] {
+                    let (a, b) = query.get(entity).expect("matching entity should resolve");
+                    assert_eq!(a.0, expected_a);
+                    assert_eq!(b.0, expected_b);
+                    a.0 += b.0;
+                }
+
+                assert!(query.get(filtered_out).is_none());
+                assert!(query.get(non_member).is_none());
+                assert!(query.get(stale).is_none());
+                assert!(query.get(foreign).is_none());
+            },
+        );
+
+        let before = world.current_change_cursor();
+        run_controlled_worker_harness(&mut world, vec![system]).unwrap();
+
+        assert_eq!(world.get::<A>(early).unwrap().0, 11);
+        assert_eq!(world.get::<A>(middle).unwrap().0, 22);
+        assert_eq!(world.get::<A>(late).unwrap().0, 33);
+        assert_eq!(world.get::<A>(filtered_out).unwrap().0, 4);
+        assert_eq!(world.current_change_cursor().tick(), before.tick() + 3);
+        assert!(world.component_changed_since::<A>(before).unwrap());
+    }
+
+    #[test]
     fn multi_mutable_query_preserves_event_multiplicity_and_local_order() {
         let mut world = World::new();
         let entity = world.spawn((A(1), B(2))).unwrap();
