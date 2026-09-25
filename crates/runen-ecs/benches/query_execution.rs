@@ -75,7 +75,9 @@ fn mutable_runtime() -> Runtime {
 
 fn read_only_parameter_runtime() -> Runtime {
     let mut runtime = Runtime::new();
-    runtime.add_systems(Measure, receive_read_only_query).unwrap();
+    runtime
+        .add_systems(Measure, receive_read_only_query)
+        .unwrap();
     runtime.validate().unwrap();
     runtime
 }
