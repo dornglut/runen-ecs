@@ -1,0 +1,122 @@
+name: RunenECS query execution benchmark
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'crates/runen-ecs/benches/query_execution.rs'
+      - 'crates/runen-ecs/src/query/**'
+      - 'crates/runen-ecs/src/storage/**'
+      - 'crates/runen-ecs/src/world/capability.rs'
+      - 'crates/runen-ecs/src/world/parallel.rs'
+      - 'crates/runen-ecs/src/world/mutation_journal.rs'
+      - 'crates/runen-ecs/src/system/**'
+      - 'crates/runen-ecs/src/scheduler/**'
+      - 'crates/runen-ecs/Cargo.toml'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'rust-toolchain.toml'
+      - '.github/workflows/ecs-query-execution-benchmark.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ecs-query-execution-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  benchmark:
+    name: Query execution decomposition
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Resolve expected revision
+        id: revision
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_SHA: ${{ github.sha }}
+          PULL_REQUEST_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          case "$EVENT_NAME" in
+            pull_request) expected_revision="$PULL_REQUEST_HEAD_SHA" ;;
+            workflow_dispatch) expected_revision="$EVENT_SHA" ;;
+            *) echo "Unsupported event: $EVENT_NAME" >&2; exit 1 ;;
+          esac
+          test -n "$expected_revision"
+          echo "expected_revision=$expected_revision" >> "$GITHUB_OUTPUT"
+
+      - name: Check out exact revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ steps.revision.outputs.expected_revision }}
+          clean: true
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Prove checked-out revision
+        env:
+          EXPECTED_REVISION: ${{ steps.revision.outputs.expected_revision }}
+        run: |
+          set -euo pipefail
+          actual_revision="$(git rev-parse HEAD)"
+          echo "Expected revision: $EXPECTED_REVISION"
+          echo "Actual checked-out revision: $actual_revision"
+          test "$actual_revision" = "$EXPECTED_REVISION"
+
+      - name: Install pinned benchmark toolchain
+        run: rustup toolchain install 1.98.1 --profile minimal
+
+      - name: Record host and toolchain
+        run: |
+          set -euo pipefail
+          {
+            echo "Revision: $(git rev-parse HEAD)"
+            echo "Runner: $RUNNER_OS / $RUNNER_ARCH"
+            uname -a
+            lscpu
+            rustc +1.98.1 -Vv
+            cargo +1.98.1 -V
+          } | tee query-execution-environment.txt
+
+      - name: Run query execution decomposition
+        run: |
+          set -euo pipefail
+          cargo +1.98.1 bench -p runen-ecs --bench query_execution --locked -- \
+            --noplot --warm-up-time 2 --measurement-time 6 --sample-size 50 \
+            2>&1 | tee query-execution-results.txt
+
+      - name: Publish compact summary
+        if: always()
+        run: |
+          {
+            echo '## Query execution decomposition'
+            echo
+            if [[ -f query-execution-environment.txt ]]; then
+              echo '### Environment'
+              echo '~~~text'
+              sed -n '1,45p' query-execution-environment.txt
+              echo '~~~'
+            fi
+            if [[ -f query-execution-results.txt ]]; then
+              echo '### Criterion output'
+              echo '~~~text'
+              grep -E '^(direct_|serial_|parallel_)|time:' query-execution-results.txt || true
+              echo '~~~'
+            fi
+          } >>"$GITHUB_STEP_SUMMARY"
+
+      - name: Upload measurements and Criterion samples
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ecs-query-execution-${{ steps.revision.outputs.expected_revision }}
+          if-no-files-found: error
+          retention-days: 14
+          path: |
+            query-execution-environment.txt
+            query-execution-results.txt
+            target/criterion/**/new/**
