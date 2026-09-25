@@ -466,6 +466,7 @@ impl<Q: QuerySpec, F: QueryFilter> QueryState<Q, F> {
                 archetype_bindings: Some(bindings),
                 entities: None,
                 scratch_pool: &self.scratch_pool,
+                mark_changes: !self.mutable_types.is_empty(),
                 binding_index: 0,
                 binding_row: 0,
                 index: 0,
@@ -483,6 +484,7 @@ impl<Q: QuerySpec, F: QueryFilter> QueryState<Q, F> {
             archetype_bindings: None,
             entities: Some(entities),
             scratch_pool: &self.scratch_pool,
+            mark_changes: !self.mutable_types.is_empty(),
             binding_index: 0,
             binding_row: 0,
             index: 0,
@@ -685,6 +687,7 @@ struct QueryIter<'w, 'state, Q: QuerySpec, F> {
     archetype_bindings: Option<Vec<QueryArchetypeBinding>>,
     entities: Option<Vec<Entity>>,
     scratch_pool: &'state RefCell<Vec<Vec<Entity>>>,
+    mark_changes: bool,
     binding_index: usize,
     binding_row: usize,
     index: usize,
@@ -710,7 +713,9 @@ impl<'w, 'state, Q: QuerySpec, F: QueryFilter> Iterator for QueryIter<'w, 'state
                     continue;
                 }
 
-                Q::mark_changed_archetype_row(self.world, binding, row);
+                if self.mark_changes {
+                    Q::mark_changed_archetype_row(self.world, binding, row);
+                }
                 // Safety: the binding was freshly projected from this serial
                 // query capability for Q's exact sealed access shape. Row is
                 // within the validated archetype range and any per-entity
@@ -731,7 +736,9 @@ impl<'w, 'state, Q: QuerySpec, F: QueryFilter> Iterator for QueryIter<'w, 'state
             // Safety: `self.index < entities_len` and `entities_ptr` points to `entities`.
             let entity = unsafe { *entities_ptr.add(self.index) };
             self.index += 1;
-            Q::mark_changed(self.world, entity);
+            if self.mark_changes {
+                Q::mark_changed(self.world, entity);
+            }
             // Safety: QueryState validated aliasing before constructing this iterator,
             // which holds the invocation-scoped query capability contract.
             if let Some(item) = unsafe { Q::fetch(self.world, entity) } {
