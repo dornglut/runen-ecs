@@ -52,6 +52,14 @@ fn receive_read_only_query(_query: Query<&Position>) {}
 
 fn receive_mutable_query(_query: Query<&mut Position>) {}
 
+fn consume_mutable_positions(mut query: Query<&mut Position>) {
+    black_box(query.iter().count());
+}
+
+fn consume_double_mutable_positions(mut query: Query<(&mut Position, &mut Velocity)>) {
+    black_box(query.iter().count());
+}
+
 fn no_op_runtime() -> Runtime {
     let mut runtime = Runtime::new();
     runtime.add_systems(Measure, no_op).unwrap();
@@ -85,6 +93,24 @@ fn read_only_parameter_runtime() -> Runtime {
 fn mutable_parameter_runtime() -> Runtime {
     let mut runtime = Runtime::new();
     runtime.add_systems(Measure, receive_mutable_query).unwrap();
+    runtime.validate().unwrap();
+    runtime
+}
+
+fn mutable_yield_runtime() -> Runtime {
+    let mut runtime = Runtime::new();
+    runtime
+        .add_systems(Measure, consume_mutable_positions)
+        .unwrap();
+    runtime.validate().unwrap();
+    runtime
+}
+
+fn double_mutable_yield_runtime() -> Runtime {
+    let mut runtime = Runtime::new();
+    runtime
+        .add_systems(Measure, consume_double_mutable_positions)
+        .unwrap();
     runtime.validate().unwrap();
     runtime
 }
@@ -155,6 +181,39 @@ fn prove_fixture_semantics() {
         initial_checksum,
         "parameter-only mutable query preparation must not mutate payloads"
     );
+
+    let mut serial_yield_world = build_world(COUNT);
+    let mut serial_yield_runtime = mutable_yield_runtime();
+    serial_yield_runtime
+        .run_schedule::<Measure>(&mut serial_yield_world)
+        .unwrap();
+    assert_eq!(
+        position_checksum(&serial_yield_world),
+        initial_checksum,
+        "yield-only serial mutable queries must not alter payload values"
+    );
+
+    let mut parallel_yield_world = build_world(COUNT);
+    let mut parallel_yield_runtime = mutable_yield_runtime();
+    parallel_yield_runtime
+        .run_schedule_parallel::<Measure>(&mut parallel_yield_world, 1)
+        .unwrap();
+    assert_eq!(
+        position_checksum(&parallel_yield_world),
+        initial_checksum,
+        "yield-only worker mutable queries must not alter payload values"
+    );
+
+    let mut double_yield_world = build_world(COUNT);
+    let mut double_yield_runtime = double_mutable_yield_runtime();
+    double_yield_runtime
+        .run_schedule::<Measure>(&mut double_yield_world)
+        .unwrap();
+    assert_eq!(
+        position_checksum(&double_yield_world),
+        initial_checksum,
+        "yield-only double-mutable queries must not alter payload values"
+    );
 }
 
 fn bench_direct_read_only(c: &mut Criterion) {
@@ -186,6 +245,24 @@ fn bench_direct_mutable(c: &mut Criterion) {
             }
             black_box(checksum);
         });
+    });
+}
+
+fn bench_direct_mutable_yield_only(c: &mut Criterion) {
+    let mut world = build_world(QUERY_ENTITY_COUNT);
+    let query = world.query::<&mut Position>();
+
+    c.bench_function("direct_serial_mutable_yield_only_10000", |b| {
+        b.iter(|| black_box(query.iter(&mut world).count()));
+    });
+}
+
+fn bench_direct_double_mutable_yield_only(c: &mut Criterion) {
+    let mut world = build_world(QUERY_ENTITY_COUNT);
+    let query = world.query::<(&mut Position, &mut Velocity)>();
+
+    c.bench_function("direct_serial_double_mutable_yield_only_10000", |b| {
+        b.iter(|| black_box(query.iter(&mut world).count()));
     });
 }
 
@@ -229,6 +306,33 @@ fn bench_serial_mutable_schedule(c: &mut Criterion) {
 
     c.bench_function("serial_schedule_mutable_query_10000", |b| {
         b.iter(|| runtime.run_schedule::<Measure>(&mut world).unwrap());
+    });
+}
+
+fn bench_serial_mutable_parameter_schedule(c: &mut Criterion) {
+    let mut world = build_world(QUERY_ENTITY_COUNT);
+    let mut runtime = mutable_parameter_runtime();
+
+    c.bench_function("serial_schedule_mutable_query_parameter_only_10000", |b| {
+        b.iter(|| runtime.run_schedule::<Measure>(&mut world).unwrap())
+    });
+}
+
+fn bench_serial_mutable_yield_only_schedule(c: &mut Criterion) {
+    let mut world = build_world(QUERY_ENTITY_COUNT);
+    let mut runtime = mutable_yield_runtime();
+
+    c.bench_function("serial_schedule_mutable_yield_only_10000", |b| {
+        b.iter(|| runtime.run_schedule::<Measure>(&mut world).unwrap());
+    });
+}
+
+fn bench_serial_double_mutable_yield_only_schedule(c: &mut Criterion) {
+    let mut world = build_world(QUERY_ENTITY_COUNT);
+    let mut runtime = double_mutable_yield_runtime();
+
+    c.bench_function("serial_schedule_double_mutable_yield_only_10000", |b| {
+        b.iter(|| runtime.run_schedule::<Measure>(&mut world).unwrap())
     });
 }
 
@@ -303,18 +407,54 @@ fn bench_parallel_mutable_schedule(c: &mut Criterion) {
     });
 }
 
+fn bench_parallel_mutable_yield_only_schedule(c: &mut Criterion) {
+    let mut world = build_world(QUERY_ENTITY_COUNT);
+    let mut runtime = mutable_yield_runtime();
+
+    c.bench_function("parallel_schedule_mutable_yield_only_10000_worker_1", |b| {
+        b.iter(|| {
+            runtime
+                .run_schedule_parallel::<Measure>(&mut world, 1)
+                .unwrap()
+        });
+    });
+}
+
+fn bench_parallel_double_mutable_yield_only_schedule(c: &mut Criterion) {
+    let mut world = build_world(QUERY_ENTITY_COUNT);
+    let mut runtime = double_mutable_yield_runtime();
+
+    c.bench_function(
+        "parallel_schedule_double_mutable_yield_only_10000_worker_1",
+        |b| {
+            b.iter(|| {
+                runtime
+                    .run_schedule_parallel::<Measure>(&mut world, 1)
+                    .unwrap()
+            });
+        },
+    );
+}
+
 criterion_group!(
     query_execution,
     bench_direct_read_only,
     bench_direct_mutable,
+    bench_direct_mutable_yield_only,
+    bench_direct_double_mutable_yield_only,
     bench_direct_mutable_read,
     bench_serial_no_op_schedule,
     bench_serial_read_only_schedule,
     bench_serial_mutable_schedule,
+    bench_serial_mutable_parameter_schedule,
+    bench_serial_mutable_yield_only_schedule,
+    bench_serial_double_mutable_yield_only_schedule,
     bench_parallel_no_op_schedule,
     bench_parallel_read_only_parameter_schedule,
     bench_parallel_read_only_schedule,
     bench_parallel_mutable_parameter_schedule,
     bench_parallel_mutable_schedule,
+    bench_parallel_mutable_yield_only_schedule,
+    bench_parallel_double_mutable_yield_only_schedule,
 );
 criterion_main!(query_execution);
