@@ -476,13 +476,12 @@ impl ArchetypeRegistry {
     /// Capture private allocation bases after checking every matching payload
     /// and metadata column against its entity-row count. The caller must retain
     /// the exclusive World borrow for every later dereference of these pointers.
-    pub(crate) fn collect_contiguous_spans(
+    pub(crate) fn collect_contiguous_spans<const CAPTURE_CHANGED_TICKS: bool>(
         &mut self,
         required_present: &[TypeId],
         excluded: &[TypeId],
         component_types: &[TypeId],
         mutable_types: &[TypeId],
-        capture_changed_ticks: bool,
     ) -> Result<Vec<ContiguousArchetypeSpan>, ()> {
         let mut bindings = Vec::new();
         self.collect_matching_bindings(required_present, excluded, &mut bindings);
@@ -504,7 +503,7 @@ impl ArchetypeRegistry {
                 }
                 let values = NonNull::new(column.as_mut_ptr()).ok_or(())?;
                 let changed_ticks =
-                    if capture_changed_ticks && mutable_types.contains(component_type) {
+                    if CAPTURE_CHANGED_TICKS && mutable_types.contains(component_type) {
                         (0..row_count)
                             .map(|row| column.changed_tick_ptr(row).ok_or(()))
                             .collect::<Result<Vec<_>, _>>()?
