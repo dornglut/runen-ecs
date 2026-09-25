@@ -312,6 +312,16 @@ impl<'world> QueryCapability<'world> {
         }
     }
 
+    pub(crate) fn prepared_worker_query_span_for_entity(
+        self,
+        entity: Entity,
+    ) -> Option<(ContiguousArchetypeSpan, usize)> {
+        match self.backing {
+            QueryCapabilityBacking::Serial(_) => None,
+            QueryCapabilityBacking::Worker(worker) => worker.prepared_query_span_for_entity(entity),
+        }
+    }
+
     pub(crate) fn collect_contiguous_spans(
         self,
         required_present: &[TypeId],
