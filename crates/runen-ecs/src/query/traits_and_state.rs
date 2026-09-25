@@ -364,15 +364,24 @@ impl<Q: QuerySpec, F: QueryFilter> QueryState<Q, F> {
             }
         }
 
-        let mutable_types: Vec<_> = self
-            .access
-            .component_writes()
-            .iter()
-            .map(|access| access.type_id())
-            .collect();
-        if !W::MUTABLE_WORLD && !mutable_types.is_empty() {
-            return Err(ContiguousQueryError::MutableWorldRequired);
-        }
+        let mutable_types = if Q::MARKS_COMPONENT_CHANGES {
+            let mutable_types = self
+                .access
+                .component_writes()
+                .iter()
+                .map(|access| access.type_id())
+                .collect::<Vec<_>>();
+            debug_assert!(
+                !mutable_types.is_empty(),
+                "change-marking query shape must declare component writes"
+            );
+            if !W::MUTABLE_WORLD {
+                return Err(ContiguousQueryError::MutableWorldRequired);
+            }
+            mutable_types
+        } else {
+            Vec::new()
+        };
         let world = world.into_query_capability();
         self.rebind_world_scope(world.world_scope());
         let segments = ContiguousSegments::new(
