@@ -23,6 +23,14 @@ on:
           - '100000'
           - '1000000'
           - 'all'
+      runner:
+        description: 'CPU architecture for the manual benchmark (standard GitHub-hosted runner)'
+        type: choice
+        required: true
+        default: 'ubuntu-24.04'
+        options:
+          - 'ubuntu-24.04'
+          - 'ubuntu-24.04-arm'
 
 permissions:
   contents: read
@@ -34,7 +42,9 @@ concurrency:
 jobs:
   benchmark:
     name: Eight-system scaling
-    runs-on: ubuntu-24.04
+    # The dispatch input selects only between two literal, allow-listed runner
+    # labels. The ordinary PR smoke remains x64 with its existing 1k size.
+    runs-on: ${{ github.event_name == 'workflow_dispatch' && inputs.runner == 'ubuntu-24.04-arm' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
     timeout-minutes: 60
     env:
       RUNEN_ECS_BENCH_SIZE: ${{ github.event_name == 'workflow_dispatch' && inputs.size || '1000' }}
@@ -82,6 +92,7 @@ jobs:
           {
             echo "Revision: $(git rev-parse HEAD)"
             echo "Runner: $RUNNER_OS / $RUNNER_ARCH"
+            echo "CPU topology (physical cores must be verified, not inferred from vCPU count):"
             echo "Entities: $RUNEN_ECS_BENCH_SIZE"
             uname -a
             lscpu
@@ -120,7 +131,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: ecs-parallel-scaling-${{ steps.revision.outputs.expected_revision }}-${{ env.RUNEN_ECS_BENCH_SIZE }}
+          name: ecs-parallel-scaling-${{ steps.revision.outputs.expected_revision }}-${{ env.RUNEN_ECS_BENCH_SIZE }}-${{ runner.arch }}
           if-no-files-found: error
           retention-days: 14
           path: |
