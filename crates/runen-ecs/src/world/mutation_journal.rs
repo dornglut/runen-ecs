@@ -134,6 +134,7 @@ pub(crate) struct ConcurrentMutationCapacity {
 }
 
 struct ConcurrentMutationCapacityState {
+    #[cfg(test)]
     remaining: u128,
     unassigned: Mutex<u128>,
     escrows: Box<[WorkerCreditEscrow]>,
@@ -209,6 +210,7 @@ impl ConcurrentMutationCapacity {
         Self {
             base_cursor,
             state: Arc::new(ConcurrentMutationCapacityState {
+                #[cfg(test)]
                 remaining,
                 unassigned: Mutex::new(remaining),
                 escrows: (0..workers)
