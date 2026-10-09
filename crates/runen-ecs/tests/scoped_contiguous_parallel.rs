@@ -75,8 +75,14 @@ fn scoped_contiguous_chunks_match_serial_world_observation() {
 
     let reference_changed = reference.query_filtered::<&Position, Changed<Position>>();
     let candidate_changed = candidate.query_filtered::<&Position, Changed<Position>>();
-    assert_eq!(reference_changed.iter(&reference).count(), reference_rows.len());
-    assert_eq!(candidate_changed.iter(&candidate).count(), candidate_rows.len());
+    assert_eq!(
+        reference_changed.iter(&reference).count(),
+        reference_rows.len()
+    );
+    assert_eq!(
+        candidate_changed.iter(&candidate).count(),
+        candidate_rows.len()
+    );
     assert_eq!(reference_changed.iter(&reference).count(), 0);
     assert_eq!(candidate_changed.iter(&candidate).count(), 0);
 
@@ -99,8 +105,14 @@ fn scoped_contiguous_chunks_match_serial_world_observation() {
         reference_rows.iter().zip(candidate_rows.iter())
     {
         let expected = if *skip { *value } else { *value + 4096 };
-        assert_eq!(reference.require::<Position>(*reference_entity).unwrap().0, expected);
-        assert_eq!(candidate.require::<Position>(*candidate_entity).unwrap().0, expected);
+        assert_eq!(
+            reference.require::<Position>(*reference_entity).unwrap().0,
+            expected
+        );
+        assert_eq!(
+            candidate.require::<Position>(*candidate_entity).unwrap().0,
+            expected
+        );
     }
 
     assert_eq!(reference_changed.iter(&reference).count(), eligible);
