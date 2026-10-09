@@ -30,11 +30,11 @@ help: the trait `query::traits_and_state::QueryData` is not implemented for `Uns
             &T
             &mut T
             (&A, &B)
-            (&A, &B, &C)
             (&A, &mut B)
             (&A, Option<&B>)
             (&A, Option<&mut B>)
             (&mut A, &B)
+            (&mut A, &mut B)
           and $N others
   = note: required for `UnsupportedQuery` to implement `query::traits_and_state::sealed::QuerySpecSealed`
 note: required by a bound in `runen_ecs::query::QuerySpec`
