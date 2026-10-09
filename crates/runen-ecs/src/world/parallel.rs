@@ -108,13 +108,13 @@ pub(crate) struct ParallelWorldLease<'world> {
 }
 
 impl<'world> ParallelWorldLease<'world> {
-    pub(crate) fn new(world: &'world mut World) -> Self {
+    pub(crate) fn new(world: &'world mut World, workers: usize) -> Self {
         let base_cursor = world.current_change_cursor();
         Self {
             world: NonNull::from(world),
             base_cursor,
             expected_cursor: base_cursor,
-            capacity: ConcurrentMutationCapacity::new(base_cursor),
+            capacity: ConcurrentMutationCapacity::new(base_cursor, workers),
             _marker: PhantomData,
         }
     }

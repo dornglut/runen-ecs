@@ -27,7 +27,7 @@ pub(crate) fn run_worker_cohort(
 
     #[cfg(test)]
     let prepare_start = std::time::Instant::now();
-    let mut lease = ParallelWorldLease::new(world);
+    let mut lease = ParallelWorldLease::new(world, members.len());
     let mut prepared = Vec::with_capacity(members.len());
     for (rank, runner) in &members {
         prepared.push((*rank, runner.prepare_worker(&lease)?));
@@ -42,13 +42,14 @@ pub(crate) fn run_worker_cohort(
         let handles = members
             .into_iter()
             .zip(prepared)
-            .map(|((rank, runner), (prepared_rank, mut prepared))| {
+            .enumerate()
+            .map(|(worker_slot, ((rank, runner), (prepared_rank, mut prepared)))| {
                 if rank != prepared_rank {
                     panic_parallel_executor_violation(
                         "prepared worker projection lost its reference rank",
                     );
                 }
-                let capacity = capacity.clone();
+                let capacity = capacity.for_worker(worker_slot);
                 (
                     rank,
                     scope.spawn(move || runner.run_worker(&mut prepared, capacity)),

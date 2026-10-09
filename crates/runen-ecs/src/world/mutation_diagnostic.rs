@@ -87,13 +87,13 @@ fn vector_only(size: usize, workers: usize) -> u128 {
 
 fn reservation_only(size: usize, workers: usize) -> u128 {
     let world = World::new();
-    let capacity = ConcurrentMutationCapacity::new(world.current_change_cursor());
+    let capacity = ConcurrentMutationCapacity::new(world.current_change_cursor(), workers);
     let each = size / workers;
     let start = Instant::now();
     std::thread::scope(|scope| {
         let handles = (0..workers)
-            .map(|_| {
-                let local = capacity.clone();
+            .map(|worker_slot| {
+                let local = capacity.for_worker(worker_slot);
                 scope.spawn(move || {
                     for _ in 0..each {
                         local.reserve_next_event();
@@ -144,13 +144,13 @@ fn concurrent_record_and_replay(size: usize, workers: usize) -> (u128, u128) {
     let mut world = World::new();
     let (entity, component_type, target) = target_for(&mut world);
     let base = world.current_change_cursor();
-    let capacity = ConcurrentMutationCapacity::new(base);
+    let capacity = ConcurrentMutationCapacity::new(base, workers);
     let each = size / workers;
     let start = Instant::now();
     let journals = std::thread::scope(|scope| {
         let handles = (0..workers)
-            .map(|_| {
-                let local = capacity.clone();
+            .map(|worker_slot| {
+                let local = capacity.for_worker(worker_slot);
                 scope.spawn(move || {
                     let mut journal = MutationJournal::new_concurrent(base, local);
                     for _ in 0..each {
