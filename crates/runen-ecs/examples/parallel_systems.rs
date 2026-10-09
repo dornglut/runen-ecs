@@ -61,7 +61,7 @@ fn finish_frame(mut world: WorldMut) {
 
 fn main() -> Result<(), RuntimeError> {
     let mut world = World::new();
-    world.spawn((Position(0), Velocity(1)))?;
+    world.spawn((Position(0), Velocity(1))).unwrap();
     world.insert_resource(Frames(0));
 
     let mut runtime = Runtime::new();
