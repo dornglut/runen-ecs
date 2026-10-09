@@ -117,7 +117,9 @@ impl Workload {
             Self::Reads => runtime
                 .add_systems(
                     Measure,
-                    (read_0, read_1, read_2, read_3, read_4, read_5, read_6, read_7),
+                    (
+                        read_0, read_1, read_2, read_3, read_4, read_5, read_6, read_7,
+                    ),
                 )
                 .unwrap(),
             Self::IndependentWrites => runtime
@@ -195,7 +197,10 @@ impl Fixture {
 
     fn run(&mut self, mode: Mode) {
         match mode {
-            Mode::Serial => self.runtime.run_schedule::<Measure>(&mut self.world).unwrap(),
+            Mode::Serial => self
+                .runtime
+                .run_schedule::<Measure>(&mut self.world)
+                .unwrap(),
             Mode::Parallel(capacity) => self
                 .runtime
                 .run_schedule_parallel::<Measure>(&mut self.world, capacity)
