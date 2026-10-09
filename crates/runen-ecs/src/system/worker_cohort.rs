@@ -10,49 +10,6 @@ use crate::world::{
 };
 use std::panic::resume_unwind;
 
-#[cfg(test)]
-pub(crate) mod phase_probe {
-    use std::cell::RefCell;
-
-    #[derive(Clone, Copy, Default)]
-    pub(crate) struct Timings {
-        pub(crate) prepare_ns: u128,
-        pub(crate) execute_ns: u128,
-        pub(crate) reconcile_ns: u128,
-        pub(crate) cohorts: usize,
-    }
-
-    thread_local! {
-        static ACTIVE: RefCell<Option<Timings>> = const { RefCell::new(None) };
-    }
-
-    pub(crate) fn begin() {
-        ACTIVE.with(|state| {
-            *state.borrow_mut() = Some(Timings::default());
-        });
-    }
-
-    pub(crate) fn finish() -> Timings {
-        ACTIVE.with(|state| {
-            state
-                .borrow_mut()
-                .take()
-                .expect("phase probe must be activated on the invoking thread")
-        })
-    }
-
-    pub(super) fn observe(prepare_ns: u128, execute_ns: u128, reconcile_ns: u128) {
-        ACTIVE.with(|state| {
-            if let Some(timings) = state.borrow_mut().as_mut() {
-                timings.prepare_ns += prepare_ns;
-                timings.execute_ns += execute_ns;
-                timings.reconcile_ns += reconcile_ns;
-                timings.cohorts += 1;
-            }
-        });
-    }
-}
-
 /// Executes one already-planned transferable worker cohort.
 ///
 /// `members` must be supplied in the schedule's snapshot-local reference-rank
@@ -208,5 +165,48 @@ fn is_cursor_exhaustion(outcome: &WorkerInvocationOutcome) -> bool {
                 == Some(FrameworkInvariantKind::ChangeCursorExhausted)
         }
         WorkerInvocationOutcome::Success(_) | WorkerInvocationOutcome::Error(_) => false,
+    }
+}
+
+#[cfg(test)]
+pub(crate) mod phase_probe {
+    use std::cell::RefCell;
+
+    #[derive(Clone, Copy, Default)]
+    pub(crate) struct Timings {
+        pub(crate) prepare_ns: u128,
+        pub(crate) execute_ns: u128,
+        pub(crate) reconcile_ns: u128,
+        pub(crate) cohorts: usize,
+    }
+
+    thread_local! {
+        static ACTIVE: RefCell<Option<Timings>> = const { RefCell::new(None) };
+    }
+
+    pub(crate) fn begin() {
+        ACTIVE.with(|state| {
+            *state.borrow_mut() = Some(Timings::default());
+        });
+    }
+
+    pub(crate) fn finish() -> Timings {
+        ACTIVE.with(|state| {
+            state
+                .borrow_mut()
+                .take()
+                .expect("phase probe must be activated on the invoking thread")
+        })
+    }
+
+    pub(super) fn observe(prepare_ns: u128, execute_ns: u128, reconcile_ns: u128) {
+        ACTIVE.with(|state| {
+            if let Some(timings) = state.borrow_mut().as_mut() {
+                timings.prepare_ns += prepare_ns;
+                timings.execute_ns += execute_ns;
+                timings.reconcile_ns += reconcile_ns;
+                timings.cohorts += 1;
+            }
+        });
     }
 }
