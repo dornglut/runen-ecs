@@ -28,7 +28,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: ecs-parallel-scaling-${{ github.workflow }-${{ github.ref }
+  group: ecs-parallel-scaling-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -37,14 +37,14 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     env:
-      RUNEN_ECS_BENCH_SIZE: ${{ github.event_name == 'workflow_dispatch' && inputs.size || '1000' }
+      RUNEN_ECS_BENCH_SIZE: ${{ github.event_name == 'workflow_dispatch' && inputs.size || '1000' }}
     steps:
       - name: Resolve expected revision
         id: revision
         env:
-          EVENT_NAME: ${{ github.event_name }
-          EVENT_SHA: ${{ github.sha }
-          PULL_REQUEST_HEAD_SHA: ${{ github.event.pull_request.head.sha }
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_SHA: ${{ github.sha }}
+          PULL_REQUEST_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
           case "$EVENT_NAME" in
@@ -58,14 +58,14 @@ jobs:
       - name: Check out exact revision
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: ${{ steps.revision.outputs.expected_revision }
+          ref: ${{ steps.revision.outputs.expected_revision }}
           clean: true
           fetch-depth: 1
           persist-credentials: false
 
       - name: Prove checked-out revision
         env:
-          EXPECTED_REVISION: ${{ steps.revision.outputs.expected_revision }
+          EXPECTED_REVISION: ${{ steps.revision.outputs.expected_revision }}
         run: |
           set -euo pipefail
           actual_revision="$(git rev-parse HEAD)"
@@ -120,7 +120,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: ecs-parallel-scaling-${{ steps.revision.outputs.expected_revision }-${{ env.RUNEN_ECS_BENCH_SIZE }
+          name: ecs-parallel-scaling-${{ steps.revision.outputs.expected_revision }}-${{ env.RUNEN_ECS_BENCH_SIZE }}
           if-no-files-found: error
           retention-days: 14
           path: |
