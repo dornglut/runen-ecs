@@ -3,6 +3,8 @@ use super::change_tracking::{ChangeCursor, panic_change_cursor_exhausted};
 use crate::entity::Entity;
 use std::any::TypeId;
 use std::ptr::NonNull;
+#[cfg(target_has_atomic = "64")]
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 #[derive(Debug, Copy, Clone)]
@@ -40,12 +42,80 @@ enum MutationEvent {
 #[derive(Clone)]
 pub(crate) struct ConcurrentMutationCapacity {
     base_cursor: ChangeCursor,
-    state: Arc<Mutex<ConcurrentMutationCapacityState>>,
+    state: Arc<ConcurrentMutationCapacityState>,
 }
 
 struct ConcurrentMutationCapacityState {
     remaining: u128,
-    admitted: u128,
+    #[cfg(target_has_atomic = "64")]
+    fast_admitted: AtomicU64,
+    // Ordinary operations stay on the atomic fast path on 64-bit-atomic targets.
+    // The Mutex also supports platforms without AtomicU64 and the unreachable-
+    // in-practice but semantically necessary >u64::MAX admission tail.
+    slow_admitted: Mutex<u128>,
+}
+
+impl ConcurrentMutationCapacityState {
+    fn try_reserve(&self) -> bool {
+        #[cfg(target_has_atomic = "64")]
+        {
+            let fast_limit = self.remaining.min(u64::MAX as u128) as u64;
+            let mut observed = self.fast_admitted.load(Ordering::Relaxed);
+            while observed < fast_limit {
+                // Admission is only an exact unique quota claim: it does not
+                // publish any journal/payload data. Worker join provides the
+                // synchronization before reference-ranked replay.
+                match self.fast_admitted.compare_exchange_weak(
+                    observed,
+                    observed + 1,
+                    Ordering::Relaxed,
+                    Ordering::Relaxed,
+                ) {
+                    Ok(_) => return true,
+                    Err(actual) => observed = actual,
+                }
+            }
+            // No fast-path wrap, no premature exhaustion at an epoch boundary.
+            if self.remaining <= u64::MAX as u128 {
+                false
+            } else {
+                self.reserve_slow(self.remaining - u64::MAX as u128)
+            }
+        }
+        #[cfg(not(target_has_atomic = "64"))]
+        {
+            self.reserve_slow(self.remaining)
+        }
+    }
+
+    fn reserve_slow(&self, max_tail: u128) -> bool {
+        let mut tail = self
+            .slow_admitted
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if *tail >= max_tail {
+            false
+        } else {
+            *tail += 1;
+            true
+        }
+    }
+
+    #[cfg(test)]
+    fn total_admitted(&self) -> u128 {
+        let tail = *self
+            .slow_admitted
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        #[cfg(target_has_atomic = "64")]
+        {
+            self.fast_admitted.load(Ordering::Relaxed) as u128 + tail
+        }
+        #[cfg(not(target_has_atomic = "64"))]
+        {
+            tail
+        }
+    }
 }
 
 impl ConcurrentMutationCapacity {
@@ -53,29 +123,24 @@ impl ConcurrentMutationCapacity {
         let ordinal = ((base_cursor.epoch() as u128) << 64) | base_cursor.tick() as u128;
         Self {
             base_cursor,
-            state: Arc::new(Mutex::new(ConcurrentMutationCapacityState {
+            state: Arc::new(ConcurrentMutationCapacityState {
                 remaining: u128::MAX - ordinal,
-                admitted: 0,
-            })),
+                #[cfg(target_has_atomic = "64")]
+                fast_admitted: AtomicU64::new(0),
+                slow_admitted: Mutex::new(0),
+            }),
         }
     }
 
     fn reserve_next_event(&self) {
-        let exhausted = {
-            let mut state = self
-                .state
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
-            if state.admitted == state.remaining {
-                true
-            } else {
-                state.admitted += 1;
-                false
-            }
-        };
-        if exhausted {
+        if !self.state.try_reserve() {
             panic_change_cursor_exhausted();
         }
+    }
+
+    #[cfg(test)]
+    fn admitted_for_test(&self) -> u128 {
+        self.state.total_admitted()
     }
 }
 
@@ -391,5 +456,115 @@ mod tests {
         );
         assert!(world.component_changed_since::<A>(base).unwrap());
         assert!(!world.component_changed_since::<B>(base).unwrap());
+    }
+    #[test]
+    fn portable_admission_rejects_at_terminal_cursor_without_wrap() {
+        let world = World::new();
+        let scope = world.scope_id();
+        for (tick, allowed) in [(u64::MAX, 0), (u64::MAX - 1, 1), (u64::MAX - 2, 2)] {
+            let base = ChangeCursor::from_parts(scope, u64::MAX, tick);
+            let capacity = ConcurrentMutationCapacity::new(base);
+            for _ in 0..allowed {
+                capacity.reserve_next_event();
+            }
+            assert_eq!(capacity.admitted_for_test(), allowed as u128);
+            let payload = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                capacity.reserve_next_event();
+            }))
+            .expect_err("reservation must fail at the absolute cursor limit");
+            assert_eq!(
+                framework_invariant_kind(payload.as_ref()),
+                Some(FrameworkInvariantKind::ChangeCursorExhausted)
+            );
+            assert_eq!(capacity.admitted_for_test(), allowed as u128);
+        }
+    }
+
+    #[test]
+    fn concurrent_last_position_admits_one_worker_and_preserves_invariant_identity() {
+        let world = World::new();
+        let base = ChangeCursor::from_parts(world.scope_id(), u64::MAX, u64::MAX - 1);
+        let capacity = ConcurrentMutationCapacity::new(base);
+        let barrier = Arc::new(std::sync::Barrier::new(4));
+        let results = std::thread::scope(|scope| {
+            let handles = (0..4)
+                .map(|_| {
+                    let capacity = capacity.clone();
+                    let barrier = barrier.clone();
+                    scope.spawn(move || {
+                        barrier.wait();
+                        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                            capacity.reserve_next_event();
+                        }))
+                    })
+                })
+                .collect::<Vec<_>>();
+            handles
+                .into_iter()
+                .map(|handle| handle.join().expect("admission probe worker escaped"))
+                .collect::<Vec<_>>()
+        });
+        assert_eq!(results.iter().filter(|result| result.is_ok()).count(), 1);
+        for payload in results.into_iter().filter_map(Result::err) {
+            assert_eq!(
+                framework_invariant_kind(payload.as_ref()),
+                Some(FrameworkInvariantKind::ChangeCursorExhausted)
+            );
+        }
+        assert_eq!(capacity.admitted_for_test(), 1);
+    }
+
+    #[cfg(target_has_atomic = "64")]
+    #[test]
+    fn atomic_counter_saturates_without_losing_the_u128_tail() {
+        let world = World::new();
+        let scope = world.scope_id();
+
+        // There is exactly 2^64 capacity left, including one position
+        // beyond the largest fast-tier AtomicU64 count.
+        let base = ChangeCursor::from_parts(scope, u64::MAX - 1, u64::MAX);
+        let capacity = ConcurrentMutationCapacity::new(base);
+        assert_eq!(capacity.state.remaining, u64::MAX as u128 + 1);
+
+        // Artificially seed the *admission counter* to the final fast
+        // position. No World events are fabricated or reconciled by this test.
+        capacity
+            .state
+            .fast_admitted
+            .store(u64::MAX - 1, Ordering::Relaxed);
+        capacity.reserve_next_event();
+        assert_eq!(capacity.admitted_for_test(), u64::MAX as u128);
+        capacity.reserve_next_event();
+        assert_eq!(capacity.admitted_for_test(), u64::MAX as u128 + 1);
+
+        let payload = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            capacity.reserve_next_event();
+        }))
+        .expect_err("the tail contains no additional cursor capacity");
+        assert_eq!(
+            framework_invariant_kind(payload.as_ref()),
+            Some(FrameworkInvariantKind::ChangeCursorExhausted)
+        );
+        assert_eq!(capacity.admitted_for_test(), u64::MAX as u128 + 1);
+
+        // Exactly u64::MAX remaining positions means the tail must never
+        // admit a spurious u64::MAX+1st event.
+        let base = ChangeCursor::from_parts(scope, u64::MAX, 0);
+        let capacity = ConcurrentMutationCapacity::new(base);
+        assert_eq!(capacity.state.remaining, u64::MAX as u128);
+        capacity
+            .state
+            .fast_admitted
+            .store(u64::MAX - 1, Ordering::Relaxed);
+        capacity.reserve_next_event();
+        assert_eq!(capacity.admitted_for_test(), u64::MAX as u128);
+        let payload = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            capacity.reserve_next_event();
+        }))
+        .expect_err("fast saturation at the absolute limit must fail");
+        assert_eq!(
+            framework_invariant_kind(payload.as_ref()),
+            Some(FrameworkInvariantKind::ChangeCursorExhausted)
+        );
     }
 }

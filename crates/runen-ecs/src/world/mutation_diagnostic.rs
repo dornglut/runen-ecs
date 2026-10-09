@@ -108,11 +108,7 @@ fn reservation_only(size: usize, workers: usize) -> u128 {
         }
     });
     let elapsed = start.elapsed().as_nanos();
-    let state = capacity
-        .state
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
-    assert_eq!(state.admitted, size as u128);
+    assert_eq!(capacity.admitted_for_test(), size as u128);
     elapsed
 }
 
@@ -181,13 +177,7 @@ fn concurrent_record_and_replay(size: usize, workers: usize) -> (u128, u128) {
             .sum::<usize>(),
         size
     );
-    {
-        let state = capacity
-            .state
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        assert_eq!(state.admitted, size as u128);
-    }
+    assert_eq!(capacity.admitted_for_test(), size as u128);
 
     // Replay is sequential by reference-rank order, as in the real executor;
     // timing starts *after* worker join and ends before post-state assertions.

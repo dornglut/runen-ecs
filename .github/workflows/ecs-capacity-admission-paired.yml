@@ -1,0 +1,138 @@
+name: RunenECS capacity admission paired evidence
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'crates/runen-ecs/src/world/mutation_journal.rs'
+      - 'crates/runen-ecs/src/world/mutation_diagnostic.rs'
+      - 'crates/runen-ecs/benchmarks/capacity_admission_paired.md'
+      - '.github/workflows/ecs-capacity-admission-paired.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ecs-capacity-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  paired:
+    name: Paired million-entity validation
+    runs-on: ubuntu-24.04
+    timeout-minutes: 65
+    env:
+      RUNEN_ECS_BENCH_SIZE: '1000000'
+      CARGO_INCREMENTAL: '0'
+    steps:
+      - name: Resolve immutable base/head
+        id: rev
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          test -n "$BASE_SHA"
+          test -n "$HEAD_SHA"
+          echo "base=$BASE_SHA" >> "$GITHUB_OUTPUT"
+          echo "head=$HEAD_SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Check out exact head and base history
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ steps.rev.outputs.head }}
+          fetch-depth: 0
+          clean: true
+          persist-credentials: false
+
+      - name: Verify revisions
+        env:
+          BASE_SHA: ${{ steps.rev.outputs.base }}
+          HEAD_SHA: ${{ steps.rev.outputs.head }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$HEAD_SHA"
+          git cat-file -e "$BASE_SHA^{commit}"
+          git cat-file -e "$HEAD_SHA^{commit}"
+
+      - name: Install pinned toolchain
+        run: rustup toolchain install 1.98.1 --profile minimal
+
+      - name: Record machine and configuration
+        env:
+          BASE_SHA: ${{ steps.rev.outputs.base }}
+          HEAD_SHA: ${{ steps.rev.outputs.head }}
+        run: |
+          set -euo pipefail
+          {
+            echo "Base: $BASE_SHA"
+            echo "Head: $HEAD_SHA"
+            echo "Order: base/head/head/base"
+            echo "Entities: $RUNEN_ECS_BENCH_SIZE"
+            echo "Criterion: warmup 1s / measurement 2s / 15 samples"
+            uname -a
+            lscpu
+            rustc +1.98.1 -Vv
+            cargo +1.98.1 -V
+          } | tee paired-environment.txt
+
+      - name: Run alternating exact-source baseline and candidate
+        env:
+          BASE_SHA: ${{ steps.rev.outputs.base }}
+          HEAD_SHA: ${{ steps.rev.outputs.head }}
+        run: |
+          set -euo pipefail
+          variants=(base head head base)
+          for i in 0 1 2 3; do
+            variant="${variants[$i]}"
+            if [[ "$variant" == base ]]; then
+              revision="$BASE_SHA"
+            else
+              revision="$HEAD_SHA"
+            fi
+            git -c advice.detachedHead=false checkout --detach "$revision"
+            test "$(git rev-parse HEAD)" = "$revision"
+            {
+              echo "Variant: $variant"
+              echo "Exact revision: $(git rev-parse HEAD)"
+              echo "Pair ordinal: $i"
+            } | tee "paired-run-$i-$variant.txt"
+            cargo +1.98.1 bench -p runen-ecs --bench parallel_scaling --locked -- \
+              --noplot --warm-up-time 1 --measurement-time 2 --sample-size 15 \
+              2>&1 | tee -a "paired-run-$i-$variant.txt"
+            if [[ -d target/criterion ]]; then
+              mv target/criterion "paired-criterion-$i-$variant"
+            fi
+          done
+
+      - name: Publish compact summary
+        if: always()
+        run: |
+          {
+            echo '## Paired million-entity source evidence'
+            if [[ -f paired-environment.txt ]]; then
+              echo '~~~text'
+              sed -n '1,40p' paired-environment.txt
+              echo '~~~'
+            fi
+            for report in paired-run-*.txt; do
+              [[ -f "$report" ]] || continue
+              echo "### $report"
+              echo '~~~text'
+              grep -E '^(Variant:|Exact revision:|Pair ordinal:|parallel_scaling/| *time:)' "$report" || true
+              echo '~~~'
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload raw paired samples
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ecs-capacity-paired-${{ steps.rev.outputs.head }}
+          retention-days: 14
+          if-no-files-found: error
+          path: |
+            paired-environment.txt
+            paired-run-*.txt
+            paired-criterion-*/**/new/**
