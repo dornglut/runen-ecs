@@ -28,3 +28,7 @@ harness = false
 [[bench]]
 name = "query_execution"
 harness = false
+
+[[bench]]
+name = "parallel_scaling"
+harness = false
