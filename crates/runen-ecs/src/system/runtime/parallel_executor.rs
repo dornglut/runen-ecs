@@ -867,38 +867,25 @@ mod tests {
         let before = ChangeCursor::from_parts(scope, u64::MAX, u64::MAX - 2);
         world.set_change_cursor_for_test(before);
 
-        let a_admitted = Arc::new(AtomicBool::new(false));
-        let b_admitted = Arc::new(AtomicBool::new(false));
-        let a_signal = Arc::clone(&a_admitted);
-        let a_wait = Arc::clone(&b_admitted);
-        let b_wait = Arc::clone(&a_admitted);
-        let b_signal = Arc::clone(&b_admitted);
+        // A's user synchronization waits for B, so completion-based credit
+        // reclamation would deadlock here. Timeouts bound a failing test.
+        let (a_admitted_tx, a_admitted_rx) = std::sync::mpsc::channel::<()>();
+        let (b_admitted_tx, b_admitted_rx) = std::sync::mpsc::channel::<()>();
+        let timeout = std::time::Duration::from_secs(15);
 
         let first = move |mut query: Query<&mut A>| {
             query.get(entity).unwrap().0 += 1;
-            a_signal.store(true, Ordering::Release);
-            // Only B can release this wait. A has one unspent, provisionally
-            // granted credit, but cannot complete its invocation to refund it.
-            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
-            while !a_wait.load(Ordering::Acquire) {
-                assert!(
-                    std::time::Instant::now() < deadline,
-                    "worker B could not redeem A's unused cursor credit"
-                );
-                std::thread::yield_now();
-            }
+            a_admitted_tx.send(()).unwrap();
+            b_admitted_rx
+                .recv_timeout(timeout)
+                .expect("worker B could not redeem A's unused cursor credit");
         };
         let second = move |mut query: Query<&mut B>| {
-            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
-            while !b_wait.load(Ordering::Acquire) {
-                assert!(
-                    std::time::Instant::now() < deadline,
-                    "worker A never reached its first admitted event"
-                );
-                std::thread::yield_now();
-            }
+            a_admitted_rx
+                .recv_timeout(timeout)
+                .expect("worker A never reached its first admitted event");
             query.get(entity).unwrap().0 += 1;
-            b_signal.store(true, Ordering::Release);
+            b_admitted_tx.send(()).unwrap();
         };
 
         let mut runtime = Runtime::new();
