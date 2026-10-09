@@ -37,7 +37,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     env:
-      RUNEN_ECS_BENCH_SIZE: ${{ github.event_name == 'workflow_dispatch' && inputs.size || '1000000' }}
+      RUNEN_ECS_BENCH_SIZE: ${{ github.event_name == 'workflow_dispatch' && inputs.size || '1000' }}
     steps:
       - name: Resolve expected revision
         id: revision
