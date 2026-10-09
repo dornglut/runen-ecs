@@ -216,10 +216,9 @@ fn concurrent_record_and_replay(size: usize, workers: usize) -> (u128, u128) {
 #[test]
 #[ignore = "run explicitly with --release -- --ignored --nocapture for #143"]
 fn mutation_path_scaling_diagnostic() {
-    assert!(
-        !cfg!(debug_assertions),
-        "diagnostic needs optimized --release"
-    );
+    if cfg!(debug_assertions) {
+        panic!("diagnostic needs optimized --release");
+    }
     for size in counts() {
         for round in 0..3 {
             let (record_ns, replay_ns) = serial_record_and_replay(size);
