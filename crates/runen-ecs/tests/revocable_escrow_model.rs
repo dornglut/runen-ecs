@@ -102,16 +102,14 @@ impl State {
                 }
                 next
             }
-            Phase::Paused => {
-                [Phase::Idle, Phase::Finished, Phase::UserPanicked]
-                    .into_iter()
-                    .map(|phase| {
-                        let mut next = self.clone();
-                        next.phase[worker] = phase;
-                        next
-                    })
-                    .collect()
-            }
+            Phase::Paused => [Phase::Idle, Phase::Finished, Phase::UserPanicked]
+                .into_iter()
+                .map(|phase| {
+                    let mut next = self.clone();
+                    next.phase[worker] = phase;
+                    next
+                })
+                .collect(),
             Phase::Requesting => {
                 // A successful checked CAS is one real event's pre-exposure
                 // admission. It cannot be undone or issued twice.
@@ -193,9 +191,11 @@ fn exhaustive_small_capacity_interleavings_preserve_exact_admission() {
                     !reachable.is_empty(),
                     "missing reachable states for {capacity}/{workers}/{quota}"
                 );
-                assert!(reachable.iter().any(|state| {
-                    state.admitted_total() == u16::from(capacity)
-                }));
+                assert!(
+                    reachable
+                        .iter()
+                        .any(|state| { state.admitted_total() == u16::from(capacity) })
+                );
             }
         }
     }
@@ -255,7 +255,10 @@ fn terminal_u128_cursor_and_u64_tail_use_exact_capacity() {
         (u128::MAX - 1, 1),
         (u128::MAX - 2, 2),
         ((u64::MAX as u128) << 64, u64::MAX as u128),
-        (((u64::MAX - 1) as u128) << 64 | u64::MAX as u128, 1u128 << 64),
+        (
+            ((u64::MAX - 1) as u128) << 64 | u64::MAX as u128,
+            1u128 << 64,
+        ),
     ] {
         assert_eq!(u128::MAX - base, expected);
         assert_eq!(base.checked_add(expected), Some(u128::MAX));
