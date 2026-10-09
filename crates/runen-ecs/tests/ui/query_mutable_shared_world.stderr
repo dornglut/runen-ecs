@@ -9,10 +9,10 @@ error[E0277]: the trait bound `&mut Position: query::traits_and_state::QueryRead
   = help: the following other types implement trait `query::traits_and_state::QueryReadOnly`:
             &T
             (&A, &B)
-            (&A, &B, &C)
             (&A, Option<&B>)
             (runen_ecs::Entity, &T)
             (runen_ecs::Entity, Option<&T>)
+            (&A, &B, &C)
             Option<&T>
             runen_ecs::Entity
   = note: `query::traits_and_state::QueryReadOnly` is implemented for `&Position`, but not for `&mut Position`
