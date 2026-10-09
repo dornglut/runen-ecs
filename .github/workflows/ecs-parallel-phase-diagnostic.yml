@@ -22,7 +22,10 @@ concurrency:
 jobs:
   diagnostic:
     name: Worker cohort phase decomposition
-    runs-on: ubuntu-24.04
+    # Use the standard ARM64 host for the one existing diagnostic job.
+    # The accepted 1M public benchmark verified 4 physical Neoverse-N2
+    # cores on one hosted ARM64 runner; record actual topology on every run.
+    runs-on: ubuntu-24.04-arm
     timeout-minutes: 40
     env:
       RUNEN_ECS_PHASE_DIAGNOSTIC_SIZES: all
@@ -108,7 +111,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: ecs-parallel-phases-${{ steps.revision.outputs.sha }}
+          name: ecs-parallel-phases-${{ steps.revision.outputs.sha }}-${{ runner.arch }}
           if-no-files-found: error
           retention-days: 14
           path: |

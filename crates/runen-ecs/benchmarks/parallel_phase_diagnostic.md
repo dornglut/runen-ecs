@@ -68,6 +68,25 @@ workloads. The read-only GitHub workflow runs all sizes on the immutable
 pull-request head and archives every raw sample with CPU topology and
 the exact toolchain. No duration becomes a branch protection threshold.
 
+For [#147](https://github.com/dornglut/runen-ecs/issues/147), its **single**
+existing hosted diagnostic job now runs on `ubuntu-24.04-arm` rather than
+`ubuntu-24.04` x64, because the [accepted public scaling measurement](https://github.com/dornglut/runen-ecs/actions/runs/37921720564)
+confirmed an actual **four-physical-core Neoverse-N2** machine on the
+standard ARM64 runner. The runner label does not itself guarantee physical
+core topology on every future invocation; inspect recorded `lscpu` evidence
+before interpreting core-count-specific scaling. The raw artifact includes
+`runner.arch` so ARM64 and historical x64 samples cannot be mistaken for
+identical execution environments.
+
+The PR trigger still launches only **one** diagnostic job with the original
+10k/100k/1m fixture and three serial/worker-1/2/4 repetitions; this change
+does **not** add a new permanent CI job, duration threshold, benchmark
+cardinality, or runtime instrumentation. Existing canonical, Miri, ASan and
+TSan workflows remain unchanged and authoritative. The earlier x64 phase
+results remain historical evidence, not a same-host baseline; compare the
+new ARM64 serial and worker phases **within the exact same ARM64 run**.
+Do not infer that ARM-vs-x64 elapsed differences are source-level speedups.
+
 The `#[cfg(test)]` instrumentation exists only in Rust test builds.
 Canonical tests compile but do not execute the ignored diagnostic.
 Production builds have **no timing collector, environment lookup, or
