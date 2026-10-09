@@ -90,6 +90,7 @@ Run examples from the repository root.
 | `change_observation` | Observe `Added`, conservative `Changed`, and removed-component windows. | `cargo run -p runen-ecs --example change_observation` |
 | `scheduling` | Express required and optional semantic precedence with system sets. | `cargo run -p runen-ecs --example scheduling` |
 | `system_mobility` | Contrast normal transferable registration with an explicit invoker-thread-only system. | `cargo run -p runen-ecs --example system_mobility` |
+| `parallel_systems` | Run independent and conflicting mutable systems with deferred publication and an exclusive `WorldMut` fence. | `cargo run -p runen-ecs --example parallel_systems` |
 
 ### Advanced authoring and tooling
 
