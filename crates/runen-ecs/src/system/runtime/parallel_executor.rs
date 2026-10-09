@@ -334,6 +334,10 @@ fn run_planned_worker_step(
 }
 
 #[cfg(test)]
+#[path = "parallel_phase_diagnostic.rs"]
+mod parallel_phase_diagnostic;
+
+#[cfg(test)]
 mod tests {
     use super::{ParallelStep, inject_publication_framework_invariant, plan_parallel_step};
     use crate::system::runtime::Runtime;
