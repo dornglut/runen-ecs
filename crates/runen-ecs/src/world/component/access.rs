@@ -193,13 +193,24 @@ impl World {
         self.mark_component_modified_by_id(entity, component_type);
     }
 
+    /// Publish each prevalidated row's exact cursor, but defer redundant
+    /// type-level dirty/high-water publication until the final event of a
+    /// contiguous same-type journal run. No World observer executes between
+    /// these replay events; a fallback/resource event ends the run.
     pub(crate) fn commit_prevalidated_component_mutation_event(
         &mut self,
         entity: Entity,
         component_type: TypeId,
         changed_tick: NonNull<ChangeCursor>,
+        publish_type_change: bool,
     ) {
-        self.record_component_change(entity, component_type, false);
+        if publish_type_change {
+            self.record_component_change(entity, component_type, false);
+        } else {
+            // Every original event still receives its own checked, canonical
+            // cursor position; only redundant type-map/index writes are deferred.
+            advance_change_cursor(&mut self.change_tick);
+        }
         // Safety: the target was captured for this exact live component row
         // while structural relocation was excluded, and journal reconciliation
         // still owns that exclusion when it publishes the canonical cursor.
