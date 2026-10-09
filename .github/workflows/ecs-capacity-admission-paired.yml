@@ -20,7 +20,10 @@ concurrency:
 jobs:
   paired:
     name: Paired million-entity validation
-    runs-on: ubuntu-24.04
+    # The accepted 4-physical-core ARM Neoverse-N2 evidence owns the
+    # mutable-schedule comparison in #152; this REPLACES the original x64
+    # job rather than adding another high-cost CI lane. Record actual cores.
+    runs-on: ubuntu-24.04-arm
     timeout-minutes: 65
     env:
       RUNEN_ECS_BENCH_SIZE: '1000000'
@@ -129,7 +132,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: ecs-capacity-paired-${{ steps.rev.outputs.head }}
+          name: ecs-capacity-paired-${{ steps.rev.outputs.head }}-${{ runner.arch }}
           retention-days: 14
           if-no-files-found: error
           path: |

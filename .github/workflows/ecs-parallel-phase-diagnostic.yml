@@ -6,6 +6,10 @@ on:
       - main
     paths:
       - 'crates/runen-ecs/src/system/worker_cohort.rs'
+      # Replay and the prevalidated World metadata-commit boundary also
+      # materially affect these exact phases; prove them on the same host.
+      - 'crates/runen-ecs/src/world/mutation_journal.rs'
+      - 'crates/runen-ecs/src/world/component/access.rs'
       - 'crates/runen-ecs/src/system/runtime/parallel_executor.rs'
       - 'crates/runen-ecs/src/system/runtime/parallel_phase_diagnostic.rs'
       - 'crates/runen-ecs/benchmarks/parallel_phase_diagnostic.md'

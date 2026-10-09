@@ -29,3 +29,30 @@ Stop and do not merge when results do not justify it.
 
 This file describes the experimental proof; outcomes belong to the issue
 and PR exact-head evidence, not to unverified projections.
+
+## Subsequent replay-publication experiment (#152)
+
+The original #145 comparison proved the private atomic admission change;
+its accepted source result remains historical. [Issue #152](https://github.com/dornglut/runen-ecs/issues/152)
+owns a **different** proof question: whether reducing repeated *type-level*
+publication during private, invoker-owned mutation-journal replay saves
+substantial **end-to-end** mutable schedule time while preserving every
+individual event's checked cursor and row changed position.
+
+The same existing ABBA proof workflow now runs its **one** read-only job on
+`ubuntu-24.04-arm` instead of the previous two-physical-core x64 host.
+The accepted [ARM64 1m scaling run](https://github.com/dornglut/runen-ecs/actions/runs/37921720564)
+observed an ARM Neoverse-N2 with four actual physical cores. Each proof
+job MUST report its own `lscpu`: this is an observed host configuration,
+not a permanent promise inferred from its runner label. Raw artifact names
+carry their CPU architecture. Never pool its absolute elapsed times with
+historical x64 results.
+
+Source revisions are checked before each base/head/head/base run, with the
+same eight-system, 1m-entity Criterion suite and all serial/worker modes.
+Only a matched same-host result may justify a source-level performance
+decision. Exact per-row metadata, secondary-index invalidation, fallback
+events, resource interleaving, error/panic prefixes, terminal cursor
+overflow and all existing hosted safety suites remain mandatory. The
+workflow does not change its scheduling cadence, job count, user-visible
+policy or runtime behavior.
