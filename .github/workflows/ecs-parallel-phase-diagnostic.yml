@@ -1,0 +1,116 @@
+name: RunenECS parallel cohort phase diagnostic
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'crates/runen-ecs/src/system/worker_cohort.rs'
+      - 'crates/runen-ecs/src/system/runtime/parallel_executor.rs'
+      - 'crates/runen-ecs/src/system/runtime/parallel_phase_diagnostic.rs'
+      - 'crates/runen-ecs/benchmarks/parallel_phase_diagnostic.md'
+      - '.github/workflows/ecs-parallel-phase-diagnostic.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ecs-parallel-phases-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  diagnostic:
+    name: Worker cohort phase decomposition
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    env:
+      RUNEN_ECS_PHASE_DIAGNOSTIC_SIZES: all
+      CARGO_INCREMENTAL: '0'
+    steps:
+      - name: Resolve immutable head
+        id: revision
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_SHA: ${{ github.sha }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          case "$EVENT_NAME" in
+            pull_request) revision="$PR_HEAD" ;;
+            workflow_dispatch) revision="$EVENT_SHA" ;;
+            *) echo "Unsupported workflow event: $EVENT_NAME" >&2; exit 1 ;;
+          esac
+          test -n "$revision"
+          echo "sha=$revision" >> "$GITHUB_OUTPUT"
+
+      - name: Check out exact source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ steps.revision.outputs.sha }}
+          fetch-depth: 1
+          clean: true
+          persist-credentials: false
+
+      - name: Verify immutable revision
+        env:
+          EXPECTED_REVISION: ${{ steps.revision.outputs.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_REVISION"
+
+      - name: Install pinned benchmark toolchain
+        run: rustup toolchain install 1.98.1 --profile minimal
+
+      - name: Record host and test inputs
+        run: |
+          set -euo pipefail
+          {
+            echo "Revision: $(git rev-parse HEAD)"
+            echo "Entity totals: 10000,100000,1000000"
+            echo "Worker capacities: serial,1,2,4"
+            echo "Repetitions: 3"
+            echo "Runner: $RUNNER_OS / $RUNNER_ARCH"
+            uname -a
+            lscpu
+            rustc +1.98.1 -Vv
+            cargo +1.98.1 -V
+          } | tee phase-environment.txt
+
+      - name: Run release-only cohort phase diagnostic
+        run: |
+          set -euo pipefail
+          cargo +1.98.1 test --release --locked -p runen-ecs --lib \
+            parallel_phase_scaling_diagnostic -- --ignored --nocapture \
+            2>&1 | tee phase-results.txt
+
+      - name: Publish compact phase summary
+        if: always()
+        run: |
+          {
+            echo '## Test-only cohort phase evidence'
+            echo
+            if [[ -f phase-environment.txt ]]; then
+              echo '### Host/toolchain'
+              echo '~~~text'
+              sed -n '1,45p' phase-environment.txt
+              echo '~~~'
+            fi
+            if [[ -f phase-results.txt ]]; then
+              echo '### All raw measurements'
+              echo '~~~text'
+              grep '^ecs_phase_sample,' phase-results.txt || true
+              echo '~~~'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload raw diagnostic evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ecs-parallel-phases-${{ steps.revision.outputs.sha }}
+          if-no-files-found: error
+          retention-days: 14
+          path: |
+            phase-environment.txt
+            phase-results.txt

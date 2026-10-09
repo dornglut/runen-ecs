@@ -10,6 +10,49 @@ use crate::world::{
 };
 use std::panic::resume_unwind;
 
+#[cfg(test)]
+pub(crate) mod phase_probe {
+    use std::cell::RefCell;
+
+    #[derive(Clone, Copy, Default)]
+    pub(crate) struct Timings {
+        pub(crate) prepare_ns: u128,
+        pub(crate) execute_ns: u128,
+        pub(crate) reconcile_ns: u128,
+        pub(crate) cohorts: usize,
+    }
+
+    thread_local! {
+        static ACTIVE: RefCell<Option<Timings>> = const { RefCell::new(None) };
+    }
+
+    pub(crate) fn begin() {
+        ACTIVE.with(|state| {
+            *state.borrow_mut() = Some(Timings::default());
+        });
+    }
+
+    pub(crate) fn finish() -> Timings {
+        ACTIVE.with(|state| {
+            state
+                .borrow_mut()
+                .take()
+                .expect("phase probe must be activated on the invoking thread")
+        })
+    }
+
+    pub(super) fn observe(prepare_ns: u128, execute_ns: u128, reconcile_ns: u128) {
+        ACTIVE.with(|state| {
+            if let Some(timings) = state.borrow_mut().as_mut() {
+                timings.prepare_ns += prepare_ns;
+                timings.execute_ns += execute_ns;
+                timings.reconcile_ns += reconcile_ns;
+                timings.cohorts += 1;
+            }
+        });
+    }
+}
+
 /// Executes one already-planned transferable worker cohort.
 ///
 /// `members` must be supplied in the schedule's snapshot-local reference-rank
@@ -25,12 +68,18 @@ pub(crate) fn run_worker_cohort(
         panic_parallel_executor_violation("worker cohort reference ranks must be unique");
     }
 
+    #[cfg(test)]
+    let prepare_start = std::time::Instant::now();
     let mut lease = ParallelWorldLease::new(world);
     let mut prepared = Vec::with_capacity(members.len());
     for (rank, runner) in &members {
         prepared.push((*rank, runner.prepare_worker(&lease)?));
     }
     let capacity = lease.capacity();
+    #[cfg(test)]
+    let prepare_ns = prepare_start.elapsed().as_nanos();
+    #[cfg(test)]
+    let execute_start = std::time::Instant::now();
 
     let joined = std::thread::scope(|scope| {
         let handles = members
@@ -56,6 +105,8 @@ pub(crate) fn run_worker_cohort(
             .collect::<Vec<_>>()
     });
 
+    #[cfg(test)]
+    let execute_ns = execute_start.elapsed().as_nanos();
     let mut reports = Vec::with_capacity(joined.len());
     let mut unexpected_framework_panic = false;
     for (rank, result) in joined {
@@ -113,10 +164,18 @@ pub(crate) fn run_worker_cohort(
 
     // Ordinary user/system failure still requires truthful canonical change
     // bookkeeping for every admitted event from every launched worker.
+    #[cfg(test)]
+    let reconcile_start = std::time::Instant::now();
     for journal in journals {
         lease.reconcile(journal);
     }
     drop(lease);
+    #[cfg(test)]
+    phase_probe::observe(
+        prepare_ns,
+        execute_ns,
+        reconcile_start.elapsed().as_nanos(),
+    );
 
     let mut buffers = Vec::with_capacity(outcomes.len());
     for (rank, outcome) in outcomes {
