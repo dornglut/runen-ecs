@@ -1,0 +1,116 @@
+name: RunenECS mutation path diagnostic
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'crates/runen-ecs/src/world/mutation_journal.rs'
+      - 'crates/runen-ecs/src/world/mutation_diagnostic.rs'
+      - 'crates/runen-ecs/benchmarks/mutation_path_diagnostic.md'
+      - '.github/workflows/ecs-mutation-path-diagnostic.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ecs-mutation-path-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  diagnostic:
+    name: Mutation path decomposition
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      RUNEN_ECS_MUTATION_DIAGNOSTIC_SIZES: all
+      CARGO_INCREMENTAL: '0'
+    steps:
+      - name: Resolve exact source revision
+        id: revision
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_SHA: ${{ github.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          case "$EVENT_NAME" in
+            pull_request) expected="$PR_HEAD_SHA" ;;
+            workflow_dispatch) expected="$EVENT_SHA" ;;
+            *) echo "Unexpected event: $EVENT_NAME" >&2; exit 1 ;;
+          esac
+          test -n "$expected"
+          echo "expected=$expected" >> "$GITHUB_OUTPUT"
+
+      - name: Check out feature head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ steps.revision.outputs.expected }}
+          fetch-depth: 1
+          clean: true
+          persist-credentials: false
+
+      - name: Verify exact checkout
+        env:
+          EXPECTED_SHA: ${{ steps.revision.outputs.expected }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+
+      - name: Install fixed toolchain
+        run: rustup toolchain install 1.98.1 --profile minimal
+
+      - name: Record execution environment
+        run: |
+          set -euo pipefail
+          {
+            echo "Revision: $(git rev-parse HEAD)"
+            echo "Runner: $RUNNER_OS / $RUNNER_ARCH"
+            echo "Event totals: 10000,100000,1000000"
+            echo "Repetitions: 3 per operation/worker count"
+            uname -a
+            lscpu
+            rustc +1.98.1 -Vv
+            cargo +1.98.1 -V
+          } | tee mutation-path-environment.txt
+
+      - name: Collect release-only mutation path samples
+        run: |
+          set -euo pipefail
+          cargo +1.98.1 test -p runen-ecs --release --lib --locked \
+            mutation_path_scaling_diagnostic -- --ignored --nocapture \
+            2>&1 | tee mutation-path-results.txt
+
+      - name: Publish diagnostic summary
+        if: always()
+        run: |
+          {
+            echo '## Mutation path diagnostic'
+            echo
+            echo 'Diagnostic only: do not infer a production optimization from isolated paths.'
+            echo
+            if [[ -f mutation-path-environment.txt ]]; then
+              echo '### Environment'
+              echo '~~~text'
+              sed -n '1,45p' mutation-path-environment.txt
+              echo '~~~'
+            fi
+            if [[ -f mutation-path-results.txt ]]; then
+              echo '### Raw samples'
+              echo '~~~text'
+              grep '^mutation_path_sample,' mutation-path-results.txt || true
+              echo '~~~'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Preserve raw diagnostic evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ecs-mutation-path-${{ steps.revision.outputs.expected }}
+          retention-days: 14
+          if-no-files-found: error
+          path: |
+            mutation-path-environment.txt
+            mutation-path-results.txt

@@ -226,6 +226,10 @@ impl MutationJournal {
 }
 
 #[cfg(test)]
+#[path = "mutation_diagnostic.rs"]
+mod mutation_diagnostic;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::Component;
