@@ -314,9 +314,9 @@ mod mutation_diagnostic;
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::world::change_tracking::{FrameworkInvariantKind, framework_invariant_kind};
     use crate::{Component, Resource};
     use std::cell::Cell;
-    use crate::world::change_tracking::{FrameworkInvariantKind, framework_invariant_kind};
 
     #[derive(Component)]
     struct A;
@@ -605,12 +605,10 @@ mod tests {
             .archetype_registry
             .collect_journal_query_spans(&[type_id], &[], &[type_id], &[type_id])
             .unwrap();
-        let a = PrevalidatedComponentMutationTarget::new(
-            spans[0].changed_tick_ptr_at(0, 0).unwrap(),
-        );
-        let b = PrevalidatedComponentMutationTarget::new(
-            spans[0].changed_tick_ptr_at(0, 1).unwrap(),
-        );
+        let a =
+            PrevalidatedComponentMutationTarget::new(spans[0].changed_tick_ptr_at(0, 0).unwrap());
+        let b =
+            PrevalidatedComponentMutationTarget::new(spans[0].changed_tick_ptr_at(0, 1).unwrap());
 
         // Model a deferred worker write without directly publishing change
         // tracking: Cell is safe interior mutability in this *serial* test.
@@ -622,23 +620,27 @@ mod tests {
         journal.commit(&mut world);
 
         assert_eq!(world.current_change_cursor().tick(), base.tick() + 3);
-        let middle = ChangeCursor::from_parts(
-            world.scope_id(),
-            base.epoch(),
-            base.tick() + 2,
-        );
+        let middle = ChangeCursor::from_parts(world.scope_id(), base.epoch(), base.tick() + 2);
         assert_eq!(
-            world.archetype_component_metadata::<Indexed>(second).unwrap().1,
+            world
+                .archetype_component_metadata::<Indexed>(second)
+                .unwrap()
+                .1,
             middle,
         );
         assert_eq!(
-            world.archetype_component_metadata::<Indexed>(first).unwrap().1,
+            world
+                .archetype_component_metadata::<Indexed>(first)
+                .unwrap()
+                .1,
             world.current_change_cursor(),
         );
         assert!(world.component_changed_since::<Indexed>(middle).unwrap());
-        assert!(!world
-            .component_changed_since::<Indexed>(world.current_change_cursor())
-            .unwrap());
+        assert!(
+            !world
+                .component_changed_since::<Indexed>(world.current_change_cursor())
+                .unwrap()
+        );
         assert_eq!(world.find_entity_by_index::<Indexed, u64>(&1), None);
         assert_eq!(world.find_entity_by_index::<Indexed, u64>(&9), Some(first));
         assert_eq!(world.find_entity_by_index::<Indexed, u64>(&2), Some(second));
@@ -660,12 +662,10 @@ mod tests {
                 &[a_type, b_type],
             )
             .unwrap();
-        let a_target = PrevalidatedComponentMutationTarget::new(
-            spans[0].changed_tick_ptr_at(0, 0).unwrap(),
-        );
-        let b_target = PrevalidatedComponentMutationTarget::new(
-            spans[0].changed_tick_ptr_at(1, 0).unwrap(),
-        );
+        let a_target =
+            PrevalidatedComponentMutationTarget::new(spans[0].changed_tick_ptr_at(0, 0).unwrap());
+        let b_target =
+            PrevalidatedComponentMutationTarget::new(spans[0].changed_tick_ptr_at(1, 0).unwrap());
         let base = world.current_change_cursor();
         let mut journal = MutationJournal::new(&world);
         journal.record_prevalidated_component_modified(entity, a_type, a_target);
@@ -678,16 +678,8 @@ mod tests {
         journal.commit(&mut world);
 
         assert_eq!(world.current_change_cursor().tick(), base.tick() + 7);
-        let b_last = ChangeCursor::from_parts(
-            world.scope_id(),
-            base.epoch(),
-            base.tick() + 4,
-        );
-        let r_last = ChangeCursor::from_parts(
-            world.scope_id(),
-            base.epoch(),
-            base.tick() + 6,
-        );
+        let b_last = ChangeCursor::from_parts(world.scope_id(), base.epoch(), base.tick() + 4);
+        let r_last = ChangeCursor::from_parts(world.scope_id(), base.epoch(), base.tick() + 6);
         assert_eq!(
             world.archetype_component_metadata::<B>(entity).unwrap().1,
             b_last,
@@ -711,9 +703,8 @@ mod tests {
             .archetype_registry
             .collect_journal_query_spans(&[type_id], &[], &[type_id], &[type_id])
             .unwrap();
-        let target = PrevalidatedComponentMutationTarget::new(
-            spans[0].changed_tick_ptr_at(0, 0).unwrap(),
-        );
+        let target =
+            PrevalidatedComponentMutationTarget::new(spans[0].changed_tick_ptr_at(0, 0).unwrap());
         let base = ChangeCursor::from_parts(world.scope_id(), 4, u64::MAX - 1);
         world.set_change_cursor_for_test(base);
         let mut journal = MutationJournal::new(&world);
@@ -730,5 +721,4 @@ mod tests {
         assert!(world.component_changed_since::<A>(base).unwrap());
         assert!(!world.component_changed_since::<A>(final_cursor).unwrap());
     }
-
 }
