@@ -1,0 +1,129 @@
+name: RunenECS parallel scaling benchmark
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'crates/runen-ecs/benches/parallel_scaling.rs'
+      - 'crates/runen-ecs/benchmarks/parallel_scaling.md'
+      - 'crates/runen-ecs/Cargo.toml'
+      - 'Cargo.lock'
+      - '.github/workflows/ecs-parallel-scaling-benchmark.yml'
+  workflow_dispatch:
+    inputs:
+      size:
+        description: 'Entities per full eight-system workload (or all)'
+        type: choice
+        required: true
+        default: '1000'
+        options:
+          - '1000'
+          - '10000'
+          - '100000'
+          - '1000000'
+          - 'all'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ecs-parallel-scaling-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  benchmark:
+    name: Eight-system scaling
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      RUNEN_ECS_BENCH_SIZE: ${{ github.event_name == 'workflow_dispatch' && inputs.size || '1000' }}
+    steps:
+      - name: Resolve expected revision
+        id: revision
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_SHA: ${{ github.sha }}
+          PULL_REQUEST_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          case "$EVENT_NAME" in
+            pull_request) expected_revision="$PULL_REQUEST_HEAD_SHA" ;;
+            workflow_dispatch) expected_revision="$EVENT_SHA" ;;
+            *) echo "Unsupported event: $EVENT_NAME" >&2; exit 1 ;;
+          esac
+          test -n "$expected_revision"
+          echo "expected_revision=$expected_revision" >> "$GITHUB_OUTPUT"
+
+      - name: Check out exact revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ steps.revision.outputs.expected_revision }}
+          clean: true
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Prove checked-out revision
+        env:
+          EXPECTED_REVISION: ${{ steps.revision.outputs.expected_revision }}
+        run: |
+          set -euo pipefail
+          actual_revision="$(git rev-parse HEAD)"
+          echo "Expected revision: $EXPECTED_REVISION"
+          echo "Actual checked-out revision: $actual_revision"
+          test "$actual_revision" = "$EXPECTED_REVISION"
+
+      - name: Install pinned benchmark toolchain
+        run: rustup toolchain install 1.98.1 --profile minimal
+
+      - name: Record exact host and workload
+        run: |
+          set -euo pipefail
+          {
+            echo "Revision: $(git rev-parse HEAD)"
+            echo "Runner: $RUNNER_OS / $RUNNER_ARCH"
+            echo "Entities: $RUNEN_ECS_BENCH_SIZE"
+            uname -a
+            lscpu
+            rustc +1.98.1 -Vv
+            cargo +1.98.1 -V
+          } | tee parallel-scaling-environment.txt
+
+      - name: Benchmark complete schedule execution
+        run: |
+          set -euo pipefail
+          cargo +1.98.1 bench -p runen-ecs --bench parallel_scaling --locked -- \
+            --noplot --warm-up-time 1 --measurement-time 2 --sample-size 15 \
+            2>&1 | tee parallel-scaling-results.txt
+
+      - name: Publish summary
+        if: always()
+        run: |
+          {
+            echo '## Parallel scaling'
+            echo
+            echo '### Environment'
+            if [[ -f parallel-scaling-environment.txt ]]; then
+              echo '~~~text'
+              sed -n '1,50p' parallel-scaling-environment.txt
+              echo '~~~'
+            fi
+            echo '### Criterion output'
+            if [[ -f parallel-scaling-results.txt ]]; then
+              echo '~~~text'
+              grep -E '^(parallel_scaling/|time:|thrpt:)' parallel-scaling-results.txt || true
+              echo '~~~'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload raw measurements
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ecs-parallel-scaling-${{ steps.revision.outputs.expected_revision }}-${{ env.RUNEN_ECS_BENCH_SIZE }}
+          if-no-files-found: error
+          retention-days: 14
+          path: |
+            parallel-scaling-environment.txt
+            parallel-scaling-results.txt
+            target/criterion/**/new/**
