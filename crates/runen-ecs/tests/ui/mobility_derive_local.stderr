@@ -23,7 +23,8 @@ note: required for `LocalGroup<'static>` to implement `runen_ecs::TransferableSy
    |          ---------------------- type parameter would need to implement `runen_ecs::TransferableSystemParam`
  2 | struct LocalGroup<'w> {
    |        ^^^^^^^^^^^^^^
-   = help: consider manually implementing `runen_ecs::TransferableSystemParam` to avoid undesired bounds
+   = help: consider manually implementing `runen_ecs::TransferableSystemParam` to avoid undesired bounds caused by "imperfect derives"
+   = note: to learn more, visit <https://github.com/rust-lang/rust/issues/26925>
 note: required by a bound in `assert_transferable`
   --> tests/ui/mobility_derive_local.rs:6:27
    |
