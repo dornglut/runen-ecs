@@ -171,11 +171,7 @@ pub(crate) fn run_worker_cohort(
     }
     drop(lease);
     #[cfg(test)]
-    phase_probe::observe(
-        prepare_ns,
-        execute_ns,
-        reconcile_start.elapsed().as_nanos(),
-    );
+    phase_probe::observe(prepare_ns, execute_ns, reconcile_start.elapsed().as_nanos());
 
     let mut buffers = Vec::with_capacity(outcomes.len());
     for (rank, outcome) in outcomes {

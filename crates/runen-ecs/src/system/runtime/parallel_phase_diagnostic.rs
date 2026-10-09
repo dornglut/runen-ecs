@@ -83,8 +83,7 @@ fn fixture(count: usize) -> (World, Runtime) {
         .add_systems(
             Diagnostic,
             (
-                write_0, write_1, write_2, write_3,
-                write_4, write_5, write_6, write_7,
+                write_0, write_1, write_2, write_3, write_4, write_5, write_6, write_7,
             ),
         )
         .unwrap();
@@ -152,10 +151,7 @@ fn parallel_phase_scaling_diagnostic() {
                 }
                 println!(
                     "ecs_phase_sample,entities={count},workers={workers},round={round},total_ns={total_ns},prepare_ns={},execute_ns={},reconcile_ns={},cohorts={}",
-                    phases.prepare_ns,
-                    phases.execute_ns,
-                    phases.reconcile_ns,
-                    phases.cohorts
+                    phases.prepare_ns, phases.execute_ns, phases.reconcile_ns, phases.cohorts
                 );
             }
             verify_rows(&world, count, 3);
