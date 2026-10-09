@@ -74,11 +74,31 @@ RUNEN_ECS_BENCH_SIZE=all cargo +1.98.1 bench -p runen-ecs --bench parallel_scali
 ~~~
 
 The dedicated `.github/workflows/ecs-parallel-scaling-benchmark.yml`
-selects 1,000 rows for PR smoke. `workflow_dispatch` allows choosing the
-other sizes without silently multiplying ordinary CI cost. It records exact
-head, host CPU topology, fixed toolchain and raw Criterion output. Hosted
-shared-runner numbers are exploratory and should not become universal
-performance thresholds.
+selects **1,000 rows on Ubuntu x64** for unchanged, bounded PR smoke.
+`workflow_dispatch` allows choosing a size and an explicitly allow-listed
+standard runner: `ubuntu-24.04` (x64) or `ubuntu-24.04-arm` (ARM64).
+The ARM64 option is useful for testing the accepted same-source workloads on
+an architecturally different CPU without making expensive million-row runs
+a permanent CI requirement. It is **manual opt-in only**: specifying a
+runner does not change the entity count, and choosing `1000000` runs a
+single million-row cardinality per nonempty workload, not the full sweep.
+
+For the ongoing [residual mutable-scaling investigation](https://github.com/dornglut/runen-ecs/issues/147),
+select branch `main`, `size=1000000` and `runner=ubuntu-24.04-arm`.
+The accepted public Linux ARM64 standard-runner specification offers four
+vCPUs for public repositories; **only the recorded `lscpu` topology can
+establish the observed number of physical cores**. Do not treat a four-vCPU
+allocation as automatically four physical cores, or compare raw x64 vs ARM64
+times as if their hosts were paired. Evaluate serial, 1/2/4/8-worker modes
+**within the same immutable ARM64 run**. Capture the exact accepted-main
+revision, `uname`, `lscpu`, Rust version, Criterion raw artifacts, and the
+runner architecture embedded in the artifact name. If a four-physical-core
+host is not established, the evidence gate remains open.
+
+Both architectures retain the same Rust 1.98.1 toolchain and benchmark source,
+and collect raw Criterion results with no absolute performance thresholds.
+No optimizer, executor policy, or consumer integration change is authorized
+solely by this runner-option addition.
 
 ## Interpreting evidence
 
