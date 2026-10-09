@@ -21,7 +21,9 @@ concurrency:
 jobs:
   diagnostic:
     name: Mutation path decomposition
-    runs-on: ubuntu-24.04
+    # #154: replace the existing proof host with a four-core-capable ARM64
+    # standard runner; check observed CPU physical topology in every job.
+    runs-on: ubuntu-24.04-arm
     timeout-minutes: 30
     env:
       RUNEN_ECS_MUTATION_DIAGNOSTIC_SIZES: all
@@ -108,7 +110,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: ecs-mutation-path-${{ steps.revision.outputs.expected }}
+          name: ecs-mutation-path-${{ steps.revision.outputs.expected }}-${{ runner.arch }}
           retention-days: 14
           if-no-files-found: error
           path: |
