@@ -860,6 +860,62 @@ mod tests {
     }
 
     #[test]
+    fn paused_worker_does_not_trap_an_unused_last_cursor_credit() {
+        let mut world = World::new();
+        let entity = world.spawn((A(1), B(2))).unwrap();
+        let scope = world.scope_id();
+        let before = ChangeCursor::from_parts(scope, u64::MAX, u64::MAX - 2);
+        world.set_change_cursor_for_test(before);
+
+        let a_admitted = Arc::new(AtomicBool::new(false));
+        let b_admitted = Arc::new(AtomicBool::new(false));
+        let a_signal = Arc::clone(&a_admitted);
+        let a_wait = Arc::clone(&b_admitted);
+        let b_wait = Arc::clone(&a_admitted);
+        let b_signal = Arc::clone(&b_admitted);
+
+        let first = move |mut query: Query<&mut A>| {
+            query.get(entity).unwrap().0 += 1;
+            a_signal.store(true, Ordering::Release);
+            // Only B can release this wait. A has one unspent, provisionally
+            // granted credit, but cannot complete its invocation to refund it.
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+            while !a_wait.load(Ordering::Acquire) {
+                assert!(
+                    std::time::Instant::now() < deadline,
+                    "worker B could not redeem A's unused cursor credit"
+                );
+                std::thread::yield_now();
+            }
+        };
+        let second = move |mut query: Query<&mut B>| {
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+            while !b_wait.load(Ordering::Acquire) {
+                assert!(
+                    std::time::Instant::now() < deadline,
+                    "worker A never reached its first admitted event"
+                );
+                std::thread::yield_now();
+            }
+            query.get(entity).unwrap().0 += 1;
+            b_signal.store(true, Ordering::Release);
+        };
+
+        let mut runtime = Runtime::new();
+        let _ = runtime.add_systems(ParallelSchedule, (first, second));
+        runtime
+            .run_schedule_parallel::<ParallelSchedule>(&mut world, 2)
+            .unwrap();
+
+        assert_eq!(world.current_change_cursor().epoch(), u64::MAX);
+        assert_eq!(world.current_change_cursor().tick(), u64::MAX);
+        assert_eq!(world.require::<A>(entity).unwrap().0, 2);
+        assert_eq!(world.require::<B>(entity).unwrap().0, 3);
+        assert!(world.component_changed_since::<A>(before).unwrap());
+        assert!(world.component_changed_since::<B>(before).unwrap());
+    }
+
+    #[test]
     fn cursor_exhaustion_remains_framework_invariant_on_production_path() {
         let mut world = World::new();
         let entity = world.spawn((A(1), B(2))).unwrap();
