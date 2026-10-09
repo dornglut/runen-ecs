@@ -19,6 +19,9 @@ struct Velocity(i32);
 #[derive(Resource)]
 struct Frames(u32);
 
+#[derive(Component)]
+struct FrameSummary(usize);
+
 fn queue_arrival(mut commands: Commands) {
     // Recorded on the worker; published before Simulation because the
     // explicit Spawn -> Simulation dependency creates a visibility frontier.
@@ -49,6 +52,10 @@ fn advance_velocities(mut velocities: Query<&mut Velocity>) {
 fn finish_frame(mut world: WorldMut) {
     // Full World access is exclusive and stays on the invoking thread.
     // Narrow Query/ResMut capabilities should be preferred when sufficient.
+    // A direct structural operation across ECS domains requires exclusive World.
+    // A normal frame counter alone should instead use ResMut<Frames>.
+    let processed = world.query::<&Position>().iter(&*world).count();
+    world.spawn(FrameSummary(processed)).unwrap();
     world.resource_mut::<Frames>().unwrap().0 += 1;
 }
 
@@ -83,7 +90,8 @@ fn main() -> Result<(), RuntimeError> {
     pairs.sort_unstable();
     assert_eq!(pairs, [(11, 3), (21, 6)]);
     assert_eq!(world.resource::<Frames>().unwrap().0, 1);
+    assert_eq!(world.query::<&FrameSummary>().single(&world).unwrap().0, 2);
 
-    println!("parallel schedule: 2 entities updated, 1 exclusive frame fence");
+    println!("parallel schedule: 2 entities updated, 1 exclusive structural fence");
     Ok(())
 }
