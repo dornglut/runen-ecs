@@ -140,11 +140,7 @@ fn serial_record_and_replay(size: usize) -> (u128, u128) {
     (record_ns, replay_ns)
 }
 
-fn concurrent_record_and_replay(
-    size: usize,
-    workers: usize,
-    preallocate: bool,
-) -> (u128, u128) {
+fn concurrent_record_and_replay(size: usize, workers: usize, preallocate: bool) -> (u128, u128) {
     let mut world = World::new();
     let (entity, component_type, target) = target_for(&mut world);
     let base = world.current_change_cursor();
@@ -249,7 +245,10 @@ fn mutation_path_scaling_diagnostic() {
                     let (record_ns, replay_ns) =
                         concurrent_record_and_replay(size, workers, preallocate);
                     let (record_name, replay_name) = if preallocate {
-                        ("concurrent_record_preallocated", "concurrent_replay_preallocated")
+                        (
+                            "concurrent_record_preallocated",
+                            "concurrent_replay_preallocated",
+                        )
                     } else {
                         ("concurrent_record", "concurrent_replay")
                     };
