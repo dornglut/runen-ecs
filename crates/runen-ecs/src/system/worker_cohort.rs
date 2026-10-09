@@ -43,18 +43,20 @@ pub(crate) fn run_worker_cohort(
             .into_iter()
             .zip(prepared)
             .enumerate()
-            .map(|(worker_slot, ((rank, runner), (prepared_rank, mut prepared)))| {
-                if rank != prepared_rank {
-                    panic_parallel_executor_violation(
-                        "prepared worker projection lost its reference rank",
-                    );
-                }
-                let capacity = capacity.for_worker(worker_slot);
-                (
-                    rank,
-                    scope.spawn(move || runner.run_worker(&mut prepared, capacity)),
-                )
-            })
+            .map(
+                |(worker_slot, ((rank, runner), (prepared_rank, mut prepared)))| {
+                    if rank != prepared_rank {
+                        panic_parallel_executor_violation(
+                            "prepared worker projection lost its reference rank",
+                        );
+                    }
+                    let capacity = capacity.for_worker(worker_slot);
+                    (
+                        rank,
+                        scope.spawn(move || runner.run_worker(&mut prepared, capacity)),
+                    )
+                },
+            )
             .collect::<Vec<_>>();
 
         handles
