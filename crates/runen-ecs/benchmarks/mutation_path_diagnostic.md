@@ -58,6 +58,30 @@ Normal `cargo validate` compiles the ignored test but does not run it.
 The read-only diagnostic workflow explicitly runs all three sizes on
 a pinned toolchain and saves the raw output.
 
+## Four-physical-core admission attribution (#154)
+
+The accepted full-schedule [ARM64 phase run](https://github.com/dornglut/runen-ecs/actions/runs/37926200890)
+on a four-physical-core Neoverse-N2 host measured substantial worker execution
+time after the replay improvement in [#152](https://github.com/dornglut/runen-ecs/issues/152).
+The original journal path proof uses a two-physical-core x64 runner and cannot
+isolate contention on four actual cores. To close that evidence gap, the
+**one existing** exact-head mutation-path diagnostic workflow now runs on
+`ubuntu-24.04-arm`; it still uses exactly the same private ignored release
+test, 10k/100k/1m event counts, three repeats and worker1/2/4 variants.
+No new permanent CI lane, required threshold, source instrumentation, cursor
+change or production implementation is added.
+
+The job records actual `lscpu` topology, the checked-out immutable source
+SHA and pinned toolchain, and includes the architecture in the raw artifact
+name. Four vCPUs do not guarantee four *physical* cores without inspecting
+the run output. For each fixed total event count, compare `reservation_only`
+against `vector_only` and `concurrent_record` within the **same host run**.
+The synthetic path targets one row repeatedly, rather than eight million
+distinct World-row mutations; it excludes component payload writes and
+structural projection preparation. The result can bound a worker-side
+admission hypothesis but cannot establish any full-schedule improvement or
+authorize cursor batching, admission policy or worker-count changes.
+
 This remains a microbenchmark alongside the accepted public
 `parallel_scaling` suite, not permission to weaken absolute cursor
 capacity, failure-prefix retention, serial-rank reconciliation, or
