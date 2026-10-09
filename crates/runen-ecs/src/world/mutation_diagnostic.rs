@@ -4,8 +4,7 @@
 //! particular, neither the event-vector baseline nor the isolated reservation
 //! baseline produces a valid publicly observable World execution.
 use super::{
-    ConcurrentMutationCapacity, MutationEvent, MutationJournal,
-    PrevalidatedComponentMutationTarget,
+    ConcurrentMutationCapacity, MutationEvent, MutationJournal, PrevalidatedComponentMutationTarget,
 };
 use crate::{Component, World};
 use std::any::TypeId;
@@ -24,29 +23,20 @@ fn counts() -> Vec<usize> {
             "100000" => vec![100_000],
             "1000000" => vec![1_000_000],
             "all" => vec![10_000, 100_000, 1_000_000],
-            _ => panic!("RUNEN_ECS_MUTATION_DIAGNOSTIC_SIZES must be 10000, 100000, 1000000 or all"),
+            _ => {
+                panic!("RUNEN_ECS_MUTATION_DIAGNOSTIC_SIZES must be 10000, 100000, 1000000 or all")
+            }
         },
         Err(e) => panic!("invalid RUNEN_ECS_MUTATION_DIAGNOSTIC_SIZES: {e}"),
     }
 }
 
-fn target_for(
-    world: &mut World,
-) -> (
-    crate::Entity,
-    TypeId,
-    PrevalidatedComponentMutationTarget,
-) {
+fn target_for(world: &mut World) -> (crate::Entity, TypeId, PrevalidatedComponentMutationTarget) {
     let entity = world.spawn(Probe).unwrap();
     let component_type = TypeId::of::<Probe>();
     let spans = world
         .archetype_registry
-        .collect_journal_query_spans(
-            &[component_type],
-            &[],
-            &[component_type],
-            &[component_type],
-        )
+        .collect_journal_query_spans(&[component_type], &[], &[component_type], &[component_type])
         .unwrap();
     let changed_tick = spans[0].changed_tick_ptr_at(0, 0).unwrap();
     (
@@ -112,7 +102,9 @@ fn reservation_only(size: usize, workers: usize) -> u128 {
             })
             .collect::<Vec<_>>();
         for handle in handles {
-            handle.join().expect("reservation diagnostic worker panicked");
+            handle
+                .join()
+                .expect("reservation diagnostic worker panicked");
         }
     });
     let elapsed = start.elapsed().as_nanos();
@@ -143,7 +135,10 @@ fn serial_record_and_replay(size: usize) -> (u128, u128) {
         base.tick().checked_add(size as u64).unwrap()
     );
     assert_eq!(
-        world.archetype_component_metadata::<Probe>(entity).unwrap().1,
+        world
+            .archetype_component_metadata::<Probe>(entity)
+            .unwrap()
+            .1,
         world.current_change_cursor()
     );
     (record_ns, replay_ns)
@@ -179,7 +174,13 @@ fn concurrent_record_and_replay(size: usize, workers: usize) -> (u128, u128) {
             .collect::<Vec<_>>()
     });
     let record_ns = start.elapsed().as_nanos();
-    assert_eq!(journals.iter().map(|journal| journal.events.len()).sum::<usize>(), size);
+    assert_eq!(
+        journals
+            .iter()
+            .map(|journal| journal.events.len())
+            .sum::<usize>(),
+        size
+    );
     {
         let state = capacity
             .state
@@ -200,7 +201,10 @@ fn concurrent_record_and_replay(size: usize, workers: usize) -> (u128, u128) {
         base.tick().checked_add(size as u64).unwrap()
     );
     assert_eq!(
-        world.archetype_component_metadata::<Probe>(entity).unwrap().1,
+        world
+            .archetype_component_metadata::<Probe>(entity)
+            .unwrap()
+            .1,
         world.current_change_cursor()
     );
     (record_ns, replay_ns)
@@ -212,7 +216,10 @@ fn concurrent_record_and_replay(size: usize, workers: usize) -> (u128, u128) {
 #[test]
 #[ignore = "run explicitly with --release -- --ignored --nocapture for #143"]
 fn mutation_path_scaling_diagnostic() {
-    assert!(!cfg!(debug_assertions), "diagnostic needs optimized --release");
+    assert!(
+        !cfg!(debug_assertions),
+        "diagnostic needs optimized --release"
+    );
     for size in counts() {
         for round in 0..3 {
             let (record_ns, replay_ns) = serial_record_and_replay(size);
@@ -221,7 +228,13 @@ fn mutation_path_scaling_diagnostic() {
 
             for workers in [1_usize, 2, 4] {
                 assert_eq!(size % workers, 0, "equal work division is required");
-                print_sample(size, workers, round, "vector_only", vector_only(size, workers));
+                print_sample(
+                    size,
+                    workers,
+                    round,
+                    "vector_only",
+                    vector_only(size, workers),
+                );
                 print_sample(
                     size,
                     workers,
