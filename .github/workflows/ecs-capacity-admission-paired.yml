@@ -5,6 +5,8 @@ on:
     branches:
       - main
     paths:
+      - 'crates/runen-ecs/src/world/mutation_journal.rs'
+      - 'crates/runen-ecs/src/world/mutation_diagnostic.rs'
       - 'crates/runen-ecs/benchmarks/capacity_admission_paired.md'
       - '.github/workflows/ecs-capacity-admission-paired.yml'
 

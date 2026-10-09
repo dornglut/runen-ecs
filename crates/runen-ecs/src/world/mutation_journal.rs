@@ -3,9 +3,9 @@ use super::change_tracking::{ChangeCursor, panic_change_cursor_exhausted};
 use crate::entity::Entity;
 use std::any::TypeId;
 use std::ptr::NonNull;
-use std::sync::{Arc, Mutex};
 #[cfg(target_has_atomic = "64")]
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
 
 #[derive(Debug, Copy, Clone)]
 pub(crate) struct PrevalidatedComponentMutationTarget {
@@ -528,7 +528,10 @@ mod tests {
 
         // Artificially seed the *admission counter* to the final fast
         // position. No World events are fabricated or reconciled by this test.
-        capacity.state.fast_admitted.store(u64::MAX - 1, Ordering::Relaxed);
+        capacity
+            .state
+            .fast_admitted
+            .store(u64::MAX - 1, Ordering::Relaxed);
         capacity.reserve_next_event();
         assert_eq!(capacity.admitted_for_test(), u64::MAX as u128);
         capacity.reserve_next_event();
@@ -549,7 +552,10 @@ mod tests {
         let base = ChangeCursor::from_parts(scope, u64::MAX, 0);
         let capacity = ConcurrentMutationCapacity::new(base);
         assert_eq!(capacity.state.remaining, u64::MAX as u128);
-        capacity.state.fast_admitted.store(u64::MAX - 1, Ordering::Relaxed);
+        capacity
+            .state
+            .fast_admitted
+            .store(u64::MAX - 1, Ordering::Relaxed);
         capacity.reserve_next_event();
         assert_eq!(capacity.admitted_for_test(), u64::MAX as u128);
         let payload = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -561,5 +567,4 @@ mod tests {
             Some(FrameworkInvariantKind::ChangeCursorExhausted)
         );
     }
-
 }
