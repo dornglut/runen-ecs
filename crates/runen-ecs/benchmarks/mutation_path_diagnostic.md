@@ -24,14 +24,25 @@ repetitions of each operation:
 | --- | --- | --- |
 | `vector_only` | Thread start/join + allocate/populate `Vec<MutationEvent>` | No capacity admission or World replay; **not** a valid production strategy |
 | `reservation_only` | Thread start/join + existing shared `reserve_next_event()` | Isolates common admission without journal vectors |
-| `concurrent_record` | Thread start/join + actual prevalidated `MutationJournal` record calls | Admission and vector growth; excludes component payload mutation/preparation |
-| `concurrent_replay` | Canonical serial replay of completed worker journals | Starts only after worker join; excludes record time |
+| `concurrent_record` | Thread start/join + actual prevalidated `MutationJournal` record calls | Admission and ordinary amortized vector growth; excludes component payload mutation/preparation |
+| `concurrent_record_preallocated` | Same real record calls, with **one exact-capacity `Vec::reserve_exact` per worker inside the timed region** | Hypothetical known-event-count control; **not** a correct drop-in runtime optimization |
+| `concurrent_replay` / `concurrent_replay_preallocated` | Canonical serial replay of the corresponding worker journals | Starts only after join; replay behavior and event counts should agree across modes |
 | `serial_record` / `serial_replay` | Real serial journal recording and replay | Untheaded diagnostic reference |
 
 Every full-journal case asserts exact event count, final cursor position
 and row changed metadata. The repeated events intentionally refer to
 the same valid entity. This probes journal overhead, **not** cache and
 component-update behavior of one million different entities.
+
+The preallocated variant evaluates **journal Vec growth**, not mutation cursor
+capacity: it uses the same real `ConcurrentMutationCapacity::reserve_next_event`
+for every recorded event. It reserves exactly the known per-worker event count
+*inside* the timed thread body, so its overhead is included. The two recording
+variants run in alternating order across rounds, under the same host/test.
+A system with dynamic queries, errors, conditional writes or panic prefixes
+cannot assume an exact number of events in advance. Preallocating too much
+can waste memory; none of these measurements licenses making runtime journals
+allocate a predicted full-entity count or admitting cursor positions in bulk.
 
 Raw output is newline-separated:
 ```text

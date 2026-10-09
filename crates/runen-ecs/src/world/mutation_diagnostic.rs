@@ -140,7 +140,11 @@ fn serial_record_and_replay(size: usize) -> (u128, u128) {
     (record_ns, replay_ns)
 }
 
-fn concurrent_record_and_replay(size: usize, workers: usize) -> (u128, u128) {
+fn concurrent_record_and_replay(
+    size: usize,
+    workers: usize,
+    preallocate: bool,
+) -> (u128, u128) {
     let mut world = World::new();
     let (entity, component_type, target) = target_for(&mut world);
     let base = world.current_change_cursor();
@@ -153,6 +157,13 @@ fn concurrent_record_and_replay(size: usize, workers: usize) -> (u128, u128) {
                 let local = capacity.clone();
                 scope.spawn(move || {
                     let mut journal = MutationJournal::new_concurrent(base, local);
+                    if preallocate {
+                        // This is a diagnostic lower bound, NOT a production
+                        // reservation policy: real systems may record an
+                        // unknown number of events and can fail mid-invocation.
+                        // Include allocation in the timed recording phase.
+                        journal.events.reserve_exact(each);
+                    }
                     for _ in 0..each {
                         journal.record_prevalidated_component_modified(
                             entity,
@@ -231,9 +242,20 @@ fn mutation_path_scaling_diagnostic() {
                     "reservation_only",
                     reservation_only(size, workers),
                 );
-                let (record_ns, replay_ns) = concurrent_record_and_replay(size, workers);
-                print_sample(size, workers, round, "concurrent_record", record_ns);
-                print_sample(size, workers, round, "concurrent_replay", replay_ns);
+                // Alternate collection order to reduce systematic warm-cache
+                // advantage for either the real unreserved path or the
+                // hypothetical exact-capacity diagnostic control.
+                for preallocate in [round % 2 == 0, round % 2 != 0] {
+                    let (record_ns, replay_ns) =
+                        concurrent_record_and_replay(size, workers, preallocate);
+                    let (record_name, replay_name) = if preallocate {
+                        ("concurrent_record_preallocated", "concurrent_replay_preallocated")
+                    } else {
+                        ("concurrent_record", "concurrent_replay")
+                    };
+                    print_sample(size, workers, round, record_name, record_ns);
+                    print_sample(size, workers, round, replay_name, replay_ns);
+                }
             }
         }
     }
