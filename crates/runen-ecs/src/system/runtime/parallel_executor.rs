@@ -860,6 +860,49 @@ mod tests {
     }
 
     #[test]
+    fn paused_worker_does_not_trap_an_unused_last_cursor_credit() {
+        let mut world = World::new();
+        let entity = world.spawn((A(1), B(2))).unwrap();
+        let scope = world.scope_id();
+        let before = ChangeCursor::from_parts(scope, u64::MAX, u64::MAX - 2);
+        world.set_change_cursor_for_test(before);
+
+        // A's user synchronization waits for B, so completion-based credit
+        // reclamation would deadlock here. Timeouts bound a failing test.
+        let (a_admitted_tx, a_admitted_rx) = std::sync::mpsc::channel::<()>();
+        let (b_admitted_tx, b_admitted_rx) = std::sync::mpsc::channel::<()>();
+        let timeout = std::time::Duration::from_secs(15);
+
+        let first = move |mut query: Query<&mut A>| {
+            query.get(entity).unwrap().0 += 1;
+            a_admitted_tx.send(()).unwrap();
+            b_admitted_rx
+                .recv_timeout(timeout)
+                .expect("worker B could not redeem A's unused cursor credit");
+        };
+        let second = move |mut query: Query<&mut B>| {
+            a_admitted_rx
+                .recv_timeout(timeout)
+                .expect("worker A never reached its first admitted event");
+            query.get(entity).unwrap().0 += 1;
+            b_admitted_tx.send(()).unwrap();
+        };
+
+        let mut runtime = Runtime::new();
+        let _ = runtime.add_systems(ParallelSchedule, (first, second));
+        runtime
+            .run_schedule_parallel::<ParallelSchedule>(&mut world, 2)
+            .unwrap();
+
+        assert_eq!(world.current_change_cursor().epoch(), u64::MAX);
+        assert_eq!(world.current_change_cursor().tick(), u64::MAX);
+        assert_eq!(world.require::<A>(entity).unwrap().0, 2);
+        assert_eq!(world.require::<B>(entity).unwrap().0, 3);
+        assert!(world.component_changed_since::<A>(before).unwrap());
+        assert!(world.component_changed_since::<B>(before).unwrap());
+    }
+
+    #[test]
     fn cursor_exhaustion_remains_framework_invariant_on_production_path() {
         let mut world = World::new();
         let entity = world.spawn((A(1), B(2))).unwrap();
